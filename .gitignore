@@ -1,0 +1,13 @@
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
