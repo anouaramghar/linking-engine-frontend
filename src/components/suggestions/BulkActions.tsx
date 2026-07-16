@@ -109,7 +109,8 @@ export default function BulkActions({
               max={100}
               value={threshold}
               onChange={(event) => onThresholdChange(Number(event.target.value))}
-              className="w-12 bg-transparent text-right font-medium text-stone-950 outline-none"
+              style={{ width: `${Math.max(String(threshold).length, 1)}ch` }}
+              className="bg-transparent text-right font-medium text-stone-950 outline-none"
             />
             <span className="text-stone-400">%</span>
           </span>
