@@ -9,5 +9,6 @@ dist/
 # IDE / OS
 .vscode/
 .idea/
+.worktrees/
 Thumbs.db
 .DS_Store
