@@ -59,7 +59,7 @@ export default function SuggestionCard({
         </div>
         <div className="text-[11.5px] text-stone-400">{METHOD_LABEL[s.method] ?? s.method}</div>
       </div>
-      <div className="flex w-[158px] flex-none items-center justify-end gap-1.5">
+      <div className="flex w-[190px] flex-none items-center justify-end gap-1.5">
         {s.status === "pending" ? (
           <>
             <button
@@ -83,7 +83,9 @@ export default function SuggestionCard({
           </>
         ) : (
           <>
-            <span className={`rounded-full bg-chip px-3 py-1 text-xs font-medium ${meta.fg}`}>
+            <span
+              className={`whitespace-nowrap rounded-full bg-chip px-3 py-1 text-xs font-medium ${meta.fg}`}
+            >
               {meta.label}
             </span>
             {s.status !== "applied" && (

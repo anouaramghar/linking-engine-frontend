@@ -1,5 +1,5 @@
+import { METHOD_LABEL, PUBLICATION_STATUS_MESSAGE, STATUS_META, pct } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
-import { METHOD_LABEL, pct } from "../../lib/utils";
 
 interface Props {
   suggestion: Suggestion;
@@ -19,6 +19,7 @@ export default function SuggestionPreview({
   const targetTitle = s.target_article?.title ?? s.external_title ?? "";
   const targetUrl = s.target_article?.url ?? s.external_url ?? "";
   const slug = targetUrl.replace(/^https?:\/\/[^/]+/, "") || targetUrl;
+  const publicationMessage = PUBLICATION_STATUS_MESSAGE[s.status];
 
   return (
     <div className="w-[410px] flex-none overflow-y-auto border-l border-stone-200 bg-stone-50 p-7">
@@ -27,6 +28,7 @@ export default function SuggestionPreview({
           Suggestion #{String(s.id).padStart(3, "0")}
         </div>
         <button
+          aria-label="Close preview"
           onClick={onClose}
           className="px-1.5 py-1 text-base text-stone-400 hover:text-stone-950"
         >
@@ -40,7 +42,12 @@ export default function SuggestionPreview({
       <div className="font-serif text-2xl leading-snug">{s.source_article.title}</div>
       <div className="mb-4 mt-1.5 text-[13px] text-stone-500">
         {siteName} ·{" "}
-        <a href={s.source_article.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+        <a
+          href={s.source_article.url}
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2"
+        >
           open article
         </a>
       </div>
@@ -97,13 +104,37 @@ export default function SuggestionPreview({
           </button>
         </div>
       ) : (
-        <div className="rounded-full bg-chip px-4 py-3 text-center text-sm font-medium text-stone-800">
-          {s.status === "applied" ? "Applied to the live article" : `Marked ${s.status}`}
+        <div
+          className={`rounded-full bg-chip px-4 py-3 text-center text-sm font-medium ${STATUS_META[s.status].fg}`}
+        >
+          {STATUS_META[s.status].label}
         </div>
       )}
-      <div className="mt-3 text-[12.5px] leading-normal text-stone-400">
-        Accepted links are written back via the WP REST API on the next publish batch.
-      </div>
+
+      {publicationMessage && (
+        <div
+          aria-label="Publish status"
+          className="mt-3 rounded-2xl border border-stone-200 bg-white px-4 py-3"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-stone-400">
+            Publish status
+          </div>
+          <div className="mt-1 text-[13px] font-medium text-stone-700">
+            {publicationMessage}
+          </div>
+        </div>
+      )}
+
+      {s.status === "pending" && (
+        <div className="mt-3 text-[12.5px] leading-normal text-stone-400">
+          Accepting this suggestion queues it for a future publish batch.
+        </div>
+      )}
+      {s.status === "rejected" && (
+        <div className="mt-3 text-[12.5px] leading-normal text-stone-400">
+          Rejected suggestions are not included in publish batches.
+        </div>
+      )}
     </div>
   );
 }

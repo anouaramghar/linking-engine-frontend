@@ -7,7 +7,7 @@ import JobStatusBadge from "../components/jobs/JobStatusBadge";
 import { ingestSite, publishSite, fleetIngest, fleetAnalyze } from "../api/sites";
 import { triggerAnalysis, triggerAnchors, triggerExternal } from "../api/suggestions";
 import { useDeleteSite, useSites, useStats } from "../hooks/useSites";
-import { ORBS, initials, timeAgo } from "../lib/utils";
+import { ORBS, RQ_SCHEDULING_COPY, initials, timeAgo } from "../lib/utils";
 
 const GRID = "grid grid-cols-[2fr_1.3fr_.7fr_.9fr_1fr_.9fr_1.4fr] items-center gap-3";
 
@@ -152,7 +152,7 @@ export default function SitesPage() {
           <span className="rounded-full bg-chip px-2.5 py-0.5 text-[12.5px] text-stone-800">
             Article
           </span>{" "}
-          object before embedding. Re-crawl runs on the site's schedule via rq-scheduler.
+          object before embedding. {RQ_SCHEDULING_COPY}
         </div>
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
