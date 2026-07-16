@@ -1,3 +1,5 @@
+import type { SuggestionStatus } from "../types/suggestion";
+
 export const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 export const initials = (name: string) =>
@@ -22,12 +24,22 @@ export const METHOD_LABEL: Record<string, string> = {
   external_search: "external",
 };
 
-export const STATUS_META: Record<string, { label: string; dot: string; fg: string }> = {
-  pending: { label: "Pending", dot: "bg-stone-400", fg: "text-stone-800" },
-  approved: { label: "Approved", dot: "bg-green-600", fg: "text-green-600" },
+export const STATUS_META: Record<
+  SuggestionStatus,
+  { label: string; dot: string; fg: string }
+> = {
+  pending: { label: "Pending review", dot: "bg-stone-400", fg: "text-stone-800" },
+  approved: { label: "Queued for publish", dot: "bg-amber-500", fg: "text-amber-700" },
   rejected: { label: "Rejected", dot: "bg-red-600", fg: "text-red-600" },
-  applied: { label: "Applied", dot: "bg-blue-600", fg: "text-blue-600" },
+  applied: { label: "Published live", dot: "bg-green-600", fg: "text-green-700" },
 };
+
+export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
+  approved: "Queued for the next publish batch. Not live yet.",
+  applied: "Published to the live article.",
+};
+
+export const RQ_SCHEDULING_COPY = "Scheduled re-crawls run through RQ.";
 
 // The prototype's pastel orbs — used for site avatars and KPI cards
 export const ORBS = [
