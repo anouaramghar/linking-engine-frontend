@@ -122,7 +122,7 @@ export default function BulkActions({
           onClick={() => onRequest("approve")}
           className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-400"
         >
-          Accept &gt;= {threshold}% · {acceptCount}
+          Accept ≥ {threshold}% · {acceptCount}
         </button>
         <button
           type="button"
@@ -146,8 +146,8 @@ export default function BulkActions({
               {confirmation.count === 1 ? "" : "s"}?
             </div>
             <div className="mt-0.5 text-xs text-stone-500">
-              {confirmation.methodLabel} · {confirmation.siteLabel} · {comparison}. This preview
-              changes browser state only.
+              {confirmation.methodLabel} · {confirmation.siteLabel} · {comparison}. Preview only —
+              decisions aren&apos;t sent to the site yet.
             </div>
           </div>
           <button
