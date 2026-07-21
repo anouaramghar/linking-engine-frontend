@@ -1,6 +1,8 @@
 import { useState } from "react";
 
+import Modal from "../Modal";
 import { useCreateSite } from "../../hooks/useSites";
+import { errorDetail } from "../../lib/errors";
 import type { SiteCreate } from "../../types/site";
 
 export default function AddSiteModal({ onClose }: { onClose: () => void }) {
@@ -18,13 +20,8 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
     "w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm focus:border-stone-950 focus:outline-none";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/30 p-4" onClick={onClose}>
-      <form
-        onSubmit={submit}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl border border-stone-200 bg-stone-50 p-7"
-      >
-        <div className="mb-5 font-serif text-2xl">Connect a site</div>
+    <Modal title="Connect a site" onClose={onClose} panelClassName="max-w-md">
+      <form onSubmit={submit}>
         <div className="flex flex-col gap-3">
           <input
             className={field}
@@ -68,9 +65,8 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
         {create.isError && (
-          <div className="mt-3 text-sm text-red-600">
-            {(create.error as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Could not create the site."}
+          <div role="alert" className="mt-3 text-sm text-red-700">
+            {errorDetail(create.error, "Could not create the site.")}
           </div>
         )}
         <div className="mt-6 flex gap-2">
@@ -90,6 +86,6 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

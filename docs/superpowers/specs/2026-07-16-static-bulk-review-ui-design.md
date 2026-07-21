@@ -1,5 +1,10 @@
 # Static Bulk Review UI Design
 
+> **Superseded in part (2026-07-21).** This document describes the original
+> frontend-only prototype. The review queue now sends real review mutations, the
+> method filter was never built, and Undo is supported. See "Amendments" at the
+> end for what still holds.
+
 ## Goal
 
 Add a frontend-only, interactive prototype for reviewing link suggestions at volume and make publication state unambiguous. The prototype must not modify backend code or send review mutations to the API.
@@ -97,3 +102,46 @@ Automated tests cover:
 - The absence of Celery scheduling copy and presence of the RQ copy.
 
 Verification also includes a production frontend build and a browser check of the review queue at desktop width. The browser check confirms filtering, confirmation, local status changes, queued-versus-published language, empty-target disabling, and that no review mutation request is sent.
+
+## Amendments (2026-07-21)
+
+Changes made after the UI/UX review; where these conflict with the text above,
+these win.
+
+### Reversed: local-only mutations
+
+The queue now calls the single-review and bulk-review endpoints for real.
+In-memory status overrides remain, but only as an optimistic bridge across the
+refetch: `pruneStatusOverrides` drops an override once the server agrees with it,
+and always yields to `applying` / `applied`, which the publication worker owns.
+
+### Added: Undo
+
+`ReviewStatus` gained `pending` on both sides of the API, so a decision can be
+walked back from the card, the preview, or the result toast. `_review` clears
+`reviewed_at` when reverting. Suggestions that reached `applying` or `applied`
+stay final — the existing publish guard returns 409.
+
+### Changed: bulk rules are scoped to the visible list
+
+`getBulkTargets` takes the active status filter and returns nothing unless the
+visible list can contain pending suggestions. Previously a rule run from the
+Rejected or Published list silently mutated the pending backlog.
+
+### Changed: thresholds compare on the displayed score
+
+Both the badge and the rule use `scorePercent` (whole percent). A suggestion
+shown as 80% is never swept up by a "below 80%" rule.
+
+### Not built: the method filter
+
+`All methods` / `Baseline` / `GNN` was specified but never implemented, and the
+tests assert GNN is absent from the UI. Baseline cosine is the only method the
+engine produces today; the filter should return with the second method.
+
+### Added: publish handoff
+
+Approving happens in the queue but publishing was reachable only from the Sites
+page. The queue now shows an approved-backlog banner that enqueues a publish job
+per affected site. A 409 from a site already publishing is reported as
+"already publishing", not as a failure.

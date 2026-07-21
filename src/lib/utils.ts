@@ -1,6 +1,12 @@
 import type { SuggestionStatus } from "../types/suggestion";
 
-export const pct = (n: number) => `${Math.round(n * 100)}%`;
+/**
+ * The whole-percent score an editor sees. Threshold rules compare against this
+ * same value so a card labelled 80% is never swept up by a "below 80%" rule.
+ */
+export const scorePercent = (score: number) => Math.round(score * 100);
+
+export const pct = (n: number) => `${scorePercent(n)}%`;
 
 export const initials = (name: string) =>
   name
@@ -26,12 +32,18 @@ export const STATUS_META: Record<
   SuggestionStatus,
   { label: string; dot: string; fg: string }
 > = {
+  // Text sits on the tinted chip fill, so these stay in the 800 range to clear
+  // the 4.5:1 contrast minimum at the small sizes the badges use.
   pending: { label: "Pending review", dot: "bg-stone-400", fg: "text-stone-800" },
-  approved: { label: "Queued for publish", dot: "bg-amber-500", fg: "text-amber-700" },
-  rejected: { label: "Rejected", dot: "bg-red-600", fg: "text-red-600" },
-  applying: { label: "Publishing", dot: "bg-blue-600", fg: "text-blue-700" },
-  applied: { label: "Published live", dot: "bg-green-600", fg: "text-green-700" },
+  approved: { label: "Queued for publish", dot: "bg-amber-500", fg: "text-amber-800" },
+  rejected: { label: "Rejected", dot: "bg-red-600", fg: "text-red-800" },
+  applying: { label: "Publishing", dot: "bg-blue-600", fg: "text-blue-800" },
+  applied: { label: "Published live", dot: "bg-green-600", fg: "text-green-800" },
 };
+
+/** Once publishing starts the worker owns the row, so the decision is final. */
+export const isReversible = (status: SuggestionStatus) =>
+  status === "approved" || status === "rejected";
 
 export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
   approved: "Queued for the next publish batch. Not live yet.",

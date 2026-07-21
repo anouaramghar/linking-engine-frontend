@@ -10,7 +10,8 @@ export type SuggestionStatus =
   | "rejected"
   | "applying"
   | "applied";
-export type ReviewStatus = "approved" | "rejected";
+/** Statuses an editor can set directly. 'pending' undoes an earlier decision. */
+export type ReviewStatus = "approved" | "rejected" | "pending";
 
 export interface Suggestion {
   id: number;

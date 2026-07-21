@@ -11,7 +11,6 @@ export const useJob = (jobId: string | null) => {
       const job = await getJob(jobId!);
       if (job.status === "finished" || job.status === "failed") {
         qc.invalidateQueries({ queryKey: ["suggestions"] });
-        qc.invalidateQueries({ queryKey: ["stats"] });
         qc.invalidateQueries({ queryKey: ["sites"] });
       }
       return job;

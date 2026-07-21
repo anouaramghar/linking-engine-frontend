@@ -35,7 +35,7 @@ export default function App() {
           </svg>
           <div>
             <div className="font-serif text-xl leading-none tracking-tight">LinkMesh</div>
-            <div className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-stone-400">
+            <div className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-stone-600">
               CMHW Domains
             </div>
           </div>
@@ -70,7 +70,7 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="mt-auto border-t border-stone-200 px-2.5 pt-4 text-[12.5px] leading-relaxed text-stone-500">
+        <div className="mt-auto border-t border-stone-200 px-2.5 pt-4 text-[12.5px] leading-relaxed text-stone-600">
           <div className="flex items-center gap-1.5">
             <span
               className={`h-[7px] w-[7px] flex-none rounded-full ${

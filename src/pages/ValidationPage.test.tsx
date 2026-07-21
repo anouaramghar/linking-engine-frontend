@@ -1,37 +1,50 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Suggestion } from "../types/suggestion";
 import ValidationPage from "./ValidationPage";
 
+const SITE = {
+  id: 1,
+  name: "Example site",
+  base_url: "https://example.com",
+  platform: "wordpress",
+  crawl_frequency: "daily",
+  created_at: "2026-07-16T10:00:00Z",
+  last_ingestion_status: "completed",
+};
+
 const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
+  publishMutate: vi.fn(),
+  sitesQuery: {} as Record<string, unknown>,
+  suggestionsQuery: {} as Record<string, unknown>,
 }));
 
 vi.mock("../hooks/useSuggestions", () => ({
-  useSuggestions: () => ({ data: mocks.suggestions, isLoading: false }),
+  useSuggestions: () => ({ data: mocks.suggestions, ...mocks.suggestionsQuery }),
   useReview: () => ({ mutate: mocks.reviewMutate }),
-  useBulkReview: () => ({ mutate: mocks.bulkMutate }),
+  useBulkReview: () => ({ mutate: mocks.bulkMutate, isPending: false }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
-  useSites: () => ({
-    data: [
-      {
-        id: 1,
-        name: "Example site",
-        base_url: "https://example.com",
-        platform: "wordpress",
-        crawl_frequency: "daily",
-        created_at: "2026-07-16T10:00:00Z",
-        last_ingestion_status: "completed",
-      },
-    ],
-  }),
+  useSites: () => ({ data: [SITE], ...mocks.sitesQuery }),
 }));
+
+vi.mock("../hooks/usePublish", () => ({
+  usePublishSites: () => ({ mutate: mocks.publishMutate, isPending: false }),
+}));
+
+const query = (overrides: Record<string, unknown> = {}) => ({
+  isPending: false,
+  isError: false,
+  isFetching: false,
+  refetch: vi.fn(),
+  ...overrides,
+});
 
 const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion => ({
   id,
@@ -56,8 +69,11 @@ beforeEach(() => {
   );
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
+  mocks.publishMutate.mockReset();
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   mocks.bulkMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+  mocks.sitesQuery = query();
+  mocks.suggestionsQuery = query();
 });
 
 afterEach(cleanup);
@@ -107,11 +123,144 @@ describe("ValidationPage live review state", () => {
     expect(mocks.bulkMutate).not.toHaveBeenCalled();
   });
 
+  it("walks a bulk decision back through the undo action", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    mocks.bulkMutate.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(mocks.bulkMutate).toHaveBeenCalledWith(
+      { ids: [1], status: "pending" },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    expect(screen.getByRole("status").textContent).toContain("1 suggestion restored to pending");
+    expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
+  });
+
+  it("never targets suggestions hidden by the active status filter", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    await user.click(screen.getByRole("button", { name: /Published live.*1/ }));
+
+    expect(
+      (screen.getByRole("button", { name: /^Reject </ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /^Accept ≥/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(document.body.textContent).toContain("Bulk rules act on pending suggestions");
+  });
+
   it("does not expose future suggestion methods", () => {
     render(<ValidationPage />);
 
     expect(document.body.textContent).not.toContain("GNN");
     expect(document.body.textContent).not.toContain("External links");
     expect(document.body.textContent).not.toContain("Generate anchors");
+  });
+});
+
+describe("ValidationPage publish handoff", () => {
+  it("stays quiet while nothing is approved", () => {
+    render(<ValidationPage />);
+
+    expect(document.body.textContent).not.toContain("waiting to be published");
+  });
+
+  it("surfaces an approved backlog and publishes the sites holding it", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.push(suggestion(4, { status: "approved" }));
+    render(<ValidationPage />);
+
+    expect(document.body.textContent).toContain("waiting to be published");
+    await user.click(screen.getByRole("button", { name: "Publish 1 site" }));
+
+    expect(mocks.publishMutate).toHaveBeenCalledWith([1], expect.anything());
+  });
+});
+
+describe("ValidationPage keyboard review", () => {
+  it("moves a cursor through the queue and decides without the mouse", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
+
+    await user.keyboard("j");
+    expect(within(preview()).getByText("Source 1")).not.toBeNull();
+
+    await user.keyboard("j");
+    expect(within(preview()).getByText("Source 2")).not.toBeNull();
+
+    await user.keyboard("r");
+    expect(mocks.reviewMutate).toHaveBeenCalledWith(
+      { id: 2, status: "rejected" },
+      expect.anything(),
+    );
+  });
+
+  it("closes the preview on Escape", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    await user.keyboard("j");
+    expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
+  });
+
+  it("ignores shortcuts while a field has focus", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    await user.click(screen.getByLabelText("Score threshold"));
+    await user.keyboard("r");
+
+    expect(mocks.reviewMutate).not.toHaveBeenCalled();
+  });
+
+  it("opens a suggestion from the keyboard", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    const open = screen.getAllByRole("button", { name: /^Open suggestion:/ })[0];
+    open.focus();
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
+  });
+});
+
+describe("ValidationPage load states", () => {
+  it("shows a placeholder rather than an empty queue while sites load", () => {
+    mocks.sitesQuery = query({ isPending: true });
+    render(<ValidationPage />);
+
+    expect(screen.getByLabelText("Loading suggestions")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("No suggestions match these filters");
+  });
+
+  it("never reports a failed load as an empty queue", () => {
+    mocks.suggestionsQuery = query({ isError: true });
+    render(<ValidationPage />);
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "The review queue could not be loaded",
+    );
+    expect(document.body.textContent).not.toContain("No suggestions match these filters");
+  });
+
+  it("points a brand-new account at the Sites page", () => {
+    mocks.suggestions.length = 0;
+    mocks.sitesQuery = query({ data: [] });
+    render(<ValidationPage />);
+
+    expect(document.body.textContent).toContain("No sites are connected yet");
   });
 });

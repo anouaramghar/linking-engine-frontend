@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import type { BulkReviewAction } from "../../lib/suggestionReview";
 
 interface Chip {
@@ -21,6 +23,8 @@ interface Props {
   onThresholdChange: (threshold: number) => void;
   acceptCount: number;
   rejectCount: number;
+  /** False when the active status filter shows no pending suggestions to act on. */
+  actionable: boolean;
   confirmation: BulkConfirmation | null;
   onRequest: (action: BulkReviewAction) => void;
   onConfirm: () => void;
@@ -35,11 +39,19 @@ export default function BulkActions({
   onThresholdChange,
   acceptCount,
   rejectCount,
+  actionable,
   confirmation,
   onRequest,
   onConfirm,
   onCancel,
 }: Props) {
+  // Mirrors the committed threshold, but tolerates the transient empty string
+  // and any leading zeros while the field is being edited.
+  const [draft, setDraft] = useState(String(threshold));
+  useEffect(() => {
+    if (Number(draft) !== threshold) setDraft(String(threshold));
+  }, [threshold]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const comparison =
     confirmation?.action === "approve"
       ? `at least ${confirmation.threshold}%`
@@ -59,7 +71,7 @@ export default function BulkActions({
                 : "border-stone-300 text-stone-950 hover:border-stone-950"
             }`}
           >
-            {chip.label} - {chip.count}
+            {chip.label} &middot; {chip.count}
           </button>
         ))}
       </div>
@@ -70,20 +82,33 @@ export default function BulkActions({
       >
         <label className="flex items-center gap-2 text-sm text-stone-600">
           Score threshold
-          <span className="flex items-center rounded-full border border-stone-300 bg-white px-3 py-1.5">
+          {/* The ring lives on the pill so the inner input can stay borderless. */}
+          <span className="flex items-center rounded-full border border-stone-300 bg-white px-3 py-1.5 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-stone-950">
             <input
               aria-label="Score threshold"
               type="number"
               min={0}
               max={100}
-              value={threshold}
-              onChange={(event) => onThresholdChange(Number(event.target.value))}
-              style={{ width: `${Math.max(String(threshold).length, 1)}ch` }}
+              value={draft}
+              onChange={(event) => {
+                // Keep the raw text while editing so clearing the field doesn't
+                // snap to 0 and rewrite the rule under the user's cursor.
+                setDraft(event.target.value);
+                if (event.target.value !== "") onThresholdChange(Number(event.target.value));
+              }}
+              onBlur={() => setDraft(String(threshold))}
+              style={{ width: `${Math.max(draft.length, 1)}ch` }}
               className="bg-transparent text-right font-medium text-stone-950 outline-none"
             />
-            <span className="text-stone-400">%</span>
+            <span className="text-stone-600">%</span>
           </span>
         </label>
+
+        {!actionable && (
+          <span className="text-sm text-stone-600">
+            Bulk rules act on pending suggestions - switch to Pending review or All.
+          </span>
+        )}
 
         <div className="min-w-4 flex-1" />
         <button
@@ -92,7 +117,7 @@ export default function BulkActions({
           onClick={() => onRequest("approve")}
           className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-400"
         >
-          Accept &gt;= {threshold}% - {acceptCount}
+          Accept &ge; {threshold}% &middot; {acceptCount}
         </button>
         <button
           type="button"
@@ -100,7 +125,7 @@ export default function BulkActions({
           onClick={() => onRequest("reject")}
           className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-950 disabled:cursor-not-allowed disabled:text-stone-300"
         >
-          Reject &lt; {threshold}% - {rejectCount}
+          Reject &lt; {threshold}% &middot; {rejectCount}
         </button>
       </div>
 
@@ -115,9 +140,10 @@ export default function BulkActions({
               {verb} {confirmation.count} pending suggestion
               {confirmation.count === 1 ? "" : "s"}?
             </div>
-            <div className="mt-0.5 text-xs text-stone-500">
-              {confirmation.siteLabel} - {comparison}. Decisions are saved to the LinkMesh
-              review queue; approved links are not live until published.
+            <div className="mt-0.5 text-xs text-stone-600">
+              {confirmation.siteLabel} &middot; score {comparison}. Only pending suggestions in the
+              current list are affected, and the decision can be undone. Approved links are
+              not live until published.
             </div>
           </div>
           <button

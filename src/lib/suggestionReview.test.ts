@@ -5,8 +5,10 @@ import {
   clampThreshold,
   filterSuggestions,
   getBulkTargets,
+  pruneStatusOverrides,
   resolveSuggestionStatuses,
 } from "./suggestionReview";
+import type { StatusFilter } from "./suggestionReview";
 
 const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion => ({
   id,
@@ -60,7 +62,7 @@ describe("filterSuggestions", () => {
 describe("getBulkTargets", () => {
   const suggestions = [
     suggestion(1, { score: 0.8 }),
-    suggestion(2, { score: 0.799 }),
+    suggestion(2, { score: 0.79 }),
     suggestion(3, { score: 0.95, site_id: 2 }),
     suggestion(4, { score: 0.9, status: "approved" }),
   ];
@@ -70,6 +72,7 @@ describe("getBulkTargets", () => {
       getBulkTargets(suggestions, {
         action: "approve",
         siteId: 1,
+        status: "pending",
         threshold: 80,
       }).map((item) => item.id),
     ).toEqual([1]);
@@ -80,6 +83,7 @@ describe("getBulkTargets", () => {
       getBulkTargets(suggestions, {
         action: "reject",
         siteId: 1,
+        status: "pending",
         threshold: 80,
       }).map((item) => item.id),
     ).toEqual([2]);
@@ -90,8 +94,58 @@ describe("getBulkTargets", () => {
       getBulkTargets(suggestions, {
         action: "approve",
         siteId: 0,
+        status: "all",
         threshold: 0,
       }).map((item) => item.id),
     ).not.toContain(4);
   });
+
+  it("compares against the score the editor sees, not the raw float", () => {
+    // 0.799 renders as 80%, so an 'at least 80%' rule must accept it and a
+    // 'below 80%' rule must leave it alone.
+    const rounded = [suggestion(5, { score: 0.799 })];
+    const rule = { siteId: 1, status: "pending", threshold: 80 } as const;
+
+    expect(getBulkTargets(rounded, { ...rule, action: "approve" })).toHaveLength(1);
+    expect(getBulkTargets(rounded, { ...rule, action: "reject" })).toHaveLength(0);
+  });
+
+  it.each<StatusFilter>(["approved", "rejected", "applying", "applied"])(
+    "targets nothing while the %s list is showing",
+    (status) => {
+      expect(
+        getBulkTargets(suggestions, {
+          action: "reject",
+          siteId: 0,
+          status,
+          threshold: 100,
+        }),
+      ).toEqual([]);
+    },
+  );
+});
+
+describe("pruneStatusOverrides", () => {
+  it("drops an override the server has caught up with", () => {
+    const overrides = pruneStatusOverrides([suggestion(1, { status: "approved" })], {
+      1: "approved",
+    });
+
+    expect(overrides).toEqual({});
+  });
+
+  it("keeps an override the server has not caught up with yet", () => {
+    const overrides = pruneStatusOverrides([suggestion(1, { status: "approved" })], {
+      1: "pending",
+    });
+
+    expect(overrides).toEqual({ 1: "pending" });
+  });
+
+  it.each<Suggestion["status"]>(["applying", "applied"])(
+    "lets the publication worker's %s status win over any override",
+    (status) => {
+      expect(pruneStatusOverrides([suggestion(1, { status })], { 1: "pending" })).toEqual({});
+    },
+  );
 });

@@ -1,3 +1,4 @@
+import { scorePercent } from "./utils";
 import type { Suggestion, SuggestionStatus } from "../types/suggestion";
 
 export type StatusFilter = "all" | SuggestionStatus;
@@ -12,8 +13,12 @@ export interface SuggestionQueueFilters {
 export interface BulkTargetRule {
   action: BulkReviewAction;
   siteId: number;
+  status: StatusFilter;
   threshold: number;
 }
+
+/** Statuses the publication worker owns; a local override must never mask them. */
+const WORKER_OWNED: SuggestionStatus[] = ["applying", "applied"];
 
 export const clampThreshold = (value: number) =>
   Math.min(100, Math.max(0, Number.isFinite(value) ? Math.round(value) : 0));
@@ -40,14 +45,39 @@ export const filterSuggestions = (
       (filters.status === "all" || suggestion.status === filters.status),
   );
 
+/**
+ * Bulk rules only ever act on suggestions the editor can actually see, so a rule
+ * run from the Rejected list can never silently mutate the pending backlog.
+ */
 export const getBulkTargets = (suggestions: Suggestion[], rule: BulkTargetRule) => {
-  const threshold = clampThreshold(rule.threshold) / 100;
+  if (rule.status !== "all" && rule.status !== "pending") return [];
+  const threshold = clampThreshold(rule.threshold);
   return suggestions.filter((suggestion) => {
     if (suggestion.status !== "pending" || !matchesSite(suggestion, rule.siteId)) {
       return false;
     }
-    return rule.action === "approve"
-      ? suggestion.score >= threshold
-      : suggestion.score < threshold;
+    const score = scorePercent(suggestion.score);
+    return rule.action === "approve" ? score >= threshold : score < threshold;
   });
+};
+
+/**
+ * Drop optimistic overrides the server has caught up with, and any override the
+ * publication worker has moved past, so publish progress is never masked.
+ */
+export const pruneStatusOverrides = (
+  suggestions: Suggestion[],
+  overrides: StatusOverrides,
+): StatusOverrides => {
+  const next = { ...overrides };
+  let changed = false;
+  suggestions.forEach((suggestion) => {
+    const override = next[suggestion.id];
+    if (!override) return;
+    if (override === suggestion.status || WORKER_OWNED.includes(suggestion.status)) {
+      delete next[suggestion.id];
+      changed = true;
+    }
+  });
+  return changed ? next : overrides;
 };

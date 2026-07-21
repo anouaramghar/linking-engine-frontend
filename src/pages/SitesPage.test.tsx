@@ -1,12 +1,31 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
 
-vi.mock("../hooks/useSites", () => ({
-  useSites: () => ({ data: [] }),
-  useDeleteSite: () => ({ mutate: vi.fn() }),
+const mocks = vi.hoisted(() => ({
+  sites: {
+    data: [] as unknown[],
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  },
 }));
+
+vi.mock("../hooks/useSites", () => ({
+  useSites: () => mocks.sites,
+  useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+beforeEach(() => {
+  Object.assign(mocks.sites, {
+    data: [],
+    isPending: false,
+    isError: false,
+    isFetching: false,
+  });
+});
 
 afterEach(cleanup);
 
@@ -26,5 +45,39 @@ describe("SitesPage scheduler copy", () => {
     expect(document.body.textContent).not.toContain("Generate anchors");
     expect(document.body.textContent).not.toContain("Crawl all");
     expect(document.body.textContent).not.toContain("Analyze all");
+  });
+});
+
+describe("SitesPage load states", () => {
+  it("tells a failed load apart from an empty account", () => {
+    mocks.sites.isError = true;
+    render(<SitesPage />);
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Your sites could not be loaded",
+    );
+    expect(document.body.textContent).not.toContain("No sites are connected yet");
+  });
+
+  it("offers a retry that refetches", () => {
+    mocks.sites.isError = true;
+    render(<SitesPage />);
+
+    screen.getByRole("button", { name: "Try again" }).click();
+    expect(mocks.sites.refetch).toHaveBeenCalled();
+  });
+
+  it("shows a placeholder instead of an empty list while loading", () => {
+    mocks.sites.isPending = true;
+    render(<SitesPage />);
+
+    expect(screen.getByLabelText("Loading sites")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("No sites are connected yet");
+  });
+
+  it("invites a first site once the load succeeds with nothing", () => {
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("No sites are connected yet");
   });
 });

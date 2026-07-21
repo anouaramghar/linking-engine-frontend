@@ -13,6 +13,7 @@ const baseProps = () => ({
   onThresholdChange: vi.fn(),
   acceptCount: 2,
   rejectCount: 1,
+  actionable: true,
   confirmation: null,
   onRequest: vi.fn(),
   onConfirm: vi.fn(),
