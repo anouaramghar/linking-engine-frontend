@@ -1,14 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import PageHeader from "../components/PageHeader";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
-import { useSuggestions } from "../hooks/useSuggestions";
-import { useSites, useStats } from "../hooks/useSites";
+import { useBulkReview, useReview, useSuggestions } from "../hooks/useSuggestions";
+import { useSites } from "../hooks/useSites";
 import {
-  adjustedStatusCount,
   clampThreshold,
   filterSuggestions,
   getBulkTargets,
@@ -18,22 +17,16 @@ import type {
   BulkReviewAction,
   StatusFilter,
   StatusOverrides,
-  SuggestionMethodFilter,
 } from "../lib/suggestionReview";
-import type { SuggestionStatus } from "../types/suggestion";
+import type { ReviewStatus, SuggestionStatus } from "../types/suggestion";
 
 const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "pending", label: "Pending review" },
   { key: "approved", label: "Queued for publish" },
+  { key: "applying", label: "Publishing" },
   { key: "applied", label: "Published live" },
   { key: "rejected", label: "Rejected" },
 ];
-
-const METHOD_LABELS: Record<SuggestionMethodFilter, string> = {
-  all: "All methods",
-  baseline_cosine: "Baseline",
-  gnn_graphsage: "GNN",
-};
 
 interface ConfirmationState extends BulkConfirmation {
   ids: number[];
@@ -42,7 +35,6 @@ interface ConfirmationState extends BulkConfirmation {
 export default function ValidationPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
   const [siteFilter, setSiteFilter] = useState(0);
-  const [methodFilter, setMethodFilter] = useState<SuggestionMethodFilter>("all");
   const [threshold, setThreshold] = useState(80);
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -50,61 +42,68 @@ export default function ValidationPage() {
   const [notice, setNotice] = useState("");
 
   const { data: sites } = useSites();
-  const { data: stats } = useStats();
-  const { data: sourceSuggestions = [], isLoading } = useSuggestions({ limit: 100 });
+  const siteIds = useMemo(() => sites?.map((site) => site.id) ?? [], [sites]);
+  const { data: sourceSuggestions = [], isLoading } = useSuggestions(siteIds);
+  const review = useReview();
+  const bulkReview = useBulkReview();
 
   const resolvedSuggestions = useMemo(
     () => resolveSuggestionStatuses(sourceSuggestions, statusOverrides),
     [sourceSuggestions, statusOverrides],
   );
+
+  // Overrides bridge the short refetch after a successful review. Once the backend
+  // reports any non-pending state, trust it so publish progress can advance normally.
+  useEffect(() => {
+    setStatusOverrides((current) => {
+      const next = { ...current };
+      let changed = false;
+      sourceSuggestions.forEach((suggestion) => {
+        if (next[suggestion.id] && suggestion.status !== "pending") {
+          delete next[suggestion.id];
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [sourceSuggestions]);
   const suggestions = useMemo(
     () =>
       filterSuggestions(resolvedSuggestions, {
         siteId: siteFilter,
         status: statusFilter,
-        method: methodFilter,
       }),
-    [methodFilter, resolvedSuggestions, siteFilter, statusFilter],
+    [resolvedSuggestions, siteFilter, statusFilter],
   );
 
   const siteName = (id: number) =>
     sites?.find((site) => site.id === id)?.name ?? `site ${id}`;
-  const baseCountBy = (status: SuggestionStatus, siteId: number) =>
-    stats
-      ?.filter((site) => siteId === 0 || site.site_id === siteId)
-      .reduce((count, site) => count + (site.suggestions_by_status[status] ?? 0), 0) ?? 0;
   const countBy = (status: SuggestionStatus, siteId = siteFilter) =>
-    adjustedStatusCount(
-      baseCountBy(status, siteId),
-      sourceSuggestions,
-      statusOverrides,
-      status,
-      siteId,
-    );
+    resolvedSuggestions.filter(
+      (suggestion) =>
+        (siteId === 0 || suggestion.site_id === siteId) && suggestion.status === status,
+    ).length;
+  const scopedTotal = resolvedSuggestions.filter(
+    (suggestion) => siteFilter === 0 || suggestion.site_id === siteFilter,
+  ).length;
   const chips = [
     ...CHIP_DEFS.map((chip) => ({ ...chip, count: countBy(chip.key) })),
-    {
-      key: "all",
-      label: "All",
-      count: CHIP_DEFS.reduce((count, chip) => count + countBy(chip.key), 0),
-    },
+    { key: "all", label: "All", count: scopedTotal },
   ];
   const pendingTotal = countBy("pending", 0);
 
   const acceptTargets = getBulkTargets(resolvedSuggestions, {
     action: "approve",
     siteId: siteFilter,
-    method: methodFilter,
     threshold,
   });
   const rejectTargets = getBulkTargets(resolvedSuggestions, {
     action: "reject",
     siteId: siteFilter,
-    method: methodFilter,
     threshold,
   });
 
-  const setLocalStatuses = (ids: number[], status: SuggestionStatus, message: string) => {
+  const setLocalStatuses = (ids: number[], status: ReviewStatus, message: string) => {
     setStatusOverrides((current) => {
       const next = { ...current };
       ids.forEach((id) => {
@@ -115,13 +114,19 @@ export default function ValidationPage() {
     setNotice(message);
   };
 
-  const decide = (id: number, status: "approved" | "rejected" | "pending") => {
-    const messages: Record<typeof status, string> = {
-      approved: "1 suggestion queued for publish.",
-      rejected: "1 suggestion rejected.",
-      pending: "1 suggestion returned to pending review.",
-    };
-    setLocalStatuses([id], status, messages[status]);
+  const decide = (id: number, status: ReviewStatus) => {
+    const message =
+      status === "approved"
+        ? "1 suggestion queued for publish."
+        : "1 suggestion rejected.";
+    setNotice("");
+    review.mutate(
+      { id, status },
+      {
+        onSuccess: () => setLocalStatuses([id], status, message),
+        onError: () => setNotice("The review decision could not be saved. Please try again."),
+      },
+    );
   };
 
   const requestBulk = (action: BulkReviewAction) => {
@@ -131,21 +136,29 @@ export default function ValidationPage() {
       ids: targets.map((suggestion) => suggestion.id),
       count: targets.length,
       threshold,
-      methodLabel: METHOD_LABELS[methodFilter],
       siteLabel: siteFilter === 0 ? "All sites" : siteName(siteFilter),
     });
   };
 
   const confirmBulk = () => {
     if (!confirmation) return;
-    const status = confirmation.action === "approve" ? "approved" : "rejected";
+    const status: ReviewStatus =
+      confirmation.action === "approve" ? "approved" : "rejected";
     const noun = confirmation.count === 1 ? "suggestion" : "suggestions";
     const message =
       confirmation.action === "approve"
         ? `${confirmation.count} ${noun} queued for publish.`
         : `${confirmation.count} ${noun} rejected.`;
-    setLocalStatuses(confirmation.ids, status, message);
+    const ids = confirmation.ids;
+    setNotice("");
     setConfirmation(null);
+    bulkReview.mutate(
+      { ids, status },
+      {
+        onSuccess: () => setLocalStatuses(ids, status, message),
+        onError: () => setNotice("The bulk review could not be saved. Please try again."),
+      },
+    );
   };
 
   const selected =
@@ -155,7 +168,7 @@ export default function ValidationPage() {
     <>
       <PageHeader
         title="Link suggestions"
-        sub={`${pendingTotal} pending across ${sites?.length ?? 0} sites · queued links are not live until published`}
+        sub={`${pendingTotal} pending across ${sites?.length ?? 0} sites - queued links are not live until published`}
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
@@ -165,11 +178,6 @@ export default function ValidationPage() {
               active={statusFilter}
               onSelect={(status) => {
                 setStatusFilter(status as StatusFilter);
-                setConfirmation(null);
-              }}
-              method={methodFilter}
-              onMethodChange={(method) => {
-                setMethodFilter(method);
                 setConfirmation(null);
               }}
               threshold={threshold}
@@ -221,13 +229,12 @@ export default function ValidationPage() {
                 onOpen={() => setSelectedId(suggestion.id)}
                 onAccept={() => decide(suggestion.id, "approved")}
                 onReject={() => decide(suggestion.id, "rejected")}
-                onUndo={() => decide(suggestion.id, "pending")}
               />
             ))}
             {!isLoading && suggestions.length === 0 && (
               <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-5 py-14 text-center text-[15px] text-stone-500">
-                No suggestions match these filters. Run an analysis from the Sites page, or try
-                another status, method, or site.
+                No suggestions match these filters. Run baseline suggestions from the Sites page,
+                or try another status or site.
               </div>
             )}
           </div>

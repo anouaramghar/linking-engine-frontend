@@ -20,8 +20,6 @@ export const timeAgo = (iso: string | null) => {
 
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
-  gnn_graphsage: "GraphSAGE",
-  external_search: "external",
 };
 
 export const STATUS_META: Record<
@@ -31,11 +29,13 @@ export const STATUS_META: Record<
   pending: { label: "Pending review", dot: "bg-stone-400", fg: "text-stone-800" },
   approved: { label: "Queued for publish", dot: "bg-amber-500", fg: "text-amber-700" },
   rejected: { label: "Rejected", dot: "bg-red-600", fg: "text-red-600" },
+  applying: { label: "Publishing", dot: "bg-blue-600", fg: "text-blue-700" },
   applied: { label: "Published live", dot: "bg-green-600", fg: "text-green-700" },
 };
 
 export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
   approved: "Queued for the next publish batch. Not live yet.",
+  applying: "Publishing is in progress.",
   applied: "Published to the live article.",
 };
 

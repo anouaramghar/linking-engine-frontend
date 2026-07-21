@@ -1,19 +1,28 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { useMemo } from "react";
+import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
-import { useStats } from "./hooks/useSites";
-import ValidationPage from "./pages/ValidationPage";
+import { useHealth } from "./hooks/useHealth";
+import { useSites } from "./hooks/useSites";
+import { useSuggestions } from "./hooks/useSuggestions";
 import SitesPage from "./pages/SitesPage";
-import DashboardPage from "./pages/DashboardPage";
+import ValidationPage from "./pages/ValidationPage";
 
 const NAV = [
   { to: "/queue", label: "Review queue" },
   { to: "/sites", label: "Sites" },
-  { to: "/evaluation", label: "Evaluation" },
 ];
 
 export default function App() {
-  const { data: stats } = useStats();
-  const pending = stats?.reduce((n, s) => n + (s.suggestions_by_status.pending ?? 0), 0) ?? 0;
+  const { data: sites } = useSites();
+  const siteIds = useMemo(() => sites?.map((site) => site.id) ?? [], [sites]);
+  const { data: suggestions } = useSuggestions(siteIds);
+  const { isError: healthFailed, isPending: healthPending } = useHealth();
+  const pending = suggestions?.filter((suggestion) => suggestion.status === "pending").length ?? 0;
+  const healthLabel = healthPending
+    ? "Checking engine"
+    : healthFailed
+      ? "Engine unavailable"
+      : "Engine ready";
 
   return (
     <div className="flex min-h-screen">
@@ -33,10 +42,10 @@ export default function App() {
         </div>
 
         <nav className="flex flex-col gap-0.5">
-          {NAV.map((n) => (
+          {NAV.map((item) => (
             <NavLink
-              key={n.to}
-              to={n.to}
+              key={item.to}
+              to={item.to}
               className={({ isActive }) =>
                 `flex w-full items-center justify-between rounded-full px-3 py-2.5 text-[15px] font-medium ${
                   isActive ? "bg-stone-800 text-white" : "text-stone-600 hover:bg-chip"
@@ -45,8 +54,8 @@ export default function App() {
             >
               {({ isActive }) => (
                 <>
-                  <span>{n.label}</span>
-                  {n.to === "/queue" && pending > 0 && (
+                  <span>{item.label}</span>
+                  {item.to === "/queue" && pending > 0 && (
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${
                         isActive ? "bg-white/20 text-white" : "bg-chip text-stone-800"
@@ -63,11 +72,15 @@ export default function App() {
 
         <div className="mt-auto border-t border-stone-200 px-2.5 pt-4 text-[12.5px] leading-relaxed text-stone-500">
           <div className="flex items-center gap-1.5">
-            <span className="h-[7px] w-[7px] flex-none rounded-full bg-green-600" />
-            <span className="font-medium text-stone-800">Engine ready</span>
+            <span
+              className={`h-[7px] w-[7px] flex-none rounded-full ${
+                healthPending ? "bg-amber-500" : healthFailed ? "bg-red-600" : "bg-green-600"
+              }`}
+            />
+            <span className="font-medium text-stone-800">{healthLabel}</span>
           </div>
-          <div>{stats?.length ?? 0} sites connected</div>
-          <div>bge-m3 · pgvector</div>
+          <div>{sites?.length ?? 0} sites connected</div>
+          <div>cosine baseline - pgvector</div>
         </div>
       </aside>
 
@@ -78,7 +91,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/queue" replace />} />
           <Route path="/queue" element={<ValidationPage />} />
           <Route path="/sites" element={<SitesPage />} />
-          <Route path="/evaluation" element={<DashboardPage />} />
+          <Route path="*" element={<Navigate to="/queue" replace />} />
         </Routes>
       </main>
     </div>

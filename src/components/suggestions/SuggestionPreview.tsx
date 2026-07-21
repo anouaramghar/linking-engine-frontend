@@ -16,9 +16,7 @@ export default function SuggestionPreview({
   onAccept,
   onReject,
 }: Props) {
-  const targetTitle = s.target_article?.title ?? s.external_title ?? "";
-  const targetUrl = s.target_article?.url ?? s.external_url ?? "";
-  const slug = targetUrl.replace(/^https?:\/\/[^/]+/, "") || targetUrl;
+  const slug = s.target_article.url.replace(/^https?:\/\/[^/]+/, "") || s.target_article.url;
   const publicationMessage = PUBLICATION_STATUS_MESSAGE[s.status];
 
   return (
@@ -32,7 +30,7 @@ export default function SuggestionPreview({
           onClick={onClose}
           className="px-1.5 py-1 text-base text-stone-400 hover:text-stone-950"
         >
-          ✕
+          x
         </button>
       </div>
 
@@ -41,7 +39,7 @@ export default function SuggestionPreview({
       </div>
       <div className="font-serif text-2xl leading-snug">{s.source_article.title}</div>
       <div className="mb-4 mt-1.5 text-[13px] text-stone-500">
-        {siteName} ·{" "}
+        {siteName} -{" "}
         <a
           href={s.source_article.url}
           target="_blank"
@@ -52,39 +50,28 @@ export default function SuggestionPreview({
         </a>
       </div>
 
-      <div className="rounded-2xl border border-stone-200 bg-white px-5 py-5 text-[15px] leading-relaxed text-stone-600">
-        …{s.context_before}
-        {s.anchor_text && (
-          <mark className="rounded-[3px] bg-chip px-1 font-medium text-stone-950 underline underline-offset-2">
-            {s.anchor_text}
-          </mark>
-        )}
-        {s.context_after}…
-      </div>
-
       <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-widest text-stone-400">
-        Links to →
+        Links to -&gt;
       </div>
       <div className="rounded-2xl bg-chip px-4 py-4">
-        <div className="text-[15px] font-medium leading-snug text-stone-950">{targetTitle}</div>
+        <div className="text-[15px] font-medium leading-snug text-stone-950">
+          {s.target_article.title}
+        </div>
         <div className="mt-1 text-[12.5px] text-stone-500">{slug}</div>
+        {s.anchor_text && (
+          <div className="mt-2 text-[12.5px] text-stone-600">
+            Suggested anchor: <span className="font-medium">{s.anchor_text}</span>
+          </div>
+        )}
       </div>
 
-      <div className="my-5 grid grid-cols-2 gap-2.5">
+      <div className="my-5">
         <div className="relative overflow-hidden rounded-2xl border border-stone-200 bg-white px-4 py-4">
           <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[radial-gradient(circle,rgba(168,200,232,.4),transparent_70%)]" />
           <div className="text-[11px] font-semibold uppercase tracking-widest text-stone-400">
             {METHOD_LABEL[s.method] ?? s.method}
           </div>
           <div className="mt-1.5 font-serif text-3xl text-stone-950">{pct(s.score)}</div>
-        </div>
-        <div className="rounded-2xl border border-stone-200 bg-white px-4 py-4">
-          <div className="text-[11px] font-semibold uppercase tracking-widest text-stone-400">
-            Trust score
-          </div>
-          <div className="mt-1.5 font-serif text-3xl text-stone-400">
-            {s.trust_score !== null ? pct(s.trust_score) : "—"}
-          </div>
         </div>
       </div>
 

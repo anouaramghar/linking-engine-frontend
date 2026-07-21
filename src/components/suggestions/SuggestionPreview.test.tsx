@@ -16,11 +16,6 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   score: 0.9,
   status,
   anchor_text: "anchor",
-  external_url: null,
-  external_title: null,
-  trust_score: null,
-  context_before: "before ",
-  context_after: " after",
   created_at: "2026-07-16T10:00:00Z",
 });
 
@@ -43,6 +38,13 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getByText("Queued for the next publish batch. Not live yet.")).not.toBeNull();
   });
 
+  it("identifies an in-progress publication", () => {
+    renderPreview("applying");
+
+    expect(screen.getByText("Publishing")).not.toBeNull();
+    expect(screen.getByText("Publishing is in progress.")).not.toBeNull();
+  });
+
   it("identifies an applied suggestion as published live", () => {
     renderPreview("applied");
 
@@ -50,7 +52,7 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getByText("Published to the live article.")).not.toBeNull();
   });
 
-  it("identifies an approved card as queued for publish", () => {
+  it("identifies an approved card as queued for publish without an unsupported undo", () => {
     render(
       <SuggestionCard
         suggestion={suggestion("approved")}
@@ -59,10 +61,10 @@ describe("SuggestionPreview publication state", () => {
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
-        onUndo={vi.fn()}
       />,
     );
 
     expect(screen.getByText("Queued for publish")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 });

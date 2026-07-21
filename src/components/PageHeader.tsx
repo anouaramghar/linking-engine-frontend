@@ -6,7 +6,7 @@ export default function PageHeader({ title, sub }: { title: string; sub: string 
         <div className="mt-1 text-sm text-stone-500">{sub}</div>
       </div>
       <div className="rounded-full bg-chip px-3.5 py-1.5 text-xs font-semibold uppercase tracking-widest text-stone-500">
-        GraphSAGE v2 · bge-m3
+        Baseline cosine
       </div>
     </div>
   );

@@ -39,6 +39,28 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
 
   // The API reports outcomes by position in the submitted list; translate back to file lines.
   const lineFor = (row: number) => ready[row - 1]?.line ?? row;
+  const failures = result
+    ? [
+        ...broken.map((row) => ({
+          key: `file-${row.line}`,
+          line: row.line,
+          baseUrl: null,
+          reason: row.error ?? "invalid row",
+        })),
+        ...result.skipped.map((entry) => ({
+          key: `skipped-${entry.row}-${entry.reason}`,
+          line: lineFor(entry.row),
+          baseUrl: entry.base_url,
+          reason: entry.reason,
+        })),
+        ...result.rejected.map((entry) => ({
+          key: `rejected-${entry.row}-${entry.reason}`,
+          line: lineFor(entry.row),
+          baseUrl: entry.base_url,
+          reason: entry.reason,
+        })),
+      ].sort((a, b) => a.line - b.line)
+    : [];
 
   return (
     <div
@@ -157,24 +179,33 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                   {result.skipped.length} already existed
                 </span>
               )}
+              {broken.length > 0 && (
+                <span className={`${CHIP} bg-amber-100 text-amber-900`}>
+                  {broken.length} invalid in file
+                </span>
+              )}
               {result.rejected.length > 0 && (
                 <span className={`${CHIP} bg-red-100 text-red-900`}>
-                  {result.rejected.length} rejected
+                  {result.rejected.length} rejected by API
                 </span>
               )}
             </div>
-            <ul className="rounded-xl border border-stone-200 bg-white text-sm">
-              {[...result.skipped, ...result.rejected].map((entry) => (
-                <li
-                  key={`${entry.row}-${entry.reason}`}
-                  className="flex gap-3 border-b border-stone-100 px-3 py-2 last:border-0"
-                >
-                  <span className="tabular-nums text-stone-500">line {lineFor(entry.row)}</span>
-                  <span className="truncate text-stone-600">{entry.base_url}</span>
-                  <span className="ml-auto shrink-0 text-stone-500">{entry.reason}</span>
-                </li>
-              ))}
-            </ul>
+            {failures.length > 0 && (
+              <ul className="rounded-xl border border-stone-200 bg-white text-sm">
+                {failures.map((entry) => (
+                  <li
+                    key={entry.key}
+                    className="flex gap-3 border-b border-stone-100 px-3 py-2 last:border-0"
+                  >
+                    <span className="tabular-nums text-stone-500">line {entry.line}</span>
+                    {entry.baseUrl && (
+                      <span className="truncate text-stone-600">{entry.baseUrl}</span>
+                    )}
+                    <span className="ml-auto shrink-0 text-stone-500">{entry.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

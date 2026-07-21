@@ -9,8 +9,6 @@ const baseProps = () => ({
   chips: [{ key: "pending", label: "Pending review", count: 4 }],
   active: "pending",
   onSelect: vi.fn(),
-  method: "all" as const,
-  onMethodChange: vi.fn(),
   threshold: 80,
   onThresholdChange: vi.fn(),
   acceptCount: 2,
@@ -22,28 +20,24 @@ const baseProps = () => ({
 });
 
 describe("BulkActions", () => {
-  it("renders method, threshold, and target counts", () => {
+  it("renders the threshold and current target counts", () => {
     render(<BulkActions {...baseProps()} />);
 
-    expect(
-      screen.getByRole("button", { name: "All methods" }).getAttribute("aria-pressed"),
-    ).toBe("true");
     expect((screen.getByLabelText("Score threshold") as HTMLInputElement).value).toBe("80");
     expect(screen.getByRole("button", { name: /Accept.*2/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Reject.*1/ })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "GNN" })).toBeNull();
   });
 
-  it("reports filter and bulk-action intents", () => {
+  it("reports threshold and bulk-action intents", () => {
     const props = baseProps();
     render(<BulkActions {...props} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "GNN" }));
     fireEvent.change(screen.getByLabelText("Score threshold"), {
       target: { value: "75" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Accept/ }));
 
-    expect(props.onMethodChange).toHaveBeenCalledWith("gnn_graphsage");
     expect(props.onThresholdChange).toHaveBeenCalledWith(75);
     expect(props.onRequest).toHaveBeenCalledWith("approve");
   });
@@ -58,7 +52,6 @@ describe("BulkActions", () => {
           action: "reject",
           count: 3,
           threshold: 80,
-          methodLabel: "Baseline",
           siteLabel: "Example site",
         }}
       />,

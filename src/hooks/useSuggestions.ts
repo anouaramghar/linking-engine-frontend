@@ -1,27 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { bulkReview, listSuggestions, reviewSuggestion } from "../api/suggestions";
-import type { SuggestionFilters } from "../api/suggestions";
-import type { SuggestionStatus } from "../types/suggestion";
+import { bulkReview, listSuggestionsForSites, reviewSuggestion } from "../api/suggestions";
+import type { ReviewStatus } from "../types/suggestion";
 
-export const useSuggestions = (filters: SuggestionFilters) =>
+export const useSuggestions = (siteIds: number[]) =>
   useQuery({
-    queryKey: ["suggestions", filters],
-    queryFn: () => listSuggestions(filters),
+    queryKey: ["suggestions", siteIds],
+    queryFn: () => listSuggestionsForSites(siteIds),
+    enabled: siteIds.length > 0,
   });
 
 const useInvalidate = () => {
   const qc = useQueryClient();
-  return () => {
-    qc.invalidateQueries({ queryKey: ["suggestions"] });
-    qc.invalidateQueries({ queryKey: ["stats"] });
-  };
+  return () => qc.invalidateQueries({ queryKey: ["suggestions"] });
 };
 
 export const useReview = () => {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({ id, status }: { id: number; status: SuggestionStatus }) =>
+    mutationFn: ({ id, status }: { id: number; status: ReviewStatus }) =>
       reviewSuggestion(id, status),
     onSuccess: invalidate,
   });
@@ -30,7 +27,7 @@ export const useReview = () => {
 export const useBulkReview = () => {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({ ids, status }: { ids: number[]; status: SuggestionStatus }) =>
+    mutationFn: ({ ids, status }: { ids: number[]; status: ReviewStatus }) =>
       bulkReview(ids, status),
     onSuccess: invalidate,
   });

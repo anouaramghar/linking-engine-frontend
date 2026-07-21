@@ -1,7 +1,4 @@
-import type {
-  BulkReviewAction,
-  SuggestionMethodFilter,
-} from "../../lib/suggestionReview";
+import type { BulkReviewAction } from "../../lib/suggestionReview";
 
 interface Chip {
   key: string;
@@ -13,7 +10,6 @@ export interface BulkConfirmation {
   action: BulkReviewAction;
   count: number;
   threshold: number;
-  methodLabel: string;
   siteLabel: string;
 }
 
@@ -21,8 +17,6 @@ interface Props {
   chips: Chip[];
   active: string;
   onSelect: (key: string) => void;
-  method: SuggestionMethodFilter;
-  onMethodChange: (method: SuggestionMethodFilter) => void;
   threshold: number;
   onThresholdChange: (threshold: number) => void;
   acceptCount: number;
@@ -33,18 +27,10 @@ interface Props {
   onCancel: () => void;
 }
 
-const METHODS: { key: SuggestionMethodFilter; label: string }[] = [
-  { key: "all", label: "All methods" },
-  { key: "baseline_cosine", label: "Baseline" },
-  { key: "gnn_graphsage", label: "GNN" },
-];
-
 export default function BulkActions({
   chips,
   active,
   onSelect,
-  method,
-  onMethodChange,
   threshold,
   onThresholdChange,
   acceptCount,
@@ -54,9 +40,10 @@ export default function BulkActions({
   onConfirm,
   onCancel,
 }: Props) {
-  const comparison = confirmation?.action === "approve"
-    ? `at least ${confirmation.threshold}%`
-    : `below ${confirmation?.threshold}%`;
+  const comparison =
+    confirmation?.action === "approve"
+      ? `at least ${confirmation.threshold}%`
+      : `below ${confirmation?.threshold}%`;
   const verb = confirmation?.action === "approve" ? "Accept" : "Reject";
 
   return (
@@ -72,7 +59,7 @@ export default function BulkActions({
                 : "border-stone-300 text-stone-950 hover:border-stone-950"
             }`}
           >
-            {chip.label} · {chip.count}
+            {chip.label} - {chip.count}
           </button>
         ))}
       </div>
@@ -81,24 +68,6 @@ export default function BulkActions({
         aria-label="Bulk review controls"
         className="flex flex-wrap items-center gap-3 rounded-2xl border border-stone-200 bg-white p-3"
       >
-        <div className="flex items-center gap-1 rounded-full bg-stone-100 p-1">
-          {METHODS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              aria-pressed={method === option.key}
-              onClick={() => onMethodChange(option.key)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                method === option.key
-                  ? "bg-white text-stone-950 shadow-sm"
-                  : "text-stone-500 hover:text-stone-950"
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-
         <label className="flex items-center gap-2 text-sm text-stone-600">
           Score threshold
           <span className="flex items-center rounded-full border border-stone-300 bg-white px-3 py-1.5">
@@ -123,7 +92,7 @@ export default function BulkActions({
           onClick={() => onRequest("approve")}
           className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-400"
         >
-          Accept ≥ {threshold}% · {acceptCount}
+          Accept &gt;= {threshold}% - {acceptCount}
         </button>
         <button
           type="button"
@@ -131,7 +100,7 @@ export default function BulkActions({
           onClick={() => onRequest("reject")}
           className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-950 disabled:cursor-not-allowed disabled:text-stone-300"
         >
-          Reject &lt; {threshold}% · {rejectCount}
+          Reject &lt; {threshold}% - {rejectCount}
         </button>
       </div>
 
@@ -147,8 +116,8 @@ export default function BulkActions({
               {confirmation.count === 1 ? "" : "s"}?
             </div>
             <div className="mt-0.5 text-xs text-stone-500">
-              {confirmation.methodLabel} · {confirmation.siteLabel} · {comparison}. Preview only —
-              decisions aren&apos;t sent to the site yet.
+              {confirmation.siteLabel} - {comparison}. Decisions are saved to the LinkMesh
+              review queue; approved links are not live until published.
             </div>
           </div>
           <button

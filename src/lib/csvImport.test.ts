@@ -86,6 +86,21 @@ describe("parseSiteCsv", () => {
     ]);
   });
 
+  it("keeps physical line numbers after a quoted field spans multiple lines", () => {
+    const { rows } = parseSiteCsv(
+      [
+        header,
+        '"First\nSite",https://first.example.com,wordpress',
+        "Broken,not-a-url,html",
+      ].join("\n"),
+    );
+
+    expect(rows.map((row) => [row.line, row.error])).toEqual([
+      [2, null],
+      [4, "base_url must start with http:// or https://"],
+    ]);
+  });
+
   it("flags in-file duplicates, ignoring a trailing slash", () => {
     const { rows } = parseSiteCsv(
       [

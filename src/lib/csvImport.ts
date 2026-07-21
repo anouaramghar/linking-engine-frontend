@@ -15,6 +15,11 @@ export interface ParsedCsv {
 
 type SiteField = keyof SiteCreate;
 
+interface DelimitedRow {
+  cells: string[];
+  line: number;
+}
+
 /** Mirrors MAX_BULK_SITES in the API's site schema; keep the two in step. */
 export const MAX_BULK_SITES = 1000;
 
@@ -64,12 +69,14 @@ const sniffDelimiter = (headerLine: string) =>
 const normalizeHeader = (header: string) =>
   header.trim().toLowerCase().replace(/[\s-]+/g, "_");
 
-/** RFC 4180 tokenizer: honours quoted fields, "" escapes, and newlines inside quotes. */
-export const parseDelimitedText = (text: string, delimiter: string): string[][] => {
-  const rows: string[][] = [];
+/** RFC 4180 tokenizer that retains each record's physical starting line. */
+const parseDelimitedRows = (text: string, delimiter: string): DelimitedRow[] => {
+  const rows: DelimitedRow[] = [];
   let row: string[] = [];
   let field = "";
   let quoted = false;
+  let line = 1;
+  let rowLine = 1;
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -77,6 +84,7 @@ export const parseDelimitedText = (text: string, delimiter: string): string[][] 
     if (quoted) {
       if (char !== '"') {
         field += char;
+        if (char === "\n") line++;
       } else if (text[i + 1] === '"') {
         field += '"';
         i++; // consume the escaped pair
@@ -92,18 +100,24 @@ export const parseDelimitedText = (text: string, delimiter: string): string[][] 
       field = "";
     } else if (char === "\n") {
       row.push(field);
-      rows.push(row);
+      rows.push({ cells: row, line: rowLine });
       row = [];
       field = "";
+      line++;
+      rowLine = line;
     } else if (char !== "\r") field += char;
   }
 
   if (field !== "" || row.length > 0) {
     row.push(field);
-    rows.push(row);
+    rows.push({ cells: row, line: rowLine });
   }
   return rows;
 };
+
+/** RFC 4180 tokenizer: honours quoted fields, "" escapes, and newlines inside quotes. */
+export const parseDelimitedText = (text: string, delimiter: string): string[][] =>
+  parseDelimitedRows(text, delimiter).map((row) => row.cells);
 
 const toSite = (cells: Record<string, string>): { site: SiteCreate | null; error: string | null } => {
   const name = cells.name ?? "";
@@ -137,18 +151,17 @@ const toSite = (cells: Record<string, string>): { site: SiteCreate | null; error
 export const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, "");
 
 export const parseSiteCsv = (text: string): ParsedCsv => {
-  const clean = text.replace(/^﻿/, "").trim(); // Excel prefixes a BOM
-  if (!clean) return { rows: [], headers: [], missingColumns: REQUIRED_COLUMNS };
+  const source = text.replace(/^﻿/, ""); // Excel prefixes a BOM
+  if (!source.trim()) return { rows: [], headers: [], missingColumns: REQUIRED_COLUMNS };
 
-  const delimiter = sniffDelimiter(clean.split("\n", 1)[0]);
-  const table = parseDelimitedText(clean, delimiter);
-  const headerCells = (table.shift() ?? []).map(normalizeHeader);
+  const delimiter = sniffDelimiter(source.split("\n", 1)[0]);
+  const table = parseDelimitedRows(source, delimiter);
+  const headerCells = (table.shift()?.cells ?? []).map(normalizeHeader);
   const headers = headerCells.map((header) => HEADER_ALIASES[header] ?? header);
   const missingColumns = REQUIRED_COLUMNS.filter((column) => !headers.includes(column));
 
   const seen = new Set<string>();
-  const rows = table.map((cells, index): ImportRow | null => {
-    const line = index + 2; // +1 for the header, +1 because files are 1-based
+  const rows = table.map(({ cells, line }): ImportRow | null => {
     if (cells.every((cell) => !cell.trim())) return null; // tolerate blank spacer lines
 
     const record: Record<string, string> = {};

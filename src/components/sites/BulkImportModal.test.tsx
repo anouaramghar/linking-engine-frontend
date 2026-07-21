@@ -78,7 +78,7 @@ describe("BulkImportModal", () => {
   });
 
   it("maps API row numbers back to the original file lines", async () => {
-    const { rerender } = await upload(CSV);
+    const { rerender } = await upload(`${CSV}\nBroken,not-a-url,html`);
     await waitFor(() => expect(screen.getByText("2 ready")).toBeTruthy());
 
     state.data = {
@@ -98,5 +98,8 @@ describe("BulkImportModal", () => {
     await waitFor(() => expect(screen.getByText("line 3")).toBeTruthy());
     expect(screen.getByText("1 imported")).toBeTruthy();
     expect(screen.getByText("1 already existed")).toBeTruthy();
+    expect(screen.getByText("1 invalid in file")).toBeTruthy();
+    expect(screen.getByText("line 4")).toBeTruthy();
+    expect(screen.getByText("base_url must start with http:// or https://")).toBeTruthy();
   });
 });

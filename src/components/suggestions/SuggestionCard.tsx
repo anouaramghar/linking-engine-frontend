@@ -1,5 +1,5 @@
-import type { Suggestion } from "../../types/suggestion";
 import { METHOD_LABEL, STATUS_META, pct } from "../../lib/utils";
+import type { Suggestion } from "../../types/suggestion";
 
 interface Props {
   suggestion: Suggestion;
@@ -8,7 +8,6 @@ interface Props {
   onOpen: () => void;
   onAccept: () => void;
   onReject: () => void;
-  onUndo: () => void;
 }
 
 export default function SuggestionCard({
@@ -18,10 +17,8 @@ export default function SuggestionCard({
   onOpen,
   onAccept,
   onReject,
-  onUndo,
 }: Props) {
   const meta = STATUS_META[s.status];
-  const targetTitle = s.target_article?.title ?? s.external_title ?? s.external_url ?? "";
 
   return (
     <div
@@ -34,22 +31,19 @@ export default function SuggestionCard({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2 text-[15px]">
           <span className="font-medium text-stone-950">{s.source_article.title}</span>
-          <span className="text-stone-400">→</span>
-          <span className="text-stone-600">{targetTitle}</span>
+          <span className="text-stone-400">-&gt;</span>
+          <span className="text-stone-600">{s.target_article.title}</span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
           {s.anchor_text && (
             <span className="rounded-full bg-chip px-3 py-0.5 text-[13px] text-stone-800">
-              “{s.anchor_text}”
+              &quot;{s.anchor_text}&quot;
             </span>
           )}
           <span className="text-[13px] text-stone-400">{siteName}</span>
           <span className="rounded-full border border-stone-200 px-2 py-0.5 text-[11px] uppercase tracking-wide text-stone-500">
             {METHOD_LABEL[s.method] ?? s.method}
           </span>
-          {s.trust_score !== null && (
-            <span className="text-[13px] text-stone-400">trust {pct(s.trust_score)}</span>
-          )}
         </div>
       </div>
       <div className="w-[104px] flex-none text-right">
@@ -63,8 +57,8 @@ export default function SuggestionCard({
         {s.status === "pending" ? (
           <>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 onAccept();
               }}
               className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-950"
@@ -72,8 +66,8 @@ export default function SuggestionCard({
               Accept
             </button>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 onReject();
               }}
               className="rounded-full border border-stone-300 px-[15px] py-2 text-sm font-medium text-stone-950 hover:border-stone-950"
@@ -82,24 +76,11 @@ export default function SuggestionCard({
             </button>
           </>
         ) : (
-          <>
-            <span
-              className={`whitespace-nowrap rounded-full bg-chip px-3 py-1 text-xs font-medium ${meta.fg}`}
-            >
-              {meta.label}
-            </span>
-            {s.status !== "applied" && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUndo();
-                }}
-                className="rounded-full border border-stone-300 px-3 py-2 text-[13px] font-medium text-stone-500 hover:border-stone-950 hover:text-stone-950"
-              >
-                Undo
-              </button>
-            )}
-          </>
+          <span
+            className={`whitespace-nowrap rounded-full bg-chip px-3 py-1 text-xs font-medium ${meta.fg}`}
+          >
+            {meta.label}
+          </span>
         )}
       </div>
     </div>

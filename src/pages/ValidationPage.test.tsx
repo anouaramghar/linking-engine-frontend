@@ -31,19 +31,6 @@ vi.mock("../hooks/useSites", () => ({
       },
     ],
   }),
-  useStats: () => ({
-    data: [
-      {
-        site_id: 1,
-        articles: 10,
-        internal_links: 20,
-        orphan_articles: 2,
-        suggestions_by_status: { pending: 3, approved: 0, applied: 1, rejected: 0 },
-        suggestions_by_method: { baseline_cosine: 3, gnn_graphsage: 1 },
-        approval_rate: null,
-      },
-    ],
-  }),
 }));
 
 const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion => ({
@@ -55,11 +42,6 @@ const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion
   score: 0.8,
   status: "pending",
   anchor_text: "anchor",
-  external_url: null,
-  external_title: null,
-  trust_score: null,
-  context_before: "before ",
-  context_after: " after",
   created_at: "2026-07-16T10:00:00Z",
   ...overrides,
 });
@@ -70,65 +52,66 @@ beforeEach(() => {
     mocks.suggestions.length,
     suggestion(1, { score: 0.8 }),
     suggestion(2, { score: 0.79 }),
-    suggestion(3, { score: 0.95, method: "gnn_graphsage" }),
-    suggestion(4, { score: 0.9, status: "applied" }),
+    suggestion(3, { score: 0.9, status: "applied" }),
   );
-  mocks.reviewMutate.mockClear();
-  mocks.bulkMutate.mockClear();
+  mocks.reviewMutate.mockReset();
+  mocks.bulkMutate.mockReset();
+  mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+  mocks.bulkMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
 });
 
 afterEach(cleanup);
 
-describe("ValidationPage static review state", () => {
-  it("applies a confirmed bulk action locally without review mutations", async () => {
+describe("ValidationPage live review state", () => {
+  it("saves a confirmed bulk action through the backend mutation", async () => {
     const user = userEvent.setup();
     render(<ValidationPage />);
 
-    await user.click(screen.getByRole("button", { name: "Baseline" }));
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
     expect(screen.getByRole("alertdialog").textContent).toContain("1 pending suggestion");
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
+    expect(mocks.bulkMutate).toHaveBeenCalledWith(
+      { ids: [1], status: "approved" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
     expect(screen.getByRole("status").textContent).toContain("1 suggestion queued for publish");
     await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
     expect(screen.getByText("Source 1")).not.toBeNull();
-    expect(mocks.reviewMutate).not.toHaveBeenCalled();
-    expect(mocks.bulkMutate).not.toHaveBeenCalled();
   });
 
-  it("filters the loaded cards by suggestion method", async () => {
+  it("saves an individual decision through the backend mutation", async () => {
     const user = userEvent.setup();
     render(<ValidationPage />);
 
-    await user.click(screen.getByRole("button", { name: "GNN" }));
+    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
 
-    expect(screen.getByText("Source 3")).not.toBeNull();
-    expect(screen.queryByText("Source 1")).toBeNull();
-    expect(screen.queryByText("Source 2")).toBeNull();
+    expect(mocks.reviewMutate).toHaveBeenCalledWith(
+      { id: 1, status: "approved" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
+    expect(screen.getByText("Source 1")).not.toBeNull();
   });
 
-  it("cancels a bulk action without changing local statuses", async () => {
+  it("cancels a bulk action without sending or changing decisions", async () => {
     const user = userEvent.setup();
     render(<ValidationPage />);
 
-    await user.click(screen.getByRole("button", { name: "Baseline" }));
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Queued for publish.*0/ })).not.toBeNull();
+    expect(mocks.bulkMutate).not.toHaveBeenCalled();
   });
 
-  it("keeps an individual decision local", async () => {
-    const user = userEvent.setup();
+  it("does not expose future suggestion methods", () => {
     render(<ValidationPage />);
 
-    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
-    await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
-
-    expect(screen.getByText("Source 1")).not.toBeNull();
-    expect(mocks.reviewMutate).not.toHaveBeenCalled();
-    expect(mocks.bulkMutate).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("GNN");
+    expect(document.body.textContent).not.toContain("External links");
+    expect(document.body.textContent).not.toContain("Generate anchors");
   });
 });

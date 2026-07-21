@@ -5,7 +5,6 @@ import SitesPage from "./SitesPage";
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => ({ data: [] }),
-  useStats: () => ({ data: [] }),
   useDeleteSite: () => ({ mutate: vi.fn() }),
 }));
 
@@ -17,5 +16,15 @@ describe("SitesPage scheduler copy", () => {
 
     expect(document.body.textContent).toContain("Scheduled re-crawls run through RQ.");
     expect(document.body.textContent?.toLowerCase()).not.toContain("celery");
+  });
+
+  it("does not expose unsupported future or fleet actions", () => {
+    render(<SitesPage />);
+
+    expect(document.body.textContent).not.toContain("GNN");
+    expect(document.body.textContent).not.toContain("External links");
+    expect(document.body.textContent).not.toContain("Generate anchors");
+    expect(document.body.textContent).not.toContain("Crawl all");
+    expect(document.body.textContent).not.toContain("Analyze all");
   });
 });
