@@ -62,7 +62,7 @@ describe("current suggestion mutations", () => {
   it("uses the backend's single-review, bulk-review, and baseline-analysis routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post
-      .mockResolvedValueOnce({ data: { reviewed: 2, status: "rejected" } })
+      .mockResolvedValueOnce({ data: { reviewed: 2, skipped: [], status: "rejected" } })
       .mockResolvedValueOnce({ data: { job_id: "analysis-job" } });
 
     await reviewSuggestion(7, "approved");
@@ -75,5 +75,35 @@ describe("current suggestion mutations", () => {
       status: "rejected",
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
+  });
+});
+
+describe("bulkReview", () => {
+  it("splits a batch past the engine's bound and merges the results", async () => {
+    // "Approve all" sends everything the editor has accumulated, which is not
+    // bounded by the page size — unsplit, the engine 422s the whole action.
+    const ids = Array.from({ length: 2400 }, (_, index) => index + 1);
+    api.post
+      .mockResolvedValueOnce({ data: { reviewed: 999, skipped: [7], status: "approved" } })
+      .mockResolvedValueOnce({ data: { reviewed: 1000, skipped: [], status: "approved" } })
+      .mockResolvedValueOnce({ data: { reviewed: 400, skipped: [2001], status: "approved" } });
+
+    const result = await bulkReview(ids, "approved");
+
+    expect(api.post).toHaveBeenCalledTimes(3);
+    expect(api.post.mock.calls.map(([, body]) => body.suggestion_ids.length)).toEqual([
+      1000, 1000, 400,
+    ]);
+    expect(result).toEqual({ reviewed: 2399, skipped: [7, 2001], status: "approved" });
+  });
+
+  it("does not issue a request for an empty batch", async () => {
+    // The engine rejects an empty batch as a client bug; never send one.
+    await expect(bulkReview([], "approved")).resolves.toEqual({
+      reviewed: 0,
+      skipped: [],
+      status: "approved",
+    });
+    expect(api.post).not.toHaveBeenCalled();
   });
 });
