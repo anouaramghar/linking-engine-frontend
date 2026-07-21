@@ -16,6 +16,25 @@ export interface SiteCreate {
   wp_app_password?: string;
 }
 
+export interface BulkCreated {
+  row: number; // 1-based index into the submitted list, not the CSV line
+  id: number;
+  name: string;
+  base_url: string;
+}
+
+export interface BulkFailure {
+  row: number;
+  base_url: string | null;
+  reason: string;
+}
+
+export interface BulkImportResult {
+  created: BulkCreated[];
+  skipped: BulkFailure[];
+  rejected: BulkFailure[];
+}
+
 export interface SiteStats {
   site_id: number;
   articles: number;

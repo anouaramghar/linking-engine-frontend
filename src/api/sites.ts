@@ -1,11 +1,20 @@
 import { api } from "./client";
-import type { EvaluationResult, Site, SiteCreate, SiteStats } from "../types/site";
+import type {
+  BulkImportResult,
+  EvaluationResult,
+  Site,
+  SiteCreate,
+  SiteStats,
+} from "../types/site";
 import type { JobAccepted } from "../types/job";
 
 export const listSites = () => api.get<Site[]>("/sites").then((r) => r.data);
 
 export const createSite = (payload: SiteCreate) =>
   api.post<Site>("/sites", payload).then((r) => r.data);
+
+export const bulkCreateSites = (sites: SiteCreate[]) =>
+  api.post<BulkImportResult>("/sites/bulk", { sites }).then((r) => r.data);
 
 export const deleteSite = (id: number) => api.delete(`/sites/${id}`);
 

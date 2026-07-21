@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import PageHeader from "../components/PageHeader";
 import AddSiteModal from "../components/sites/AddSiteModal";
+import BulkImportModal from "../components/sites/BulkImportModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
 import { ingestSite, publishSite, fleetIngest, fleetAnalyze } from "../api/sites";
@@ -16,6 +17,7 @@ export default function SitesPage() {
   const { data: stats } = useStats();
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<Record<number, string>>({}); // site id -> last job id
 
   const statFor = (id: number) => stats?.find((s) => s.site_id === id);
@@ -42,8 +44,14 @@ export default function SitesPage() {
       <div className="relative overflow-y-auto px-8 py-6">
         <div className="mb-4 flex flex-wrap gap-2">
           <button
-            onClick={() => setShowAdd(true)}
+            onClick={() => setShowImport(true)}
             className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-950"
+          >
+            Import CSV
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium hover:border-stone-950"
           >
             + Connect site
           </button>
@@ -156,6 +164,7 @@ export default function SitesPage() {
         </div>
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
+      {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
     </>
   );
 }

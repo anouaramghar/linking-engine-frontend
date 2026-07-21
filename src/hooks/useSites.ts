@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { createSite, deleteSite, fleetStats, listSites, siteEvaluation } from "../api/sites";
+import {
+  bulkCreateSites,
+  createSite,
+  deleteSite,
+  fleetStats,
+  listSites,
+  siteEvaluation,
+} from "../api/sites";
 
 export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
 
@@ -20,6 +27,17 @@ export const useCreateSite = () => {
   return useMutation({
     mutationFn: createSite,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+  });
+};
+
+export const useBulkCreateSites = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: bulkCreateSites,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sites"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+    },
   });
 };
 
