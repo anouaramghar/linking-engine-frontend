@@ -29,8 +29,12 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
 
   // Held in a ref so an inline parent callback can't restart the countdown on
   // every re-render — the timer belongs to this notice, not to this render.
+  // Assigned in an effect, never during render, so a discarded concurrent
+  // render cannot leave the ref pointing at a callback that never committed.
   const dismiss = useRef(onDismiss);
-  dismiss.current = onDismiss;
+  useEffect(() => {
+    dismiss.current = onDismiss;
+  });
 
   useEffect(() => {
     if (notice.tone === "error") return;

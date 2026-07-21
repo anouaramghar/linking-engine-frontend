@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { BulkReviewAction } from "../../lib/suggestionReview";
 
@@ -46,11 +46,15 @@ export default function BulkActions({
   onCancel,
 }: Props) {
   // Mirrors the committed threshold, but tolerates the transient empty string
-  // and any leading zeros while the field is being edited.
+  // and any leading zeros while the field is being edited. Resynced during
+  // render when the parent clamps the value, so the input never paints a
+  // number the rule is no longer using.
   const [draft, setDraft] = useState(String(threshold));
-  useEffect(() => {
+  const [seenThreshold, setSeenThreshold] = useState(threshold);
+  if (seenThreshold !== threshold) {
+    setSeenThreshold(threshold);
     if (Number(draft) !== threshold) setDraft(String(threshold));
-  }, [threshold]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const comparison =
     confirmation?.action === "approve"

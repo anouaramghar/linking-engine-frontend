@@ -26,13 +26,25 @@ export const clampThreshold = (value: number) =>
 const matchesSite = (suggestion: Suggestion, siteId: number) =>
   siteId === 0 || suggestion.site_id === siteId;
 
+/**
+ * An override is live only until the server catches up with it, and never
+ * outlives a status the publication worker owns — so publish progress is shown
+ * the moment it arrives rather than a render later.
+ */
+const isLive = (suggestion: Suggestion, override: SuggestionStatus | undefined) =>
+  !!override &&
+  override !== suggestion.status &&
+  !WORKER_OWNED.includes(suggestion.status);
+
 export const resolveSuggestionStatuses = (
   suggestions: Suggestion[],
   overrides: StatusOverrides,
 ) =>
   suggestions.map((suggestion) => {
-    const status = overrides[suggestion.id];
-    return status && status !== suggestion.status ? { ...suggestion, status } : suggestion;
+    const override = overrides[suggestion.id];
+    return isLive(suggestion, override)
+      ? { ...suggestion, status: override as SuggestionStatus }
+      : suggestion;
   });
 
 export const filterSuggestions = (
@@ -62,8 +74,9 @@ export const getBulkTargets = (suggestions: Suggestion[], rule: BulkTargetRule) 
 };
 
 /**
- * Drop optimistic overrides the server has caught up with, and any override the
- * publication worker has moved past, so publish progress is never masked.
+ * Drop overrides that `resolveSuggestionStatuses` would already ignore. Purely
+ * housekeeping so the map does not grow without bound across a long session —
+ * correctness does not depend on it having run.
  */
 export const pruneStatusOverrides = (
   suggestions: Suggestion[],
@@ -73,8 +86,7 @@ export const pruneStatusOverrides = (
   let changed = false;
   suggestions.forEach((suggestion) => {
     const override = next[suggestion.id];
-    if (!override) return;
-    if (override === suggestion.status || WORKER_OWNED.includes(suggestion.status)) {
+    if (override && !isLive(suggestion, override)) {
       delete next[suggestion.id];
       changed = true;
     }

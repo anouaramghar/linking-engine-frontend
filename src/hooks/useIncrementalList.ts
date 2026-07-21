@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 export const PAGE_SIZE = 100;
 
@@ -15,36 +15,44 @@ export const useIncrementalList = <T,>(
   pageSize = PAGE_SIZE,
 ) => {
   const [count, setCount] = useState(pageSize);
-  const sentinel = useRef<HTMLDivElement>(null);
+  const [seenKey, setSeenKey] = useState(resetKey);
+  const observer = useRef<IntersectionObserver | null>(null);
 
-  useEffect(() => {
+  // Adjusted during render rather than in an effect: the first page is what
+  // this key should always have shown, so there is no correct intermediate
+  // state to paint before an effect could correct it.
+  if (seenKey !== resetKey) {
+    setSeenKey(resetKey);
     setCount(pageSize);
-  }, [resetKey, pageSize]);
+  }
 
   const showMore = useCallback(
     () => setCount((current) => current + pageSize),
     [pageSize],
   );
 
+  const shown = Math.min(count, items.length);
   const hasMore = items.length > count;
 
-  // Extend on scroll where the browser supports it; the button below the list
-  // stays the accessible path and the fallback everywhere else.
-  useEffect(() => {
-    const node = sentinel.current;
-    if (!hasMore || !node || typeof IntersectionObserver === "undefined") return;
+  // A callback ref, so the observer is wired when the sentinel mounts and torn
+  // down when it leaves — no ref reads during render.
+  const sentinel = useCallback(
+    (node: HTMLDivElement | null) => {
+      observer.current?.disconnect();
+      if (!node || typeof IntersectionObserver === "undefined") return;
 
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) showMore();
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMore, showMore, count]);
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) showMore();
+      });
+      observer.current.observe(node);
+    },
+    [showMore],
+  );
 
   return {
     visible: items.slice(0, count),
     total: items.length,
-    shown: Math.min(count, items.length),
+    shown,
     hasMore,
     showMore,
     sentinel,

@@ -72,16 +72,13 @@ export default function ValidationPage() {
     if (hasSites) void suggestionsQuery.refetch();
   };
 
+  // Overrides bridge the short refetch after a review. Resolution ignores any
+  // the server has caught up with, so no cleanup pass is needed to stay
+  // correct; pruning only keeps the map from growing across a long session.
   const resolvedSuggestions = useMemo(
     () => resolveSuggestionStatuses(sourceSuggestions, statusOverrides),
     [sourceSuggestions, statusOverrides],
   );
-
-  // Overrides bridge the short refetch after a successful review; drop each one as
-  // soon as the server agrees with it, or as soon as publishing moves past it.
-  useEffect(() => {
-    setStatusOverrides((current) => pruneStatusOverrides(sourceSuggestions, current));
-  }, [sourceSuggestions]);
 
   const suggestions = useMemo(
     () =>
@@ -92,7 +89,14 @@ export default function ValidationPage() {
     [resolvedSuggestions, siteFilter, statusFilter],
   );
 
-  const page = useIncrementalList(suggestions, `${statusFilter}:${siteFilter}`);
+  const {
+    visible: visibleSuggestions,
+    shown,
+    total,
+    hasMore,
+    showMore,
+    sentinel,
+  } = useIncrementalList(suggestions, `${statusFilter}:${siteFilter}`);
 
   const siteName = (id: number) =>
     sites?.find((site) => site.id === id)?.name ?? `site ${id}`;
@@ -122,7 +126,9 @@ export default function ValidationPage() {
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
     setStatusOverrides((current) => {
-      const next = { ...current };
+      // Housekeeping on write rather than in an effect: drop the overrides the
+      // server has already caught up with as we add the new ones.
+      const next = { ...pruneStatusOverrides(sourceSuggestions, current) };
       ids.forEach((id) => {
         next[id] = status;
       });
@@ -248,7 +254,7 @@ export default function ValidationPage() {
     const next = current === -1 ? 0 : Math.min(suggestions.length - 1, Math.max(0, current + delta));
     // Keep the cursor inside what is mounted, so paging never strands it on a
     // row that has no card to scroll to.
-    if (next >= page.shown) page.showMore();
+    if (next >= shown) showMore();
     setSelectedId(suggestions[next].id);
   };
 
@@ -355,7 +361,7 @@ export default function ValidationPage() {
             {!loading && !failed && (
               <>
                 <ul className="flex flex-col gap-2.5">
-                  {page.visible.map((suggestion) => (
+                  {visibleSuggestions.map((suggestion) => (
                     <SuggestionCard
                       key={suggestion.id}
                       suggestion={suggestion}
@@ -369,17 +375,17 @@ export default function ValidationPage() {
                     />
                   ))}
                 </ul>
-                {page.hasMore && (
-                  <div ref={page.sentinel} className="flex flex-col items-center gap-2 py-2">
+                {hasMore && (
+                  <div ref={sentinel} className="flex flex-col items-center gap-2 py-2">
                     <button
                       type="button"
-                      onClick={page.showMore}
+                      onClick={showMore}
                       className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium hover:border-stone-950"
                     >
                       Show more
                     </button>
                     <span className="text-[12.5px] text-stone-600">
-                      Showing {page.shown.toLocaleString()} of {page.total.toLocaleString()}
+                      Showing {shown.toLocaleString()} of {total.toLocaleString()}
                     </span>
                   </div>
                 )}

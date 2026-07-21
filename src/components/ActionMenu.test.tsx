@@ -17,7 +17,7 @@ const open = async (onSelect = vi.fn()) => {
 
 describe("ActionMenu", () => {
   it("announces itself as a menu and reports expansion", async () => {
-    const { } = await open();
+    await open();
 
     const trigger = screen.getByRole("button", { name: "Actions" });
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");

@@ -151,7 +151,7 @@ const toSite = (cells: Record<string, string>): { site: SiteCreate | null; error
 export const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, "");
 
 export const parseSiteCsv = (text: string): ParsedCsv => {
-  const source = text.replace(/^﻿/, ""); // Excel prefixes a BOM
+  const source = text.replace(/^\uFEFF/, ""); // Excel prefixes a BOM
   if (!source.trim()) return { rows: [], headers: [], missingColumns: REQUIRED_COLUMNS };
 
   const delimiter = sniffDelimiter(source.split("\n", 1)[0]);

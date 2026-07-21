@@ -36,8 +36,12 @@ const KEYS: Record<string, keyof QueueShortcutHandlers> = {
  * decision is reachable without leaving the home row.
  */
 export const useQueueShortcuts = (handlers: QueueShortcutHandlers, enabled = true) => {
+  // Committed in an effect rather than during render, so the listener always
+  // calls handlers from a render that actually made it to the screen.
   const latest = useRef(handlers);
-  latest.current = handlers;
+  useEffect(() => {
+    latest.current = handlers;
+  });
 
   useEffect(() => {
     if (!enabled) return;
