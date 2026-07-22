@@ -105,6 +105,7 @@ export default function SuggestionCard({
             </span>
             {isReversible(s.status) && (
               <button
+                type="button"
                 onClick={(event) => {
                   event.stopPropagation();
                   onUndo();

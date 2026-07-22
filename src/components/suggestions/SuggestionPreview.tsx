@@ -110,6 +110,7 @@ export default function SuggestionPreview({
           </div>
           {isReversible(s.status) && (
             <button
+              type="button"
               onClick={onUndo}
               className="rounded-full border border-stone-300 px-[18px] py-3 text-sm font-medium text-stone-950 hover:border-stone-950"
             >

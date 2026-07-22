@@ -1,15 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { publishSite } from "../api/sites";
+import { isConflict } from "../lib/errors";
 
 export interface PublishOutcome {
   queued: number;
   alreadyRunning: number;
   failed: number;
 }
-
-const isConflict = (error: unknown) =>
-  (error as { response?: { status?: number } })?.response?.status === 409;
 
 /**
  * Publishing is per site, so shipping an approved backlog spanning several sites

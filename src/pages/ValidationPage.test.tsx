@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
   publishMutate: vi.fn(),
+  /** Ids the engine reports it could not review, as a live publish would. */
+  bulkSkipped: [] as number[],
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
@@ -70,8 +72,18 @@ beforeEach(() => {
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
   mocks.publishMutate.mockReset();
+  mocks.bulkSkipped = [];
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
-  mocks.bulkMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+  // Mirrors the real endpoint: a batch reports what it applied and what it had
+  // to leave alone, so the page is exercised against a partial result.
+  mocks.bulkMutate.mockImplementation(
+    (variables: { ids: number[]; status: string }, options) =>
+      options?.onSuccess?.({
+        reviewed: variables.ids.length - mocks.bulkSkipped.length,
+        skipped: mocks.bulkSkipped,
+        status: variables.status,
+      }),
+  );
   mocks.sitesQuery = query();
   mocks.suggestionsQuery = query();
 });
@@ -141,6 +153,39 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
   });
 
+  it("keeps the rows a publish already claimed out of the local override", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.push(suggestion(4, { score: 0.85 }));
+    render(<ValidationPage />);
+
+    // The worker claims suggestion 1 between the decision and this batch.
+    mocks.bulkSkipped = [1];
+    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+
+    const notice = screen.getByRole("alert");
+    expect(notice.textContent).toContain("1 suggestion queued for publish");
+    expect(notice.textContent).toContain("1 was already publishing and could not be changed");
+    // Only the row that actually moved leaves the pending list.
+    expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+  });
+
+  it("says so plainly when a batch changed nothing at all", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    mocks.bulkSkipped = [1];
+    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+
+    const notice = screen.getByRole("alert");
+    expect(notice.textContent).toContain("Nothing changed");
+    // No dead-end retry advice for an outcome that will never change.
+    expect(notice.textContent).not.toContain("try again");
+    expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
+  });
+
   it("never targets suggestions hidden by the active status filter", async () => {
     const user = userEvent.setup();
     render(<ValidationPage />);
@@ -202,6 +247,48 @@ describe("ValidationPage keyboard review", () => {
       { id: 2, status: "rejected" },
       expect.anything(),
     );
+  });
+
+  it("hands the cursor to the next row after a decision", async () => {
+    const user = userEvent.setup();
+    render(<ValidationPage />);
+
+    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
+
+    await user.keyboard("j");
+    expect(within(preview()).getByText("Source 1")).not.toBeNull();
+
+    // Accepting drops the row out of the pending filter. The cursor has to
+    // follow the queue forward, or the next 'j' restarts from the top.
+    await user.keyboard("a");
+    expect(within(preview()).getByText("Source 2")).not.toBeNull();
+
+    await user.keyboard("a");
+    expect(mocks.reviewMutate).toHaveBeenLastCalledWith(
+      { id: 2, status: "approved" },
+      expect.anything(),
+    );
+  });
+
+  it("resumes from the editor's place when a batch removes the cursor row", async () => {
+    const user = userEvent.setup();
+    // Pending order is [1 @80%, 2 @79%, 4 @50%, 5 @95%]; a "below 80%" rule
+    // takes 2 and 4, so the cursor row goes but the row after it survives.
+    mocks.suggestions.push(suggestion(4, { score: 0.5 }), suggestion(5, { score: 0.95 }));
+    render(<ValidationPage />);
+
+    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
+
+    await user.keyboard("jjj"); // cursor on the third pending row, id 4
+    expect(within(preview()).getByText("Source 4")).not.toBeNull();
+
+    // A bulk reject takes that row without going through `decide`.
+    await user.click(screen.getByRole("button", { name: /Reject.*2/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm reject" }));
+    await user.keyboard("j");
+
+    // Index 2 now holds id 5 — not id 1 back at the top of the queue.
+    expect(within(preview()).getByText("Source 5")).not.toBeNull();
   });
 
   it("closes the preview on Escape", async () => {

@@ -1,6 +1,14 @@
 interface ApiErrorShape {
-  response?: { data?: { detail?: unknown } };
+  response?: { status?: number; data?: { detail?: unknown } };
 }
+
+/**
+ * A 409 means the publication worker got there first. It is a settled outcome,
+ * not a transient failure — callers must not invite a retry that would fail the
+ * same way every time.
+ */
+export const isConflict = (error: unknown) =>
+  (error as ApiErrorShape | null)?.response?.status === 409;
 
 /**
  * Pull a human-readable reason out of an API failure. FastAPI returns a string

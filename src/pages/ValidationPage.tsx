@@ -14,6 +14,7 @@ import { usePublishSites } from "../hooks/usePublish";
 import { SHORTCUT_HINT, useQueueShortcuts } from "../hooks/useQueueShortcuts";
 import { useBulkReview, useReview, useSuggestions } from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
+import { isConflict } from "../lib/errors";
 import { isReversible } from "../lib/utils";
 import {
   clampThreshold,
@@ -96,6 +97,7 @@ export default function ValidationPage() {
     hasMore,
     showMore,
     sentinel,
+    autoLoadPaused,
   } = useIncrementalList(suggestions, `${statusFilter}:${siteFilter}`);
 
   const siteName = (id: number) =>
@@ -137,18 +139,71 @@ export default function ValidationPage() {
     setNotice(notice);
   };
 
+  /**
+   * Report a batch the engine only partly applied. A row the publication worker
+   * has claimed can no longer be reviewed, and the rest of the batch still went
+   * through — so override only what actually moved and name what did not,
+   * rather than claiming a clean result or offering a retry that cannot work.
+   */
+  const applyBatch = (
+    ids: number[],
+    status: ReviewStatus,
+    skipped: number[],
+    describe: (count: number) => string,
+  ) => {
+    const blocked = new Set(skipped);
+    const applied = ids.filter((id) => !blocked.has(id));
+    const aside = skipped.length
+      ? `${skipped.length} ${skipped.length === 1 ? "was" : "were"} already publishing and could not be changed.`
+      : "";
+
+    if (!applied.length) {
+      setNotice({
+        message: `Nothing changed. ${aside || "Those suggestions are no longer reviewable."}`,
+        tone: "error",
+      });
+      return;
+    }
+    applyStatuses(applied, status, {
+      message: [describe(applied.length), aside].filter(Boolean).join(" "),
+      // A partial result needs attention, so it stays until dismissed.
+      tone: skipped.length ? "error" : "info",
+      // Undoing an undo is just a re-review; only decisions offer it.
+      undoIds: status === "pending" ? undefined : applied,
+    });
+  };
+
+  /**
+   * The row that will hold the cursor once `id` leaves the filtered list. A
+   * reviewed suggestion drops out of every filter but "all", so handing the
+   * cursor forward here is what lets `a a a` walk the queue — without it the
+   * selection stops resolving and `j` restarts from the top.
+   */
+  const successorOf = (id: number) => {
+    const index = suggestions.findIndex((item) => item.id === id);
+    if (index === -1) return null;
+    return (suggestions[index + 1] ?? suggestions[index - 1])?.id ?? null;
+  };
+
   const decide = (id: number, status: ReviewStatus) => {
     const message =
       status === "approved" ? "1 suggestion queued for publish." : "1 suggestion rejected.";
+    // Only when the cursor row is the one being decided — clicking Accept on
+    // some other card should not move the editor's place in the queue.
+    const successor = id === selectedId ? successorOf(id) : undefined;
     setNotice(null);
     review.mutate(
       { id, status },
       {
-        onSuccess: () =>
-          applyStatuses([id], status, { message, tone: "info", undoIds: [id] }),
-        onError: () =>
+        onSuccess: () => {
+          applyStatuses([id], status, { message, tone: "info", undoIds: [id] });
+          if (successor !== undefined) setSelectedId(successor);
+        },
+        onError: (error) =>
           setNotice({
-            message: "The review decision could not be saved. Please try again.",
+            message: isConflict(error)
+              ? "That suggestion is already publishing, so it can no longer be reviewed."
+              : "The review decision could not be saved. Please try again.",
             tone: "error",
           }),
       },
@@ -160,11 +215,13 @@ export default function ValidationPage() {
     bulkReview.mutate(
       { ids, status: "pending" },
       {
-        onSuccess: () =>
-          applyStatuses(ids, "pending", {
-            message: `${ids.length} ${plural(ids.length)} restored to pending review.`,
-            tone: "info",
-          }),
+        onSuccess: ({ skipped }) =>
+          applyBatch(
+            ids,
+            "pending",
+            skipped,
+            (count) => `${count} ${plural(count)} restored to pending review.`,
+          ),
         onError: () =>
           setNotice({
             message: "That undo could not be saved. Please try again.",
@@ -187,21 +244,20 @@ export default function ValidationPage() {
 
   const confirmBulk = () => {
     if (!confirmation) return;
-    const status: ReviewStatus =
-      confirmation.action === "approve" ? "approved" : "rejected";
-    const noun = plural(confirmation.count);
-    const message =
-      confirmation.action === "approve"
-        ? `${confirmation.count} ${noun} queued for publish.`
-        : `${confirmation.count} ${noun} rejected.`;
+    const approving = confirmation.action === "approve";
+    const status: ReviewStatus = approving ? "approved" : "rejected";
     const ids = confirmation.ids;
     setNotice(null);
     setConfirmation(null);
     bulkReview.mutate(
       { ids, status },
       {
-        onSuccess: () =>
-          applyStatuses(ids, status, { message, tone: "info", undoIds: ids }),
+        onSuccess: ({ skipped }) =>
+          applyBatch(ids, status, skipped, (count) =>
+            approving
+              ? `${count} ${plural(count)} queued for publish.`
+              : `${count} ${plural(count)} rejected.`,
+          ),
         onError: () =>
           setNotice({
             message: "The bulk review could not be saved. Please try again.",
@@ -247,11 +303,24 @@ export default function ValidationPage() {
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
 
+  // The position the cursor last held. Tracked in an effect rather than during
+  // render so a discarded concurrent render cannot record a place the editor
+  // never saw.
+  const lastIndex = useRef(0);
+  useEffect(() => {
+    const index = suggestions.findIndex((item) => item.id === selectedId);
+    if (index !== -1) lastIndex.current = index;
+  }, [suggestions, selectedId]);
+
   // Move the cursor within the visible list, seeding it at the top on first use.
   const step = (delta: number) => {
     if (!suggestions.length) return;
     const current = suggestions.findIndex((item) => item.id === selectedId);
-    const next = current === -1 ? 0 : Math.min(suggestions.length - 1, Math.max(0, current + delta));
+    // A bulk review can pull the cursor row out from under the selection. The
+    // row that slid into its index is the one to resume on — snapping back to
+    // the top of the queue would lose the editor's place entirely.
+    const target = current === -1 ? lastIndex.current : current + delta;
+    const next = Math.min(suggestions.length - 1, Math.max(0, target));
     // Keep the cursor inside what is mounted, so paging never strands it on a
     // row that has no card to scroll to.
     if (next >= shown) showMore();
@@ -386,6 +455,13 @@ export default function ValidationPage() {
                     </button>
                     <span className="text-[12.5px] text-stone-600">
                       Showing {shown.toLocaleString()} of {total.toLocaleString()}
+                      {autoLoadPaused && (
+                        <>
+                          {" "}
+                          — paused here to keep the page responsive. Narrow the queue with
+                          the filters above, or keep loading.
+                        </>
+                      )}
                     </span>
                   </div>
                 )}

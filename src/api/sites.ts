@@ -6,6 +6,7 @@ import type {
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 
+/** Must stay at or below the engine's MAX_PAGE_SIZE — see SUGGESTION_PAGE_SIZE. */
 const SITE_PAGE_SIZE = 1000;
 
 export const listSites = async () => {
