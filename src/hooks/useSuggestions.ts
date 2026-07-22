@@ -29,6 +29,7 @@ export const useBulkReview = () => {
   return useMutation({
     mutationFn: ({ ids, status }: { ids: number[]; status: ReviewStatus }) =>
       bulkReview(ids, status),
-    onSuccess: invalidate,
+    // Earlier chunks may already be committed when a later one fails.
+    onSettled: invalidate,
   });
 };

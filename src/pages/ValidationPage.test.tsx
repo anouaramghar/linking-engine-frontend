@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BulkReviewChunkError } from "../api/suggestions";
 import type { Suggestion } from "../types/suggestion";
 import ValidationPage from "./ValidationPage";
 
@@ -22,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   publishMutate: vi.fn(),
   /** Ids the engine reports it could not review, as a live publish would. */
   bulkSkipped: [] as number[],
+  /** Explicit authority from the engine; null derives the normal mock result. */
+  bulkReviewed: null as number[] | null,
+  bulkError: null as unknown,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
@@ -73,16 +77,25 @@ beforeEach(() => {
   mocks.bulkMutate.mockReset();
   mocks.publishMutate.mockReset();
   mocks.bulkSkipped = [];
+  mocks.bulkReviewed = null;
+  mocks.bulkError = null;
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
   mocks.bulkMutate.mockImplementation(
-    (variables: { ids: number[]; status: string }, options) =>
+    (variables: { ids: number[]; status: string }, options) => {
+      if (mocks.bulkError) {
+        options?.onError?.(mocks.bulkError);
+        return;
+      }
       options?.onSuccess?.({
-        reviewed: variables.ids.length - mocks.bulkSkipped.length,
+        reviewed:
+          mocks.bulkReviewed ??
+          variables.ids.filter((id) => !mocks.bulkSkipped.includes(id)),
         skipped: mocks.bulkSkipped,
         status: variables.status,
-      }),
+      });
+    },
   );
   mocks.sitesQuery = query();
   mocks.suggestionsQuery = query();
@@ -165,10 +178,69 @@ describe("ValidationPage live review state", () => {
 
     const notice = screen.getByRole("alert");
     expect(notice.textContent).toContain("1 suggestion queued for publish");
-    expect(notice.textContent).toContain("1 was already publishing and could not be changed");
+    expect(notice.textContent).toContain(
+      "1 suggestion was already picked up for publishing or had expired",
+    );
     // Only the row that actually moved leaves the pending list.
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+  });
+
+  it("uses only the engine's reviewed ids for local batch state", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.push(suggestion(4, { score: 0.85 }));
+    // Suggestion 1 was requested but no longer exists, so it is neither
+    // reviewed nor skipped by the engine.
+    mocks.bulkReviewed = [4];
+    render(<ValidationPage />);
+
+    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "1 suggestion queued for publish",
+    );
+    expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(mocks.bulkMutate).toHaveBeenLastCalledWith(
+      { ids: [4], status: "pending" },
+      expect.anything(),
+    );
+  });
+
+  it("keeps committed chunks applied and undoable after a later chunk fails", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.push(
+      suggestion(4, { score: 0.85 }),
+      suggestion(5, { score: 0.9 }),
+    );
+    mocks.bulkError = new BulkReviewChunkError(
+      { reviewed: [1], skipped: [], status: "approved" },
+      [4],
+      [5],
+    );
+    render(<ValidationPage />);
+
+    await user.click(screen.getByRole("button", { name: /Accept.*3/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+
+    const notice = screen.getByRole("alert");
+    expect(notice.textContent).toContain("1 decision was saved before the bulk review failed");
+    expect(notice.textContent).toContain(
+      "1 suggestion in the failed request could not be confirmed",
+    );
+    expect(notice.textContent).toContain("1 later suggestion was not attempted");
+    expect(screen.getByRole("button", { name: /Pending review.*3/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+
+    mocks.bulkError = null;
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(mocks.bulkMutate).toHaveBeenLastCalledWith(
+      { ids: [1], status: "pending" },
+      expect.anything(),
+    );
   });
 
   it("says so plainly when a batch changed nothing at all", async () => {
@@ -288,6 +360,30 @@ describe("ValidationPage keyboard review", () => {
     await user.keyboard("j");
 
     // Index 2 now holds id 5 — not id 1 back at the top of the queue.
+    expect(within(preview()).getByText("Source 5")).not.toBeNull();
+  });
+
+  it("resumes at the true vacated position when a batch also removes rows above", async () => {
+    const user = userEvent.setup();
+    // After ids 2 and 4 leave [1, 2, 4, 5, 6], id 5 slides from index 3 to 1.
+    // Id 6 keeps the stale pre-removal index in bounds so clamping cannot hide
+    // an incorrect resume position.
+    mocks.suggestions.push(
+      suggestion(4, { score: 0.5 }),
+      suggestion(5, { score: 0.95 }),
+      suggestion(6, { score: 0.9 }),
+    );
+    render(<ValidationPage />);
+
+    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
+
+    await user.keyboard("jjj");
+    expect(within(preview()).getByText("Source 4")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Reject.*2/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm reject" }));
+    await user.keyboard("j");
+
     expect(within(preview()).getByText("Source 5")).not.toBeNull();
   });
 

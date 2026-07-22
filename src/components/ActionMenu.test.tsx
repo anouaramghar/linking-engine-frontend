@@ -58,14 +58,17 @@ describe("ActionMenu keyboard contract", () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(
-      <ActionMenu
-        label="Actions"
-        items={[
-          { label: "Crawl", onSelect },
-          { label: "Suggest", onSelect, disabled: true },
-          { label: "Publish approved", onSelect },
-        ]}
-      />,
+      <>
+        <ActionMenu
+          label="Actions"
+          items={[
+            { label: "Crawl", onSelect },
+            { label: "Suggest", onSelect, disabled: true },
+            { label: "Publish approved", onSelect },
+          ]}
+        />
+        <button type="button">After actions</button>
+      </>,
     );
     return { user, onSelect, trigger: screen.getByRole("button", { name: "Actions" }) };
   };
@@ -80,6 +83,16 @@ describe("ActionMenu keyboard contract", () => {
 
     expect(screen.getByRole("menu")).not.toBeNull();
     expect(focused()).toBe("Crawl");
+  });
+
+  it("opens from the trigger with ArrowUp and lands on the last enabled item", async () => {
+    const { user, trigger } = await openMany();
+
+    trigger.focus();
+    await user.keyboard("{ArrowUp}");
+
+    expect(screen.getByRole("menu")).not.toBeNull();
+    expect(focused()).toBe("Publish approved");
   });
 
   it("moves with the arrows, skipping items that cannot be chosen", async () => {
@@ -115,16 +128,14 @@ describe("ActionMenu keyboard contract", () => {
     expect(focused()).toBe("Crawl");
   });
 
-  it("closes on Tab and hands focus back to the trigger", async () => {
+  it("closes on Tab and lets focus leave the menu in one action", async () => {
     const { user, trigger } = await openMany();
     await user.click(trigger);
 
     await user.keyboard("{Tab}");
 
-    // Focus must not be stranded on a menu item that is about to unmount; the
-    // next Tab carries on from the trigger, where the editor left off.
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "After actions" }));
   });
 
   it("keeps items out of the tab sequence while the menu owns focus", async () => {

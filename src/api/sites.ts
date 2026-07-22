@@ -5,9 +5,9 @@ import type {
   SiteCreate,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
+import { ENGINE_PAGE_LIMIT } from "./engineLimits";
 
-/** Must stay at or below the engine's MAX_PAGE_SIZE — see SUGGESTION_PAGE_SIZE. */
-const SITE_PAGE_SIZE = 1000;
+const SITE_PAGE_SIZE = ENGINE_PAGE_LIMIT;
 
 export const listSites = async () => {
   const sites: Site[] = [];

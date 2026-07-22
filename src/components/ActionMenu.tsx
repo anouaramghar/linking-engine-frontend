@@ -12,14 +12,15 @@ export interface MenuItem {
  * and announced itself as a disclosure rather than a menu.
  *
  * Claiming role="menu" is a promise about the keyboard: arrows move between
- * items, Home/End jump to the ends, Escape and Tab close and hand focus back to
- * the trigger. Items are removed from the tab sequence so the menu owns focus
- * while it is open, which is what a screen reader announces it will do.
+ * items, Home/End jump to the ends, Escape closes and restores focus, and Tab
+ * closes while allowing focus to continue through the page. Items are removed
+ * from the tab sequence so the menu owns focus while it is open.
  */
 export default function ActionMenu({ label, items }: { label: string; items: MenuItem[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const openingFocus = useRef<"first" | "last">("first");
   const menuId = useId();
 
   const enabledItems = useCallback(
@@ -39,7 +40,10 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
   // Opening moves focus into the menu; the effect runs after the items mount,
   // so there is something to focus by the time it fires.
   useEffect(() => {
-    if (open) enabledItems()[0]?.focus();
+    if (!open) return;
+    const nodes = enabledItems();
+    const index = openingFocus.current === "last" ? nodes.length - 1 : 0;
+    nodes[index]?.focus();
   }, [open, enabledItems]);
 
   useEffect(() => {
@@ -70,6 +74,10 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
   };
 
   const onMenuKeyDown = (event: React.KeyboardEvent) => {
+    // Tab is deliberately untouched. Its native focus move triggers the
+    // menu's blur handler, which closes only after focus has safely moved on.
+    if (event.key === "Tab") return;
+
     const nodes = enabledItems();
     const current = nodes.indexOf(document.activeElement as HTMLButtonElement);
 
@@ -77,10 +85,6 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
     else if (event.key === "ArrowUp") focusAt(current - 1);
     else if (event.key === "Home") focusAt(0);
     else if (event.key === "End") focusAt(nodes.length - 1);
-    // Tab dismisses the menu and puts the caller back on the trigger rather
-    // than tabbing into the page from an item that is about to unmount. The
-    // next Tab then continues from the trigger, where the editor left off.
-    else if (event.key === "Tab") close();
     else return;
 
     event.preventDefault();
@@ -94,11 +98,15 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          openingFocus.current = "first";
+          setOpen((current) => !current);
+        }}
         onKeyDown={(event) => {
           // The conventional way to reach a menu without a mouse.
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
+            openingFocus.current = event.key === "ArrowUp" ? "last" : "first";
             setOpen(true);
           }
         }}
@@ -112,6 +120,9 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
           role="menu"
           aria-label={label}
           onKeyDown={onMenuKeyDown}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) close(false);
+          }}
           className="absolute right-0 z-20 mt-1 w-48 rounded-2xl border border-stone-200 bg-white py-1.5 shadow-[0_8px_24px_rgba(0,0,0,.08)]"
         >
           {items.map((item) => (

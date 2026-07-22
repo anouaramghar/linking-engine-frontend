@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  BulkReviewChunkError,
   bulkReview,
   listSuggestionsForSites,
   reviewSuggestion,
@@ -62,7 +63,7 @@ describe("current suggestion mutations", () => {
   it("uses the backend's single-review, bulk-review, and baseline-analysis routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post
-      .mockResolvedValueOnce({ data: { reviewed: 2, skipped: [], status: "rejected" } })
+      .mockResolvedValueOnce({ data: { reviewed: [8, 9], skipped: [], status: "rejected" } })
       .mockResolvedValueOnce({ data: { job_id: "analysis-job" } });
 
     await reviewSuggestion(7, "approved");
@@ -83,10 +84,19 @@ describe("bulkReview", () => {
     // "Approve all" sends everything the editor has accumulated, which is not
     // bounded by the page size — unsplit, the engine 422s the whole action.
     const ids = Array.from({ length: 2400 }, (_, index) => index + 1);
+    const firstReviewed = ids.slice(0, 1000).filter((id) => id !== 7);
+    const secondReviewed = ids.slice(1000, 2000);
+    const thirdReviewed = ids.slice(2000).filter((id) => id !== 2001);
     api.post
-      .mockResolvedValueOnce({ data: { reviewed: 999, skipped: [7], status: "approved" } })
-      .mockResolvedValueOnce({ data: { reviewed: 1000, skipped: [], status: "approved" } })
-      .mockResolvedValueOnce({ data: { reviewed: 400, skipped: [2001], status: "approved" } });
+      .mockResolvedValueOnce({
+        data: { reviewed: firstReviewed, skipped: [7], status: "approved" },
+      })
+      .mockResolvedValueOnce({
+        data: { reviewed: secondReviewed, skipped: [], status: "approved" },
+      })
+      .mockResolvedValueOnce({
+        data: { reviewed: thirdReviewed, skipped: [2001], status: "approved" },
+      });
 
     const result = await bulkReview(ids, "approved");
 
@@ -94,13 +104,53 @@ describe("bulkReview", () => {
     expect(api.post.mock.calls.map(([, body]) => body.suggestion_ids.length)).toEqual([
       1000, 1000, 400,
     ]);
-    expect(result).toEqual({ reviewed: 2399, skipped: [7, 2001], status: "approved" });
+    expect(result).toEqual({
+      reviewed: ids.filter((id) => id !== 7 && id !== 2001),
+      skipped: [7, 2001],
+      status: "approved",
+    });
+  });
+
+  it("tolerates the legacy response: a reviewed count and no skipped", async () => {
+    // The engine before the id list reported {reviewed: <count>, status} —
+    // survive that during a mixed-version window rather than crashing the merge.
+    api.post.mockResolvedValueOnce({ data: { reviewed: 2, status: "approved" } });
+
+    await expect(bulkReview([1, 2], "approved")).resolves.toEqual({
+      reviewed: [],
+      skipped: [],
+      status: "approved",
+    });
+  });
+
+  it("preserves completed chunks when a later request fails", async () => {
+    const ids = Array.from({ length: 2500 }, (_, index) => index + 1);
+    const failure = new Error("request failed");
+    api.post
+      .mockResolvedValueOnce({
+        data: { reviewed: ids.slice(0, 1000), skipped: [], status: "rejected" },
+      })
+      .mockRejectedValueOnce(failure);
+
+    const error = await bulkReview(ids, "rejected").catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(BulkReviewChunkError);
+    const partial = error as BulkReviewChunkError;
+    expect(partial.completed).toEqual({
+      reviewed: ids.slice(0, 1000),
+      skipped: [],
+      status: "rejected",
+    });
+    expect(partial.failedIds).toEqual(ids.slice(1000, 2000));
+    expect(partial.notAttemptedIds).toEqual(ids.slice(2000));
+    expect(partial.cause).toBe(failure);
+    expect(api.post).toHaveBeenCalledTimes(2);
   });
 
   it("does not issue a request for an empty batch", async () => {
     // The engine rejects an empty batch as a client bug; never send one.
     await expect(bulkReview([], "approved")).resolves.toEqual({
-      reviewed: 0,
+      reviewed: [],
       skipped: [],
       status: "approved",
     });

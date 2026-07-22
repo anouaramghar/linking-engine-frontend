@@ -155,8 +155,8 @@ earlier, these win.
 
 `POST /suggestions/bulk-review` no longer fails the whole batch when one row has
 moved on. It reviews every row it can and returns
-`{reviewed, skipped[], status}`, where `skipped` lists the suggestions the
-publication worker had already claimed.
+`{reviewed[], skipped[], status}`, where `skipped` lists suggestions that were
+already picked up for publishing or had expired.
 
 Undo races that worker by design — an approval can be picked up while the undo
 affordance is still on screen — and all-or-nothing meant one claimed row left
@@ -189,9 +189,11 @@ the counter says why it paused.
 ### Changed: ActionMenu honours its role
 
 `role="menu"` is a promise about the keyboard. The menu now implements it:
-arrows move between enabled items and wrap, Home/End jump to the ends, Escape
-and Tab close and return focus to the trigger, and items carry `tabindex="-1"`
-so the menu owns focus while open. ArrowDown/ArrowUp on the trigger opens it.
+arrows move between enabled items and wrap, Home/End jump to the ends, and
+items carry `tabindex="-1"` so the menu owns focus while open. Escape closes and
+returns focus to the trigger; Tab closes without preventing the browser's next
+focus move. ArrowDown opens on the first enabled item, while ArrowUp opens on
+the last; clicking the trigger keeps the first-item behavior.
 
 ### Changed: error notices interrupt
 

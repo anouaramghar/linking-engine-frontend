@@ -1,9 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useIncrementalList } from "./useIncrementalList";
 
 const items = (count: number) => Array.from({ length: count }, (_, index) => index);
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("useIncrementalList", () => {
   it("mounts only the first page of a long list", () => {
@@ -42,12 +44,40 @@ describe("useIncrementalList", () => {
     // 100 a page, auto-loading capped at 300: scrolling gets three pages, and
     // the rest is the editor's call. Without the cap an unattended scroll walks
     // the whole queue into the DOM, which is the freeze this hook exists for.
-    const { result } = renderHook(() => useIncrementalList(items(5000), "pending", 100, 300));
+    let intersect = () => {};
+    const observe = vi.fn();
+    class MockIntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly thresholds = [0];
+      readonly disconnect = vi.fn();
+      readonly observe = observe;
+      readonly takeRecords = () => [];
+      readonly unobserve = vi.fn();
 
-    act(() => result.current.showMore());
-    act(() => result.current.showMore());
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () =>
+          callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+
+    const { result } = renderHook(() => useIncrementalList(items(5000), "pending", 100, 300));
+    const sentinel = document.createElement("div");
+    act(() => result.current.sentinel(sentinel));
+    expect(observe).toHaveBeenCalledWith(sentinel);
+
+    act(intersect);
+    act(intersect);
     expect(result.current.shown).toBe(300);
     expect(result.current.autoLoadPaused).toBe(true);
+
+    // More intersections do nothing after the cap.
+    act(intersect);
+    expect(result.current.shown).toBe(300);
 
     // Asking explicitly still works — the cap bounds scrolling, not the editor.
     act(() => result.current.showMore());

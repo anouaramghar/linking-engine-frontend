@@ -4,6 +4,7 @@ import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import { BulkReviewChunkError } from "../api/suggestions";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
@@ -42,6 +43,11 @@ interface ConfirmationState extends BulkConfirmation {
   ids: number[];
 }
 
+interface BatchFailure {
+  failed: number;
+  notAttempted: number;
+}
+
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
 
 export default function ValidationPage() {
@@ -53,6 +59,7 @@ export default function ValidationPage() {
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const cursorRef = useRef<HTMLLIElement>(null);
+  const lastIndex = useRef(0);
 
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
@@ -140,37 +147,79 @@ export default function ValidationPage() {
   };
 
   /**
-   * Report a batch the engine only partly applied. A row the publication worker
-   * has claimed can no longer be reviewed, and the rest of the batch still went
-   * through — so override only what actually moved and name what did not,
-   * rather than claiming a clean result or offering a retry that cannot work.
+   * Report a batch the engine only partly applied. The engine's reviewed list
+   * is authoritative: skipped or unknown ids must never receive a local
+   * override merely because the client requested them.
    */
   const applyBatch = (
-    ids: number[],
+    reviewed: number[],
     status: ReviewStatus,
     skipped: number[],
     describe: (count: number) => string,
+    failure?: BatchFailure,
   ) => {
-    const blocked = new Set(skipped);
-    const applied = ids.filter((id) => !blocked.has(id));
+    const applied = reviewed;
     const aside = skipped.length
-      ? `${skipped.length} ${skipped.length === 1 ? "was" : "were"} already publishing and could not be changed.`
+      ? `${skipped.length} ${plural(skipped.length)} ${skipped.length === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skipped.length === 1 ? "it" : "they"} could not be changed.`
+      : "";
+    const failureMessage = failure
+      ? [
+          `${applied.length} ${applied.length === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
+          `${failure.failed} ${plural(failure.failed)} in the failed request could not be confirmed.`,
+          `${failure.notAttempted} later ${plural(failure.notAttempted)} ${failure.notAttempted === 1 ? "was" : "were"} not attempted.`,
+        ].join(" ")
       : "";
 
     if (!applied.length) {
       setNotice({
-        message: `Nothing changed. ${aside || "Those suggestions are no longer reviewable."}`,
+        message: failure
+          ? [failureMessage, aside].filter(Boolean).join(" ")
+          : `Nothing changed. ${aside || "Those suggestions are no longer reviewable."}`,
         tone: "error",
       });
       return;
     }
+
+    if (selectedId !== null && applied.includes(selectedId)) {
+      const selectedIndex = suggestions.findIndex((item) => item.id === selectedId);
+      if (selectedIndex !== -1) {
+        const removed = new Set(applied);
+        // Resume at the true vacated position after every reviewed row above
+        // the cursor has also left the filtered list.
+        lastIndex.current = suggestions
+          .slice(0, selectedIndex)
+          .filter((suggestion) => !removed.has(suggestion.id)).length;
+      }
+    }
+
     applyStatuses(applied, status, {
-      message: [describe(applied.length), aside].filter(Boolean).join(" "),
+      message: [failureMessage || describe(applied.length), aside]
+        .filter(Boolean)
+        .join(" "),
       // A partial result needs attention, so it stays until dismissed.
-      tone: skipped.length ? "error" : "info",
+      tone: skipped.length || failure ? "error" : "info",
       // Undoing an undo is just a re-review; only decisions offer it.
       undoIds: status === "pending" ? undefined : applied,
     });
+  };
+
+  const applyChunkFailure = (
+    error: unknown,
+    status: ReviewStatus,
+    describe: (count: number) => string,
+  ) => {
+    if (!(error instanceof BulkReviewChunkError)) return false;
+    applyBatch(
+      error.completed.reviewed,
+      status,
+      error.completed.skipped,
+      describe,
+      {
+        failed: error.failedIds.length,
+        notAttempted: error.notAttemptedIds.length,
+      },
+    );
+    return true;
   };
 
   /**
@@ -188,8 +237,8 @@ export default function ValidationPage() {
   const decide = (id: number, status: ReviewStatus) => {
     const message =
       status === "approved" ? "1 suggestion queued for publish." : "1 suggestion rejected.";
-    // Only when the cursor row is the one being decided — clicking Accept on
-    // some other card should not move the editor's place in the queue.
+    // Deliberate tri-state: undefined leaves a non-cursor selection alone;
+    // null clears a cursor whose removed row has no successor.
     const successor = id === selectedId ? successorOf(id) : undefined;
     setNotice(null);
     review.mutate(
@@ -215,18 +264,28 @@ export default function ValidationPage() {
     bulkReview.mutate(
       { ids, status: "pending" },
       {
-        onSuccess: ({ skipped }) =>
+        onSuccess: ({ reviewed, skipped }) =>
           applyBatch(
-            ids,
+            reviewed,
             "pending",
             skipped,
             (count) => `${count} ${plural(count)} restored to pending review.`,
           ),
-        onError: () =>
+        onError: (error) => {
+          if (
+            applyChunkFailure(
+              error,
+              "pending",
+              (count) => `${count} ${plural(count)} restored to pending review.`,
+            )
+          ) {
+            return;
+          }
           setNotice({
             message: "That undo could not be saved. Please try again.",
             tone: "error",
-          }),
+          });
+        },
       },
     );
   };
@@ -252,17 +311,23 @@ export default function ValidationPage() {
     bulkReview.mutate(
       { ids, status },
       {
-        onSuccess: ({ skipped }) =>
-          applyBatch(ids, status, skipped, (count) =>
+        onSuccess: ({ reviewed, skipped }) =>
+          applyBatch(reviewed, status, skipped, (count) =>
             approving
               ? `${count} ${plural(count)} queued for publish.`
               : `${count} ${plural(count)} rejected.`,
           ),
-        onError: () =>
+        onError: (error) => {
+          const describe = (count: number) =>
+            approving
+              ? `${count} ${plural(count)} queued for publish.`
+              : `${count} ${plural(count)} rejected.`;
+          if (applyChunkFailure(error, status, describe)) return;
           setNotice({
             message: "The bulk review could not be saved. Please try again.",
             tone: "error",
-          }),
+          });
+        },
       },
     );
   };
@@ -306,7 +371,6 @@ export default function ValidationPage() {
   // The position the cursor last held. Tracked in an effect rather than during
   // render so a discarded concurrent render cannot record a place the editor
   // never saw.
-  const lastIndex = useRef(0);
   useEffect(() => {
     const index = suggestions.findIndex((item) => item.id === selectedId);
     if (index !== -1) lastIndex.current = index;

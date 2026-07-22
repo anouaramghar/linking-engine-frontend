@@ -1,6 +1,7 @@
 import { api } from "./client";
 import type { ReviewStatus, Suggestion } from "../types/suggestion";
 import type { JobAccepted } from "../types/job";
+import { ENGINE_PAGE_LIMIT } from "./engineLimits";
 
 /**
  * Must stay at or below the engine's MAX_PAGE_SIZE (app/api/pagination.py) —
@@ -8,7 +9,7 @@ import type { JobAccepted } from "../types/job";
  * every read into a 422. Pinned from the backend side by
  * `test_every_list_endpoint_accepts_exactly_max_page_size`.
  */
-const SUGGESTION_PAGE_SIZE = 1000;
+const SUGGESTION_PAGE_SIZE = ENGINE_PAGE_LIMIT;
 
 const listSuggestionsForSite = async (siteId: number) => {
   const suggestions: Suggestion[] = [];
@@ -35,11 +36,35 @@ export const reviewSuggestion = (id: number, status: ReviewStatus) =>
   api.put<Suggestion>(`/suggestions/${id}`, { status }).then((r) => r.data);
 
 export interface BulkReviewResult {
-  /** How many rows actually moved. */
-  reviewed: number;
-  /** Rows the publication worker had already claimed, left untouched. */
+  /** Rows that actually moved. */
+  reviewed: number[];
+  /** Rows already picked up for publishing or expired, left untouched. */
   skipped: number[];
   status: ReviewStatus;
+}
+
+interface BulkReviewResponse {
+  /** An engine that predates the id list reports a bare count here. */
+  reviewed?: number[] | number;
+  skipped?: number[];
+  status: ReviewStatus;
+}
+
+/**
+ * A later chunk failed after earlier chunks had already committed. The failed
+ * request is separate from ids the client never reached, because those two
+ * outcomes need different copy and recovery behavior.
+ */
+export class BulkReviewChunkError extends Error {
+  constructor(
+    readonly completed: BulkReviewResult,
+    readonly failedIds: number[],
+    readonly notAttemptedIds: number[],
+    options?: ErrorOptions,
+  ) {
+    super("Bulk review failed after one or more chunks completed.", options);
+    this.name = "BulkReviewChunkError";
+  }
 }
 
 /**
@@ -48,7 +73,7 @@ export interface BulkReviewResult {
  * reviewed in one action, so a bulk review is not bounded by any single read —
  * "approve all" over a real fleet is far larger than a page.
  */
-const BULK_REVIEW_CHUNK_SIZE = 1000;
+const BULK_REVIEW_CHUNK_SIZE = ENGINE_PAGE_LIMIT;
 
 /**
  * Reviews a batch of any size, a chunk at a time, merging the per-chunk results
@@ -59,18 +84,31 @@ const BULK_REVIEW_CHUNK_SIZE = 1000;
  * up on the same rows rather than finish sooner.
  */
 export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus) => {
-  const merged: BulkReviewResult = { reviewed: 0, skipped: [], status };
+  const merged: BulkReviewResult = { reviewed: [], skipped: [], status };
 
   for (let start = 0; start < suggestion_ids.length; start += BULK_REVIEW_CHUNK_SIZE) {
     const chunk = suggestion_ids.slice(start, start + BULK_REVIEW_CHUNK_SIZE);
-    const result = await api
-      .post<BulkReviewResult>("/suggestions/bulk-review", {
-        suggestion_ids: chunk,
-        status,
-      })
-      .then((r) => r.data);
-    merged.reviewed += result.reviewed;
-    merged.skipped.push(...result.skipped);
+    try {
+      const result = await api
+        .post<BulkReviewResponse>("/suggestions/bulk-review", {
+          suggestion_ids: chunk,
+          status,
+        })
+        .then((r) => r.data);
+      merged.reviewed.push(...(Array.isArray(result.reviewed) ? result.reviewed : []));
+      merged.skipped.push(...(result.skipped ?? []));
+    } catch (cause) {
+      throw new BulkReviewChunkError(
+        {
+          reviewed: [...merged.reviewed],
+          skipped: [...merged.skipped],
+          status,
+        },
+        chunk,
+        suggestion_ids.slice(start + chunk.length),
+        { cause },
+      );
+    }
   }
 
   return merged;
