@@ -5,22 +5,32 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { BulkReviewChunkError } from "../api/suggestions";
+import { ENGINE_PAGE_LIMIT } from "../api/engineLimits";
+import type {
+  SuggestionCounts,
+  SuggestionQueueFilters,
+} from "../api/suggestions";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import { useIncrementalList } from "../hooks/useIncrementalList";
-import { usePublishSites } from "../hooks/usePublish";
+import { usePendingPublication, usePublishSites } from "../hooks/usePublish";
 import { SHORTCUT_HINT, useQueueShortcuts } from "../hooks/useQueueShortcuts";
-import { useBulkReview, useReview, useSuggestions } from "../hooks/useSuggestions";
+import {
+  useBulkReview,
+  useFilteredBulkReview,
+  useReview,
+  useSuggestionCounts,
+  useSuggestions,
+} from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
 import { isConflict } from "../lib/errors";
-import { isReversible } from "../lib/utils";
+import { isReversible, scorePercent } from "../lib/utils";
 import {
   clampThreshold,
   filterSuggestions,
-  getBulkTargets,
   pruneStatusOverrides,
   resolveSuggestionStatuses,
 } from "../lib/suggestionReview";
@@ -29,7 +39,11 @@ import type {
   StatusFilter,
   StatusOverrides,
 } from "../lib/suggestionReview";
-import type { ReviewStatus, SuggestionStatus } from "../types/suggestion";
+import type {
+  ReviewStatus,
+  Suggestion,
+  SuggestionStatus,
+} from "../types/suggestion";
 
 const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "pending", label: "Pending review" },
@@ -39,16 +53,50 @@ const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "rejected", label: "Rejected" },
 ];
 
-interface ConfirmationState extends BulkConfirmation {
-  ids: number[];
-}
-
 interface BatchFailure {
   failed: number;
   notAttempted: number;
 }
 
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
+const STATUS_OVERRIDE_LIMIT = 5_000;
+
+const EMPTY_COUNTS: SuggestionCounts = {
+  pending: 0,
+  approved: 0,
+  rejected: 0,
+  applying: 0,
+  applied: 0,
+  expired: 0,
+  total: 0,
+};
+
+/**
+ * Keep server counts responsive while a committed mutation is refetching.
+ * The server remains the base; only rows present in the current cursor cache can
+ * contribute a known delta.
+ */
+const resolveCounts = (
+  counts: SuggestionCounts | undefined,
+  suggestions: Suggestion[],
+  overrides: StatusOverrides,
+  filters: SuggestionQueueFilters,
+) => {
+  const resolved = { ...(counts ?? EMPTY_COUNTS) };
+  suggestions.forEach((suggestion) => {
+    const status = overrides[suggestion.id];
+    if (!status || status === suggestion.status) return;
+    if (filters.siteId !== undefined && suggestion.site_id !== filters.siteId) return;
+    const percent = scorePercent(suggestion.score);
+    if (filters.minPercent !== undefined && percent < filters.minPercent) return;
+    if (filters.maxPercent !== undefined && percent >= filters.maxPercent) return;
+
+    const previous = suggestion.status as SuggestionStatus;
+    resolved[previous] = Math.max(0, resolved[previous] - 1);
+    resolved[status] += 1;
+  });
+  return resolved;
+};
 
 export default function ValidationPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
@@ -56,28 +104,63 @@ export default function ValidationPage() {
   const [threshold, setThreshold] = useState(80);
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
+  const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
+  const overrideOrder = useRef<number[]>([]);
 
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
-  const siteIds = useMemo(() => sites?.map((site) => site.id) ?? [], [sites]);
-  const suggestionsQuery = useSuggestions(siteIds);
-  const { data: sourceSuggestions = [] } = suggestionsQuery;
+  const hasSites = Boolean(sites?.length);
+  const scope = useMemo<SuggestionQueueFilters>(
+    () => (siteFilter === 0 ? {} : { siteId: siteFilter }),
+    [siteFilter],
+  );
+  const queueFilters = useMemo<SuggestionQueueFilters>(
+    () => ({
+      ...scope,
+      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+    }),
+    [scope, statusFilter],
+  );
+  const suggestionsQuery = useSuggestions(queueFilters, hasSites);
+  const sourceSuggestions = suggestionsQuery.items;
+  const fleetCountsQuery = useSuggestionCounts({}, hasSites);
+  const scopedCountsQuery = useSuggestionCounts(scope, hasSites);
+  const acceptCountsQuery = useSuggestionCounts(
+    { ...scope, minPercent: threshold },
+    hasSites,
+  );
+  const rejectCountsQuery = useSuggestionCounts(
+    { ...scope, maxPercent: threshold },
+    hasSites,
+  );
+  const pendingPublicationQuery = usePendingPublication(hasSites);
   const review = useReview();
   const bulkReview = useBulkReview();
+  const filteredReview = useFilteredBulkReview();
   const publish = usePublishSites();
 
-  const hasSites = siteIds.length > 0;
   // The suggestions query stays disabled until sites arrive, so it reports
   // "pending" before it has any work to do — gate it on the sites we have.
-  const loading = sitesQuery.isPending || (hasSites && suggestionsQuery.isPending);
-  const failed = sitesQuery.isError || suggestionsQuery.isError;
+  const queueQueries = [
+    suggestionsQuery,
+    fleetCountsQuery,
+    scopedCountsQuery,
+    acceptCountsQuery,
+    rejectCountsQuery,
+    pendingPublicationQuery,
+  ];
+  const loading =
+    sitesQuery.isPending ||
+    (hasSites && queueQueries.some((query) => query.isPending));
+  const failed =
+    sitesQuery.isError || queueQueries.some((query) => query.isError);
+  const fetching = queueQueries.some((query) => query.isFetching);
   const retry = () => {
     void sitesQuery.refetch();
-    if (hasSites) void suggestionsQuery.refetch();
+    if (hasSites) queueQueries.forEach((query) => void query.refetch());
   };
 
   // Overrides bridge the short refetch after a review. Resolution ignores any
@@ -100,47 +183,83 @@ export default function ValidationPage() {
   const {
     visible: visibleSuggestions,
     shown,
-    total,
-    hasMore,
-    showMore,
+    hasMore: hasMoreLoaded,
+    showMore: showMoreLoaded,
     sentinel,
     autoLoadPaused,
   } = useIncrementalList(suggestions, `${statusFilter}:${siteFilter}`);
 
+  const hasMore =
+    !suggestionsQuery.isPlaceholderData &&
+    (hasMoreLoaded || Boolean(suggestionsQuery.hasNextPage));
+  const queueAutoLoadPaused =
+    autoLoadPaused ||
+    (!hasMoreLoaded && Boolean(suggestionsQuery.hasNextPage));
+  const showMore = () => {
+    if (suggestionsQuery.isPlaceholderData) return;
+    // Reserve the next rendered slice before the request resolves, so the new
+    // page appears immediately rather than requiring a second click.
+    showMoreLoaded();
+    if (!hasMoreLoaded && suggestionsQuery.hasNextPage) {
+      void suggestionsQuery.fetchNextPage();
+    }
+  };
+
   const siteName = (id: number) =>
     sites?.find((site) => site.id === id)?.name ?? `site ${id}`;
-  const countBy = (status: SuggestionStatus, siteId = siteFilter) =>
-    resolvedSuggestions.filter(
-      (suggestion) =>
-        (siteId === 0 || suggestion.site_id === siteId) && suggestion.status === status,
-    ).length;
-  const scopedTotal = resolvedSuggestions.filter(
-    (suggestion) => siteFilter === 0 || suggestion.site_id === siteFilter,
-  ).length;
+  const fleetCounts = resolveCounts(
+    fleetCountsQuery.data,
+    sourceSuggestions,
+    statusOverrides,
+    {},
+  );
+  const scopedCounts = resolveCounts(
+    scopedCountsQuery.data,
+    sourceSuggestions,
+    statusOverrides,
+    scope,
+  );
+  const acceptCounts = resolveCounts(
+    acceptCountsQuery.data,
+    sourceSuggestions,
+    statusOverrides,
+    { ...scope, minPercent: threshold },
+  );
+  const rejectCounts = resolveCounts(
+    rejectCountsQuery.data,
+    sourceSuggestions,
+    statusOverrides,
+    { ...scope, maxPercent: threshold },
+  );
   const chips = [
-    ...CHIP_DEFS.map((chip) => ({ ...chip, count: countBy(chip.key) })),
-    { key: "all", label: "All", count: scopedTotal },
+    ...CHIP_DEFS.map((chip) => ({ ...chip, count: scopedCounts[chip.key] })),
+    { key: "all", label: "All", count: scopedCounts.total },
   ];
-  const pendingTotal = countBy("pending", 0);
-
-  const bulkScope = { siteId: siteFilter, status: statusFilter, threshold };
-  const acceptTargets = getBulkTargets(resolvedSuggestions, {
-    ...bulkScope,
-    action: "approve",
-  });
-  const rejectTargets = getBulkTargets(resolvedSuggestions, {
-    ...bulkScope,
-    action: "reject",
-  });
+  const pendingTotal = fleetCounts.pending;
+  const acceptCount = acceptCounts.pending;
+  const rejectCount = rejectCounts.pending;
+  const queueTotal =
+    statusFilter === "all" ? scopedCounts.total : scopedCounts[statusFilter];
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
     setStatusOverrides((current) => {
       // Housekeeping on write rather than in an effect: drop the overrides the
       // server has already caught up with as we add the new ones.
       const next = { ...pruneStatusOverrides(sourceSuggestions, current) };
+      const retained = new Set(Object.keys(next).map(Number));
+      const refreshed = new Set(ids);
+      overrideOrder.current = overrideOrder.current.filter(
+        (id) => retained.has(id) && !refreshed.has(id),
+      );
       ids.forEach((id) => {
+        delete next[id];
         next[id] = status;
+        overrideOrder.current.push(id);
       });
+      while (overrideOrder.current.length > STATUS_OVERRIDE_LIMIT) {
+        const oldest = overrideOrder.current.shift();
+        if (oldest !== undefined) delete next[oldest];
+      }
       return next;
     });
     setNotice(notice);
@@ -154,13 +273,14 @@ export default function ValidationPage() {
   const applyBatch = (
     reviewed: number[],
     status: ReviewStatus,
-    skipped: number[],
+    skipped: number[] | number,
     describe: (count: number) => string,
     failure?: BatchFailure,
   ) => {
     const applied = reviewed;
-    const aside = skipped.length
-      ? `${skipped.length} ${plural(skipped.length)} ${skipped.length === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skipped.length === 1 ? "it" : "they"} could not be changed.`
+    const skippedCount = Array.isArray(skipped) ? skipped.length : skipped;
+    const aside = skippedCount
+      ? `${skippedCount} ${plural(skippedCount)} ${skippedCount === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skippedCount === 1 ? "it" : "they"} could not be changed.`
       : "";
     const failureMessage = failure
       ? [
@@ -197,7 +317,7 @@ export default function ValidationPage() {
         .filter(Boolean)
         .join(" "),
       // A partial result needs attention, so it stays until dismissed.
-      tone: skipped.length || failure ? "error" : "info",
+      tone: skippedCount || failure ? "error" : "info",
       // Undoing an undo is just a re-review; only decisions offer it.
       undoIds: status === "pending" ? undefined : applied,
     });
@@ -291,60 +411,69 @@ export default function ValidationPage() {
   };
 
   const requestBulk = (action: BulkReviewAction) => {
-    const targets = action === "approve" ? acceptTargets : rejectTargets;
+    const count = action === "approve" ? acceptCount : rejectCount;
     setConfirmation({
       action,
-      ids: targets.map((suggestion) => suggestion.id),
-      count: targets.length,
+      count,
       threshold,
       siteLabel: siteFilter === 0 ? "All sites" : siteName(siteFilter),
+      undoAvailable: count <= ENGINE_PAGE_LIMIT,
     });
   };
 
   const confirmBulk = () => {
     if (!confirmation) return;
     const approving = confirmation.action === "approve";
-    const status: ReviewStatus = approving ? "approved" : "rejected";
-    const ids = confirmation.ids;
+    const status = approving ? "approved" : "rejected";
+    const describe = (count: number) =>
+      approving
+        ? `${count} ${plural(count)} queued for publish.`
+        : `${count} ${plural(count)} rejected.`;
     setNotice(null);
     setConfirmation(null);
-    bulkReview.mutate(
-      { ids, status },
+    filteredReview.mutate(
       {
-        onSuccess: ({ reviewed, skipped }) =>
-          applyBatch(reviewed, status, skipped, (count) =>
-            approving
-              ? `${count} ${plural(count)} queued for publish.`
-              : `${count} ${plural(count)} rejected.`,
-          ),
-        onError: (error) => {
-          const describe = (count: number) =>
-            approving
-              ? `${count} ${plural(count)} queued for publish.`
-              : `${count} ${plural(count)} rejected.`;
-          if (applyChunkFailure(error, status, describe)) return;
+        siteId: siteFilter === 0 ? undefined : siteFilter,
+        status,
+        thresholdPercent: confirmation.threshold,
+      },
+      {
+        onSuccess: ({ reviewed, skipped, reviewed_ids: reviewedIds }) => {
+          if (reviewedIds !== null) {
+            applyBatch(reviewedIds, status, skipped, describe);
+            return;
+          }
+          setSelectedId(null);
+          setNotice({
+            message: [
+              describe(reviewed),
+              skipped
+                ? `${skipped} ${plural(skipped)} could not be changed because publishing had already claimed them or they had expired.`
+                : "",
+              "This change was too large to undo in one step. The queue has been refreshed.",
+            ]
+              .filter(Boolean)
+              .join(" "),
+            tone: skipped ? "error" : "info",
+          });
+        },
+        onError: () =>
           setNotice({
             message: "The bulk review could not be saved. Please try again.",
             tone: "error",
-          });
-        },
+          }),
       },
     );
   };
 
-  // Sites carrying an approved backlog, scoped to whatever the editor is viewing.
-  const awaitingPublish = [
-    ...new Set(
-      resolvedSuggestions
-        .filter(
-          (suggestion) =>
-            suggestion.status === "approved" &&
-            (siteFilter === 0 || suggestion.site_id === siteFilter),
-        )
-        .map((suggestion) => suggestion.site_id),
-    ),
-  ];
-  const approvedCount = countBy("approved");
+  const pendingPublication = (pendingPublicationQuery.data ?? []).filter(
+    (entry) => siteFilter === 0 || entry.site_id === siteFilter,
+  );
+  const awaitingPublish = pendingPublication.map((entry) => entry.site_id);
+  const approvedCount = pendingPublication.reduce(
+    (total, entry) => total + entry.awaiting_publication,
+    0,
+  );
 
   const startPublish = () => {
     setNotice(null);
@@ -433,8 +562,8 @@ export default function ValidationPage() {
                 setThreshold(clampThreshold(value));
                 setConfirmation(null);
               }}
-              acceptCount={acceptTargets.length}
-              rejectCount={rejectTargets.length}
+              acceptCount={acceptCount}
+              rejectCount={rejectCount}
               actionable={statusFilter === "all" || statusFilter === "pending"}
               confirmation={confirmation}
               onRequest={requestBulk}
@@ -475,7 +604,7 @@ export default function ValidationPage() {
               notice={notice}
               onDismiss={() => setNotice(null)}
               onUndo={notice.undoIds ? () => undo(notice.undoIds!) : undefined}
-              undoPending={bulkReview.isPending}
+              undoPending={bulkReview.isPending || filteredReview.isPending}
             />
           )}
 
@@ -487,7 +616,7 @@ export default function ValidationPage() {
                 title="The review queue could not be loaded"
                 description="LinkMesh could not reach the engine, so this list is not showing your real suggestions."
                 onRetry={retry}
-                retrying={sitesQuery.isFetching || suggestionsQuery.isFetching}
+                retrying={sitesQuery.isFetching || fetching}
               />
             )}
 
@@ -513,13 +642,14 @@ export default function ValidationPage() {
                     <button
                       type="button"
                       onClick={showMore}
+                      disabled={suggestionsQuery.isFetchingNextPage}
                       className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium hover:border-stone-950"
                     >
-                      Show more
+                      {suggestionsQuery.isFetchingNextPage ? "Loading more..." : "Show more"}
                     </button>
                     <span className="text-[12.5px] text-stone-600">
-                      Showing {shown.toLocaleString()} of {total.toLocaleString()}
-                      {autoLoadPaused && (
+                      Showing {shown.toLocaleString()} of {queueTotal.toLocaleString()}
+                      {queueAutoLoadPaused && (
                         <>
                           {" "}
                           — paused here to keep the page responsive. Narrow the queue with

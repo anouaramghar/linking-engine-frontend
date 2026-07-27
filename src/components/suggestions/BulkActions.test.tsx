@@ -54,6 +54,7 @@ describe("BulkActions", () => {
           count: 3,
           threshold: 80,
           siteLabel: "Example site",
+          undoAvailable: true,
         }}
       />,
     );
@@ -63,5 +64,25 @@ describe("BulkActions", () => {
     ).toBe(true);
     expect(screen.getByRole("alertdialog").textContent).toContain("3 pending suggestions");
     expect(screen.getByRole("alertdialog").textContent).toContain("Example site");
+  });
+
+  it("warns before confirming a rule too large for exact undo", () => {
+    const props = baseProps();
+    render(
+      <BulkActions
+        {...props}
+        confirmation={{
+          action: "approve",
+          count: 1001,
+          threshold: 80,
+          siteLabel: "All sites",
+          undoAvailable: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      "too large to undo in one step",
+    );
   });
 });

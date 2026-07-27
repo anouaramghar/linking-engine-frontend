@@ -1,9 +1,8 @@
-import { useMemo } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import { useHealth } from "./hooks/useHealth";
 import { useSites } from "./hooks/useSites";
-import { useSuggestions } from "./hooks/useSuggestions";
+import { useSuggestionCounts } from "./hooks/useSuggestions";
 import SitesPage from "./pages/SitesPage";
 import ValidationPage from "./pages/ValidationPage";
 
@@ -14,10 +13,9 @@ const NAV = [
 
 export default function App() {
   const { data: sites } = useSites();
-  const siteIds = useMemo(() => sites?.map((site) => site.id) ?? [], [sites]);
-  const { data: suggestions } = useSuggestions(siteIds);
+  const { data: counts } = useSuggestionCounts({}, Boolean(sites?.length));
   const { isError: healthFailed, isPending: healthPending } = useHealth();
-  const pending = suggestions?.filter((suggestion) => suggestion.status === "pending").length ?? 0;
+  const pending = counts?.pending ?? 0;
   const healthLabel = healthPending
     ? "Checking engine"
     : healthFailed

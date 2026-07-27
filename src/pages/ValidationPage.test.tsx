@@ -20,20 +20,86 @@ const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
+  filteredBulkMutate: vi.fn(),
   publishMutate: vi.fn(),
   /** Ids the engine reports it could not review, as a live publish would. */
   bulkSkipped: [] as number[],
-  /** Explicit authority from the engine; null derives the normal mock result. */
-  bulkReviewed: null as number[] | null,
+  /** Undefined derives ids from the rule; null models a result over the cap. */
+  filteredReviewedIds: undefined as number[] | null | undefined,
+  filteredReviewedCount: undefined as number | undefined,
   bulkError: null as unknown,
+  filteredBulkError: null as unknown,
+  pendingPublication: [] as {
+    site_id: number;
+    awaiting_publication: number;
+  }[],
+  countsOverride: null as {
+    pending: number;
+    approved: number;
+    rejected: number;
+    applying: number;
+    applied: number;
+    expired: number;
+    total: number;
+  } | null,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
 
 vi.mock("../hooks/useSuggestions", () => ({
-  useSuggestions: () => ({ data: mocks.suggestions, ...mocks.suggestionsQuery }),
+  useSuggestions: () => ({
+    items: mocks.suggestions,
+    total: mocks.suggestions.length,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(),
+    isFetchingNextPage: false,
+    ...mocks.suggestionsQuery,
+  }),
+  useSuggestionCounts: (filters: {
+    siteId?: number;
+    minPercent?: number;
+    maxPercent?: number;
+  }) => {
+    if (mocks.countsOverride) {
+      return {
+        data: mocks.countsOverride,
+        isPending: false,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      };
+    }
+    const selected = mocks.suggestions.filter((item) => {
+      if (filters.siteId !== undefined && item.site_id !== filters.siteId) return false;
+      const percent = Math.round(item.score * 100);
+      if (filters.minPercent !== undefined && percent < filters.minPercent) return false;
+      if (filters.maxPercent !== undefined && percent >= filters.maxPercent) return false;
+      return true;
+    });
+    const count = (status: Suggestion["status"]) =>
+      selected.filter((item) => item.status === status).length;
+    return {
+      data: {
+        pending: count("pending"),
+        approved: count("approved"),
+        rejected: count("rejected"),
+        applying: count("applying"),
+        applied: count("applied"),
+        expired: 0,
+        total: selected.length,
+      },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+  },
   useReview: () => ({ mutate: mocks.reviewMutate }),
   useBulkReview: () => ({ mutate: mocks.bulkMutate, isPending: false }),
+  useFilteredBulkReview: () => ({
+    mutate: mocks.filteredBulkMutate,
+    isPending: false,
+  }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -42,6 +108,13 @@ vi.mock("../hooks/useSites", () => ({
 
 vi.mock("../hooks/usePublish", () => ({
   usePublishSites: () => ({ mutate: mocks.publishMutate, isPending: false }),
+  usePendingPublication: () => ({
+    data: mocks.pendingPublication,
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 const query = (overrides: Record<string, unknown> = {}) => ({
@@ -75,10 +148,15 @@ beforeEach(() => {
   );
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
+  mocks.filteredBulkMutate.mockReset();
   mocks.publishMutate.mockReset();
   mocks.bulkSkipped = [];
-  mocks.bulkReviewed = null;
+  mocks.filteredReviewedIds = undefined;
+  mocks.filteredReviewedCount = undefined;
   mocks.bulkError = null;
+  mocks.filteredBulkError = null;
+  mocks.pendingPublication = [];
+  mocks.countsOverride = null;
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
@@ -89,10 +167,48 @@ beforeEach(() => {
         return;
       }
       options?.onSuccess?.({
-        reviewed:
-          mocks.bulkReviewed ??
-          variables.ids.filter((id) => !mocks.bulkSkipped.includes(id)),
+        reviewed: variables.ids.filter((id) => !mocks.bulkSkipped.includes(id)),
         skipped: mocks.bulkSkipped,
+        status: variables.status,
+      });
+    },
+  );
+  mocks.filteredBulkMutate.mockImplementation(
+    (
+      variables: {
+        siteId?: number;
+        status: "approved" | "rejected";
+        thresholdPercent: number;
+      },
+      options,
+    ) => {
+      if (mocks.filteredBulkError) {
+        options?.onError?.(mocks.filteredBulkError);
+        return;
+      }
+      const targets = mocks.suggestions.filter((item) => {
+        if (item.status !== "pending") return false;
+        if (variables.siteId !== undefined && item.site_id !== variables.siteId) {
+          return false;
+        }
+        const percent = Math.round(item.score * 100);
+        return variables.status === "approved"
+          ? percent >= variables.thresholdPercent
+          : percent < variables.thresholdPercent;
+      });
+      const reviewedIds =
+        mocks.filteredReviewedIds === undefined
+          ? targets
+              .map((item) => item.id)
+              .filter((id) => !mocks.bulkSkipped.includes(id))
+          : mocks.filteredReviewedIds;
+      options?.onSuccess?.({
+        reviewed:
+          mocks.filteredReviewedCount ??
+          reviewedIds?.length ??
+          targets.length - mocks.bulkSkipped.length,
+        skipped: mocks.bulkSkipped.length,
+        reviewed_ids: reviewedIds,
         status: variables.status,
       });
     },
@@ -104,6 +220,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ValidationPage live review state", () => {
+  it("shows server counts beyond the suggestions loaded on the first page", () => {
+    mocks.countsOverride = {
+      pending: 2400,
+      approved: 7,
+      rejected: 3,
+      applying: 1,
+      applied: 9,
+      expired: 2,
+      total: 2420,
+    };
+    render(<ValidationPage />);
+
+    expect(screen.getByRole("button", { name: /Pending review.*2400/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /All.*2420/ })).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Open suggestion:/ })).toHaveLength(2);
+  });
+
   it("saves a confirmed bulk action through the backend mutation", async () => {
     const user = userEvent.setup();
     render(<ValidationPage />);
@@ -112,8 +245,8 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByRole("alertdialog").textContent).toContain("1 pending suggestion");
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
-    expect(mocks.bulkMutate).toHaveBeenCalledWith(
-      { ids: [1], status: "approved" },
+    expect(mocks.filteredBulkMutate).toHaveBeenCalledWith(
+      { siteId: undefined, status: "approved", thresholdPercent: 80 },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
     expect(screen.getByRole("status").textContent).toContain("1 suggestion queued for publish");
@@ -145,7 +278,7 @@ describe("ValidationPage live review state", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Queued for publish.*0/ })).not.toBeNull();
-    expect(mocks.bulkMutate).not.toHaveBeenCalled();
+    expect(mocks.filteredBulkMutate).not.toHaveBeenCalled();
   });
 
   it("walks a bulk decision back through the undo action", async () => {
@@ -191,7 +324,7 @@ describe("ValidationPage live review state", () => {
     mocks.suggestions.push(suggestion(4, { score: 0.85 }));
     // Suggestion 1 was requested but no longer exists, so it is neither
     // reviewed nor skipped by the engine.
-    mocks.bulkReviewed = [4];
+    mocks.filteredReviewedIds = [4];
     render(<ValidationPage />);
 
     await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
@@ -210,21 +343,22 @@ describe("ValidationPage live review state", () => {
     );
   });
 
-  it("keeps committed chunks applied and undoable after a later chunk fails", async () => {
+  it("reports committed undo chunks when a later explicit-id request fails", async () => {
     const user = userEvent.setup();
     mocks.suggestions.push(
       suggestion(4, { score: 0.85 }),
       suggestion(5, { score: 0.9 }),
     );
-    mocks.bulkError = new BulkReviewChunkError(
-      { reviewed: [1], skipped: [], status: "approved" },
-      [4],
-      [5],
-    );
     render(<ValidationPage />);
 
     await user.click(screen.getByRole("button", { name: /Accept.*3/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    mocks.bulkError = new BulkReviewChunkError(
+      { reviewed: [1], skipped: [], status: "pending" },
+      [4],
+      [5],
+    );
+    await user.click(screen.getByRole("button", { name: "Undo" }));
 
     const notice = screen.getByRole("alert");
     expect(notice.textContent).toContain("1 decision was saved before the bulk review failed");
@@ -232,15 +366,8 @@ describe("ValidationPage live review state", () => {
       "1 suggestion in the failed request could not be confirmed",
     );
     expect(notice.textContent).toContain("1 later suggestion was not attempted");
-    expect(screen.getByRole("button", { name: /Pending review.*3/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
-
-    mocks.bulkError = null;
-    await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(mocks.bulkMutate).toHaveBeenLastCalledWith(
-      { ids: [1], status: "pending" },
-      expect.anything(),
-    );
+    expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Queued for publish.*2/ })).not.toBeNull();
   });
 
   it("says so plainly when a batch changed nothing at all", async () => {
@@ -256,6 +383,31 @@ describe("ValidationPage live review state", () => {
     // No dead-end retry advice for an outcome that will never change.
     expect(notice.textContent).not.toContain("try again");
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
+  });
+
+  it("refetches a large rule result without offering impossible undo", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      ...Array.from({ length: 1001 }, (_, index) =>
+        suggestion(index + 1, { score: 0.9 }),
+      ),
+    );
+    mocks.filteredReviewedIds = null;
+    mocks.filteredReviewedCount = 1001;
+    render(<ValidationPage />);
+
+    await user.click(screen.getByRole("button", { name: /Accept.*1001/ }));
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      "too large to undo in one step",
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "This change was too large to undo in one step",
+    );
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
   it("never targets suggestions hidden by the active status filter", async () => {
@@ -291,7 +443,7 @@ describe("ValidationPage publish handoff", () => {
 
   it("surfaces an approved backlog and publishes the sites holding it", async () => {
     const user = userEvent.setup();
-    mocks.suggestions.push(suggestion(4, { status: "approved" }));
+    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 24 }];
     render(<ValidationPage />);
 
     expect(document.body.textContent).toContain("waiting to be published");

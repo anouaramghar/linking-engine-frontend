@@ -13,6 +13,7 @@ export interface BulkConfirmation {
   count: number;
   threshold: number;
   siteLabel: string;
+  undoAvailable: boolean;
 }
 
 interface Props {
@@ -117,7 +118,7 @@ export default function BulkActions({
         <div className="min-w-4 flex-1" />
         <button
           type="button"
-          disabled={acceptCount === 0}
+          disabled={!actionable || acceptCount === 0}
           onClick={() => onRequest("approve")}
           className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-400"
         >
@@ -125,7 +126,7 @@ export default function BulkActions({
         </button>
         <button
           type="button"
-          disabled={rejectCount === 0}
+          disabled={!actionable || rejectCount === 0}
           onClick={() => onRequest("reject")}
           className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-950 disabled:cursor-not-allowed disabled:text-stone-300"
         >
@@ -145,9 +146,12 @@ export default function BulkActions({
               {confirmation.count === 1 ? "" : "s"}?
             </div>
             <div className="mt-0.5 text-xs text-stone-600">
-              {confirmation.siteLabel} &middot; score {comparison}. Only pending suggestions in the
-              current list are affected, and the decision can be undone. Approved links are
-              not live until published.
+              {confirmation.siteLabel} &middot; score {comparison}. Only pending
+              suggestions matching this rule are affected.{" "}
+              {confirmation.undoAvailable
+                ? "The decision can be undone."
+                : "This change is too large to undo in one step."}{" "}
+              Approved links are not live until published.
             </div>
           </div>
           <button

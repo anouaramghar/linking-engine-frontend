@@ -1,5 +1,9 @@
 import { api } from "./client";
-import type { ReviewStatus, Suggestion } from "../types/suggestion";
+import type {
+  ReviewStatus,
+  Suggestion,
+  SuggestionStatus,
+} from "../types/suggestion";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
 
@@ -9,28 +13,70 @@ import { ENGINE_PAGE_LIMIT } from "./engineLimits";
  * every read into a 422. Pinned from the backend side by
  * `test_every_list_endpoint_accepts_exactly_max_page_size`.
  */
-const SUGGESTION_PAGE_SIZE = ENGINE_PAGE_LIMIT;
+export const SUGGESTION_PAGE_SIZE = ENGINE_PAGE_LIMIT;
+export const SUGGESTION_METHOD = "baseline_cosine";
 
-const listSuggestionsForSite = async (siteId: number) => {
-  const suggestions: Suggestion[] = [];
-  let page: Suggestion[];
+export interface SuggestionCursor {
+  score: number;
+  id: number;
+}
 
-  do {
-    page = await api
-      .get<Suggestion[]>(`/suggestions/${siteId}`, {
-        params: { limit: SUGGESTION_PAGE_SIZE, offset: suggestions.length },
-      })
-      .then((response) => response.data);
-    suggestions.push(...page);
-  } while (page.length === SUGGESTION_PAGE_SIZE);
+export interface SuggestionPage {
+  items: Suggestion[];
+  total: number | null;
+  limit: number;
+  next_cursor: SuggestionCursor | null;
+}
 
-  return suggestions;
-};
+export interface SuggestionQueueFilters {
+  siteId?: number;
+  status?: SuggestionStatus;
+  minPercent?: number;
+  maxPercent?: number;
+}
 
-export const listSuggestionsForSites = async (siteIds: number[]) => {
-  const bySite = await Promise.all(siteIds.map(listSuggestionsForSite));
-  return bySite.flat().sort((left, right) => right.score - left.score);
-};
+const queueParams = (filters: SuggestionQueueFilters) => ({
+  method: SUGGESTION_METHOD,
+  ...(filters.siteId === undefined ? {} : { site_id: filters.siteId }),
+  ...(filters.status === undefined ? {} : { status: filters.status }),
+  ...(filters.minPercent === undefined ? {} : { min_percent: filters.minPercent }),
+  ...(filters.maxPercent === undefined ? {} : { max_percent: filters.maxPercent }),
+});
+
+export const listSuggestionPage = (
+  filters: SuggestionQueueFilters,
+  cursor: SuggestionCursor | null,
+  includeTotal: boolean,
+) =>
+  api
+    .get<SuggestionPage>("/suggestions", {
+      params: {
+        ...queueParams(filters),
+        ...(cursor === null
+          ? {}
+          : { after_score: cursor.score, after_id: cursor.id }),
+        include_total: includeTotal,
+        limit: SUGGESTION_PAGE_SIZE,
+      },
+    })
+    .then((response) => response.data);
+
+export interface SuggestionCounts {
+  pending: number;
+  approved: number;
+  rejected: number;
+  applying: number;
+  applied: number;
+  expired: number;
+  total: number;
+}
+
+export const countSuggestions = (filters: SuggestionQueueFilters) =>
+  api
+    .get<SuggestionCounts>("/suggestions/counts", {
+      params: queueParams(filters),
+    })
+    .then((response) => response.data);
 
 export const reviewSuggestion = (id: number, status: ReviewStatus) =>
   api.put<Suggestion>(`/suggestions/${id}`, { status }).then((r) => r.data);
@@ -42,6 +88,31 @@ export interface BulkReviewResult {
   skipped: number[];
   status: ReviewStatus;
 }
+
+export interface FilteredBulkReviewResult {
+  reviewed: number;
+  skipped: number;
+  reviewed_ids: number[] | null;
+  status: Exclude<ReviewStatus, "pending">;
+}
+
+export interface FilteredBulkReviewRule {
+  siteId?: number;
+  status: Exclude<ReviewStatus, "pending">;
+  thresholdPercent: number;
+}
+
+export const bulkReviewByFilter = (rule: FilteredBulkReviewRule) =>
+  api
+    .post<FilteredBulkReviewResult>("/suggestions/bulk-review-by-filter", {
+      status: rule.status,
+      threshold_percent: rule.thresholdPercent,
+      method: SUGGESTION_METHOD,
+      ...(rule.siteId === undefined
+        ? { all_sites: true }
+        : { site_id: rule.siteId }),
+    })
+    .then((response) => response.data);
 
 interface BulkReviewResponse {
   /** An engine that predates the id list reports a bare count here. */

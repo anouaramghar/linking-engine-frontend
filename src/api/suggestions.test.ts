@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BulkReviewChunkError,
   bulkReview,
-  listSuggestionsForSites,
+  bulkReviewByFilter,
+  countSuggestions,
+  listSuggestionPage,
   reviewSuggestion,
   triggerAnalysis,
 } from "./suggestions";
@@ -22,40 +24,149 @@ beforeEach(() => {
   api.put.mockReset();
 });
 
-describe("listSuggestionsForSites", () => {
-  it("loads every page for every site and sorts the combined queue by score", async () => {
-    const firstPage = Array.from({ length: 1000 }, (_, index) => ({
-      id: index + 1,
-      score: 0.5,
-    }));
-    api.get.mockImplementation((path: string, config: { params: { offset: number } }) => {
-      if (path === "/suggestions/1" && config.params.offset === 0) {
-        return Promise.resolve({ data: firstPage });
-      }
-      if (path === "/suggestions/1") {
-        return Promise.resolve({ data: [{ id: 1001, score: 0.95 }] });
-      }
-      return Promise.resolve({ data: [{ id: 2001, score: 0.8 }] });
-    });
+describe("cursor queue reads", () => {
+  it("requests exactly one filtered page and continues from its score/id cursor", async () => {
+    const first = {
+      items: [{ id: 10, score: 0.9 }],
+      total: 2000,
+      limit: 1000,
+      next_cursor: { score: 0.9, id: 10 },
+    };
+    const second = {
+      items: [{ id: 9, score: 0.8 }],
+      total: null,
+      limit: 1000,
+      next_cursor: null,
+    };
+    api.get
+      .mockResolvedValueOnce({ data: first })
+      .mockResolvedValueOnce({ data: second });
 
-    const suggestions = await listSuggestionsForSites([1, 2]);
+    await expect(
+      listSuggestionPage(
+        { siteId: 3, status: "pending" },
+        null,
+        true,
+      ),
+    ).resolves.toEqual(first);
+    await expect(
+      listSuggestionPage(
+        { siteId: 3, status: "pending" },
+        first.next_cursor,
+        false,
+      ),
+    ).resolves.toEqual(second);
 
-    expect(suggestions[0]).toEqual({ id: 1001, score: 0.95 });
-    expect(suggestions[1]).toEqual({ id: 2001, score: 0.8 });
-    expect(api.get).toHaveBeenCalledWith("/suggestions/1", {
-      params: { limit: 1000, offset: 0 },
+    expect(api.get).toHaveBeenNthCalledWith(1, "/suggestions", {
+      params: {
+        method: "baseline_cosine",
+        site_id: 3,
+        status: "pending",
+        include_total: true,
+        limit: 1000,
+      },
     });
-    expect(api.get).toHaveBeenCalledWith("/suggestions/1", {
-      params: { limit: 1000, offset: 1000 },
+    expect(api.get).toHaveBeenNthCalledWith(2, "/suggestions", {
+      params: {
+        method: "baseline_cosine",
+        site_id: 3,
+        status: "pending",
+        after_score: 0.9,
+        after_id: 10,
+        include_total: false,
+        limit: 1000,
+      },
     });
-    expect(api.get).toHaveBeenCalledWith("/suggestions/2", {
-      params: { limit: 1000, offset: 0 },
+    expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads chip and threshold counts from the server", async () => {
+    const counts = {
+      pending: 4,
+      approved: 2,
+      rejected: 1,
+      applying: 0,
+      applied: 3,
+      expired: 0,
+      total: 10,
+    };
+    api.get.mockResolvedValue({ data: counts });
+
+    await expect(
+      countSuggestions({ siteId: 3, minPercent: 80 }),
+    ).resolves.toEqual(counts);
+
+    expect(api.get).toHaveBeenCalledWith("/suggestions/counts", {
+      params: {
+        method: "baseline_cosine",
+        site_id: 3,
+        min_percent: 80,
+      },
     });
   });
 
-  it("does not issue a request when no sites are connected", async () => {
-    await expect(listSuggestionsForSites([])).resolves.toEqual([]);
-    expect(api.get).not.toHaveBeenCalled();
+  it("serializes the complementary below-threshold count", async () => {
+    api.get.mockResolvedValue({ data: { pending: 12, total: 12 } });
+
+    await countSuggestions({ maxPercent: 80 });
+
+    expect(api.get).toHaveBeenCalledWith("/suggestions/counts", {
+      params: {
+        method: "baseline_cosine",
+        max_percent: 80,
+      },
+    });
+  });
+});
+
+describe("filtered bulk review", () => {
+  it("posts the displayed-percent rule rather than enumerating ids", async () => {
+    const result = {
+      reviewed: 2,
+      skipped: 0,
+      reviewed_ids: [8, 9],
+      status: "approved",
+    };
+    api.post.mockResolvedValue({ data: result });
+
+    await expect(
+      bulkReviewByFilter({
+        siteId: 3,
+        status: "approved",
+        thresholdPercent: 80,
+      }),
+    ).resolves.toEqual(result);
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/suggestions/bulk-review-by-filter",
+      {
+        status: "approved",
+        threshold_percent: 80,
+        method: "baseline_cosine",
+        site_id: 3,
+      },
+    );
+  });
+
+  it("makes fleet scope explicit when no site is selected", async () => {
+    api.post.mockResolvedValue({
+      data: {
+        reviewed: 1001,
+        skipped: 0,
+        reviewed_ids: null,
+        status: "rejected",
+      },
+    });
+
+    await bulkReviewByFilter({
+      status: "rejected",
+      thresholdPercent: 80,
+    });
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/suggestions/bulk-review-by-filter",
+      expect.objectContaining({ all_sites: true }),
+    );
   });
 });
 
