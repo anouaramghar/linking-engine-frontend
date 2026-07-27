@@ -1,13 +1,6 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef } from "react";
 
-const FOCUSABLE = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   title: string;
@@ -21,40 +14,7 @@ export default function Modal({ title, onClose, children, panelClassName = "" }:
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const items = [...(panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
-    // Prefer the first real control over the close button, so a form dialog
-    // opens with the cursor already in its first field.
-    const target = items.find((item) => item.dataset.modalDismiss === undefined);
-    (target ?? items[0] ?? panel.current)?.focus();
-
-    const { overflow } = document.body.style;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = overflow;
-      previouslyFocused?.focus?.();
-    };
-  }, []);
-
-  // Tab must not escape into the page behind the dialog.
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      onClose();
-      return;
-    }
-    if (event.key !== "Tab") return;
-
-    const items = [...(panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
-    if (!items.length) return;
-    const edge = event.shiftKey ? items[0] : items[items.length - 1];
-    if (document.activeElement === edge) {
-      event.preventDefault();
-      (event.shiftKey ? items[items.length - 1] : items[0]).focus();
-    }
-  };
+  const onKeyDown = useFocusTrap(panel, onClose);
 
   return (
     <div

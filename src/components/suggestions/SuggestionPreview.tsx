@@ -1,3 +1,7 @@
+import { useRef } from "react";
+
+import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../../hooks/useMediaQuery";
 import {
   METHOD_LABEL,
   PUBLICATION_STATUS_MESSAGE,
@@ -26,12 +30,18 @@ export default function SuggestionPreview({
 }: Props) {
   const slug = s.target_article.url.replace(/^https?:\/\/[^/]+/, "") || s.target_article.url;
   const publicationMessage = PUBLICATION_STATUS_MESSAGE[s.status];
+  // Beside the list this is ordinary page content; over the list it is a dialog.
+  // The trap follows the same switch, so Tab only stops escaping once there is
+  // something behind the panel to escape into.
+  const overlaid = useMediaQuery(OVERLAY_PREVIEW_QUERY);
+  const panel = useRef<HTMLElement>(null);
+  const onKeyDown = useFocusTrap(panel, onClose, overlaid);
 
-  return (
-    <aside
-      aria-label="Suggestion detail"
-      className="w-[410px] flex-none overflow-y-auto border-l border-stone-200 bg-stone-50 p-7"
-    >
+  const panelClass =
+    "w-[410px] flex-none overflow-y-auto border-l border-stone-200 bg-stone-50 p-7";
+
+  const body = (
+    <>
       <div className="mb-5 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-widest text-stone-600">
           Suggestion #{String(s.id).padStart(3, "0")}
@@ -144,6 +154,41 @@ export default function SuggestionPreview({
           Rejected suggestions are not included in publish batches.
         </div>
       )}
-    </aside>
+    </>
+  );
+
+  if (!overlaid) {
+    return (
+      <aside aria-label="Suggestion detail" className={panelClass}>
+        {body}
+      </aside>
+    );
+  }
+
+  return (
+    // Covers the queue pane rather than the whole window, so the nav stays
+    // reachable — this is a detail drawer, not a task that blocks the app.
+    <div
+      className="absolute inset-0 z-30 flex justify-end bg-stone-950/40"
+      // mousedown, not click: releasing a selection made inside the panel must
+      // not count as a click on the backdrop and shut it.
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Suggestion detail"
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        // A strip of the list stays visible so the panel reads as covering it
+        // rather than as the page having navigated somewhere else.
+        className={`${panelClass} max-w-[calc(100%-2rem)] shadow-[0_8px_40px_rgba(0,0,0,.16)] focus:outline-none`}
+      >
+        {body}
+      </aside>
+    </div>
   );
 }

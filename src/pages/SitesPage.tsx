@@ -16,7 +16,13 @@ import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
 import { ORBS, RQ_SCHEDULING_COPY, initials, timeAgo } from "../lib/utils";
 
-const GRID = "grid grid-cols-[2fr_1.2fr_.8fr_1fr_1.4fr] items-center gap-3";
+// Shared by the header and the rows so they cannot drift apart. The narrow
+// template buys the action column back from the three text columns: at 1024px
+// the wide one leaves it about 142px, and "Queueing…" beside the Actions menu
+// needs more than that. Name and URL already truncate, so they give it up best.
+const GRID =
+  "grid grid-cols-[1.6fr_1fr_.7fr_1fr_1.8fr] items-center gap-3" +
+  " xl:grid-cols-[2fr_1.2fr_.8fr_1fr_1.4fr]";
 
 interface TrackedJob {
   siteId: number;
@@ -176,7 +182,7 @@ export default function SitesPage() {
                 <button
                   onClick={() => void run(site.id, "Crawl", ingestSite)}
                   disabled={busy[busyKey(site.id, "Crawl")]}
-                  className="rounded-full border border-stone-300 px-3 py-1.5 text-[13px] font-medium hover:border-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex-none whitespace-nowrap rounded-full border border-stone-300 px-3 py-1.5 text-[13px] font-medium hover:border-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busy[busyKey(site.id, "Crawl")] ? "Queueing…" : "Crawl"}
                 </button>
