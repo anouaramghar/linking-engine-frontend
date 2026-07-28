@@ -1,7 +1,12 @@
-const COLORS: Record<string, string> = {
-  succeeded: "text-green-800",
-  running: "text-stone-600",
-  failed: "text-red-800",
+/**
+ * Crawl state as a {component.badge-pill}. The dot carries the colour so the
+ * label can stay ink and clear contrast at 12px — the system has no tinted
+ * text on tinted fill.
+ */
+const DOTS: Record<string, string> = {
+  succeeded: "bg-success",
+  running: "bg-primary animate-pulse",
+  failed: "bg-error",
 };
 
 const LABELS: Record<string, string> = {
@@ -12,11 +17,8 @@ const LABELS: Record<string, string> = {
 
 export default function SiteStatusBadge({ status }: { status: string | null }) {
   return (
-    <span
-      className={`rounded-full bg-chip px-3 py-1 text-xs font-medium ${
-        status ? COLORS[status] ?? "text-stone-600" : "text-stone-600"
-      }`}
-    >
+    <span className="badge">
+      <span className={`dot ${(status && DOTS[status]) ?? "bg-muted-soft"}`} />
       {status ? LABELS[status] ?? status : "Never crawled"}
     </span>
   );

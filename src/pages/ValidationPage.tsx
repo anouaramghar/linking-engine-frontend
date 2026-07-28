@@ -17,7 +17,7 @@ import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { usePendingPublication, usePublishSites } from "../hooks/usePublish";
-import { SHORTCUT_HINT, useQueueShortcuts } from "../hooks/useQueueShortcuts";
+import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
 import {
   useBulkReview,
   useFilteredBulkReview,
@@ -577,7 +577,7 @@ export default function ValidationPage() {
                 setSiteFilter(Number(event.target.value));
                 setConfirmation(null);
               }}
-              className="cursor-pointer rounded-full border border-stone-300 bg-white px-3.5 py-2 text-sm"
+              className="h-8 cursor-pointer rounded-pill border border-hairline-strong bg-surface-card px-3.5 text-caption text-ink"
             >
               <option value={0}>All sites</option>
               {sites?.map((site) => (
@@ -587,10 +587,6 @@ export default function ValidationPage() {
               ))}
             </select>
           </div>
-
-          <p className="mb-3 text-[12.5px] text-stone-600">
-            Keyboard: <span className="rounded bg-chip px-1.5 py-0.5">{SHORTCUT_HINT}</span>
-          </p>
 
           <PublishBanner
             approved={approvedCount}
@@ -643,11 +639,11 @@ export default function ValidationPage() {
                       type="button"
                       onClick={showMore}
                       disabled={suggestionsQuery.isFetchingNextPage}
-                      className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium hover:border-stone-950"
+                      className="btn btn-outline"
                     >
                       {suggestionsQuery.isFetchingNextPage ? "Loading more..." : "Show more"}
                     </button>
-                    <span className="text-[12.5px] text-stone-600">
+                    <span className="text-caption text-muted">
                       Showing {shown.toLocaleString()} of {queueTotal.toLocaleString()}
                       {queueAutoLoadPaused && (
                         <>

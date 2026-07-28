@@ -11,11 +11,19 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  activeJobs: {
+    data: [] as unknown[],
+  },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock("../hooks/useJobs", () => ({
+  useActiveJobs: () => mocks.activeJobs,
+  useJob: () => ({ data: undefined }),
 }));
 
 beforeEach(() => {
@@ -25,6 +33,7 @@ beforeEach(() => {
     isError: false,
     isFetching: false,
   });
+  mocks.activeJobs.data = [];
 });
 
 afterEach(cleanup);
@@ -79,5 +88,71 @@ describe("SitesPage load states", () => {
     render(<SitesPage />);
 
     expect(document.body.textContent).toContain("No sites are connected yet");
+  });
+
+  it("shows the real site details returned by the API", () => {
+    const lastCrawl = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    mocks.sites.data = [
+      {
+        id: 42,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        crawl_frequency: "daily",
+        created_at: "2026-07-28T08:00:00Z",
+        last_ingestion_status: "succeeded",
+        article_count: 482,
+        internal_link_count: 3914,
+        last_crawl_at: lastCrawl,
+      },
+    ];
+
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Articles");
+    expect(document.body.textContent).toContain("Int. links");
+    expect(document.body.textContent).toContain("Last crawl");
+    expect(document.body.textContent).toContain("482");
+    expect(document.body.textContent?.replace(/\s/g, "")).toContain("3914");
+    expect(document.body.textContent).toContain("2 h ago");
+    expect(document.body.textContent).not.toContain("Soon");
+  });
+});
+
+describe("SitesPage job progress", () => {
+  it("restores a durable active job as the site's single status badge", () => {
+    mocks.sites.data = [
+      {
+        id: 42,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        crawl_frequency: "daily",
+        created_at: "2026-07-28T08:00:00Z",
+        last_ingestion_status: "succeeded",
+      },
+    ];
+    mocks.activeJobs.data = [
+      {
+        id: 9,
+        site_id: 42,
+        kind: "ingestion",
+        status: "running",
+        queue_job_id: "rq-9",
+        attempts: 1,
+        result: null,
+        progress: { stage: "resolving_links" },
+        progress_at: "2026-07-28T08:01:00Z",
+        error: null,
+        enqueued_at: "2026-07-28T08:00:30Z",
+        started_at: "2026-07-28T08:00:31Z",
+        finished_at: null,
+      },
+    ];
+
+    render(<SitesPage />);
+
+    expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Indexed");
   });
 });

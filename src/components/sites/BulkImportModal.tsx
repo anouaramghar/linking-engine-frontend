@@ -12,7 +12,13 @@ const TEMPLATE = [
   "",
 ].join("\n");
 
-const CHIP = "rounded-full px-2 py-0.5 text-xs font-medium";
+/**
+ * Import outcomes read as {component.badge-pill}s. Each count already names
+ * itself ("3 imported", "1 rejected by API"), so only the failure chip takes
+ * {colors.semantic-error} — the rest stay neutral rather than inventing a
+ * success and a warning hue the system does not have.
+ */
+const CHIP_ERROR = "border border-error/30 bg-error/5 text-error";
 
 export default function BulkImportModal({ onClose }: { onClose: () => void }) {
   const bulk = useBulkCreateSites();
@@ -66,21 +72,21 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="Import sites from CSV" onClose={onClose} panelClassName="max-w-3xl">
-      <p className="-mt-3 mb-5 text-sm text-stone-600">
+      <p className="-mt-3 mb-5 text-caption text-muted">
         Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
         <code>platform</code>, <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
         {MAX_BULK_SITES.toLocaleString()} sites per file.{" "}
         <a
           href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
           download="linkmesh-sites.csv"
-          className="underline underline-offset-2 hover:text-stone-950"
+          className="underline underline-offset-2 hover:text-ink"
         >
           Download a template
         </a>
       </p>
 
       {!result && (
-        <label className="mb-4 cursor-pointer rounded-xl border border-dashed border-stone-300 bg-white px-4 py-6 text-center text-sm hover:border-stone-950">
+        <label className="mb-4 cursor-pointer rounded-lg border border-dashed border-hairline-strong bg-surface-card px-4 py-6 text-center text-caption hover:border-ink">
           <input
             type="file"
             accept=".csv,.tsv,.txt,text/csv"
@@ -88,69 +94,63 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => readFile(e.target.files?.[0])}
           />
           {fileName ? (
-            <span className="font-medium">{fileName}</span>
+            <span className="font-medium text-ink">{fileName}</span>
           ) : (
-            <span className="text-stone-600">Choose a CSV file</span>
+            <span className="text-body">Choose a CSV file</span>
           )}
-          <span className="ml-2 text-stone-600">— click to browse</span>
+          <span className="ml-2 text-muted">— click to browse</span>
         </label>
       )}
 
-      {readError && <div className="mb-3 text-sm text-red-700">{readError}</div>}
+      {readError && <div className="mb-3 text-caption text-error">{readError}</div>}
 
       {parsed && !result && (
         <>
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className={`${CHIP} bg-emerald-100 text-emerald-900`}>
-              {ready.length} ready
-            </span>
-            {broken.length > 0 && (
-              <span className={`${CHIP} bg-amber-100 text-amber-900`}>
-                {broken.length} skipped
-              </span>
-            )}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="badge">{ready.length} ready</span>
+            {broken.length > 0 && <span className="badge">{broken.length} skipped</span>}
             {parsed.rows.some((row) => row.site?.wp_app_password) && (
-              <span className="text-stone-600">
+              <span className="text-caption text-muted">
                 This file contains application passwords — delete it after importing.
               </span>
             )}
           </div>
 
           {!!parsed.missingColumns.length && (
-            <div className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mb-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error">
               Missing required {parsed.missingColumns.length === 1 ? "column" : "columns"}:{" "}
               {parsed.missingColumns.join(", ")}
             </div>
           )}
           {tooMany && (
-            <div className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mb-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error">
               {ready.length.toLocaleString()} rows exceeds the {MAX_BULK_SITES.toLocaleString()}
               -site limit — split the file.
             </div>
           )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-stone-200 bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-stone-100 text-xs uppercase text-stone-600">
+          <div className="card min-h-0 flex-1 overflow-y-auto">
+            <table className="w-full text-left text-caption">
+              <thead className="eyebrow sticky top-0 bg-surface-strong">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Line</th>
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">URL</th>
-                  <th className="px-3 py-2 font-medium">Platform</th>
+                  <th className="px-3 py-2">Line</th>
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">URL</th>
+                  <th className="px-3 py-2">Platform</th>
                 </tr>
               </thead>
               <tbody>
                 {parsed.rows.map((row) => (
-                  <tr key={row.line} className="border-t border-stone-100">
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{row.line}</td>
+                  <tr key={row.line} className="border-t border-hairline-soft">
+                    <td className="px-3 py-2 tabular-nums text-muted">{row.line}</td>
                     {row.site ? (
                       <>
-                        <td className="px-3 py-2">{row.site.name}</td>
-                        <td className="px-3 py-2 text-stone-600">{row.site.base_url}</td>
-                        <td className="px-3 py-2 text-stone-600">{row.site.platform}</td>
+                        <td className="px-3 py-2 text-ink">{row.site.name}</td>
+                        <td className="px-3 py-2 text-body">{row.site.base_url}</td>
+                        <td className="px-3 py-2 text-body">{row.site.platform}</td>
                       </>
                     ) : (
-                      <td colSpan={3} className="px-3 py-2 text-amber-700">
+                      <td colSpan={3} className="px-3 py-2 text-error">
                         {row.error}
                       </td>
                     )}
@@ -164,38 +164,33 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
 
       {result && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mb-3 flex flex-wrap gap-2 text-sm">
-            <span className={`${CHIP} bg-emerald-100 text-emerald-900`}>
+          <div className="mb-3 flex flex-wrap gap-2">
+            <span className="badge">
+              <span className="dot bg-success" />
               {result.created.length} imported
             </span>
             {result.skipped.length > 0 && (
-              <span className={`${CHIP} bg-stone-200 text-stone-700`}>
-                {result.skipped.length} already existed
-              </span>
+              <span className="badge">{result.skipped.length} already existed</span>
             )}
             {broken.length > 0 && (
-              <span className={`${CHIP} bg-amber-100 text-amber-900`}>
-                {broken.length} invalid in file
-              </span>
+              <span className="badge">{broken.length} invalid in file</span>
             )}
             {result.rejected.length > 0 && (
-              <span className={`${CHIP} bg-red-100 text-red-900`}>
+              <span className={`badge ${CHIP_ERROR}`}>
                 {result.rejected.length} rejected by API
               </span>
             )}
           </div>
           {failures.length > 0 && (
-            <ul className="rounded-xl border border-stone-200 bg-white text-sm">
+            <ul className="card text-caption">
               {failures.map((entry) => (
                 <li
                   key={entry.key}
-                  className="flex gap-3 border-b border-stone-100 px-3 py-2 last:border-0"
+                  className="flex gap-3 border-b border-hairline-soft px-3 py-2 last:border-0"
                 >
-                  <span className="tabular-nums text-stone-600">line {entry.line}</span>
-                  {entry.baseUrl && (
-                    <span className="truncate text-stone-600">{entry.baseUrl}</span>
-                  )}
-                  <span className="ml-auto shrink-0 text-stone-600">{entry.reason}</span>
+                  <span className="tabular-nums text-muted">line {entry.line}</span>
+                  {entry.baseUrl && <span className="truncate text-body">{entry.baseUrl}</span>}
+                  <span className="ml-auto shrink-0 text-muted">{entry.reason}</span>
                 </li>
               ))}
             </ul>
@@ -204,7 +199,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
       )}
 
       {bulk.isError && (
-        <div role="alert" className="mt-3 text-sm text-red-700">
+        <div role="alert" className="mt-3 text-caption text-error">
           {errorDetail(bulk.error, "The import request failed.")}
         </div>
       )}
@@ -215,7 +210,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
             type="button"
             disabled={blocked || bulk.isPending}
             onClick={() => bulk.mutate(ready.map((row) => row.site!))}
-            className="flex-1 rounded-full border border-stone-800 bg-stone-800 py-2.5 text-[15px] font-medium text-white hover:bg-stone-950 disabled:opacity-50"
+            className="btn btn-primary flex-1"
           >
             {bulk.isPending
               ? "Importing…"
@@ -225,11 +220,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className={`rounded-full border px-5 py-2.5 text-[15px] font-medium ${
-            result
-              ? "flex-1 border-stone-800 bg-stone-800 text-white hover:bg-stone-950"
-              : "border-stone-300 hover:border-stone-950"
-          }`}
+          className={`btn ${result ? "btn-primary flex-1" : "btn-outline"}`}
         >
           {result ? "Done" : "Cancel"}
         </button>

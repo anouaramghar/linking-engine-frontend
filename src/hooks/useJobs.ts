@@ -1,6 +1,30 @@
+import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getJob } from "../api/jobs";
+import { getActiveJobs, getJob } from "../api/jobs";
+import type { JobRun, JobStatusValue } from "../types/job";
+
+const TERMINAL_STATUSES = new Set<JobStatusValue>([
+  "succeeded",
+  "finished",
+  "failed",
+  "stopped",
+  "canceled",
+  "cancelled",
+]);
+
+export const isTerminalJobStatus = (status?: JobStatusValue) =>
+  status !== undefined && TERMINAL_STATUSES.has(status);
+
+export const didActiveJobsFinish = (before: JobRun[], after: JobRun[]) => {
+  const currentIds = new Set(after.map((job) => job.id));
+  return before.some((job) => !currentIds.has(job.id));
+};
+
+const refreshJobOutputs = (qc: ReturnType<typeof useQueryClient>) => {
+  void qc.invalidateQueries({ queryKey: ["suggestions"] });
+  void qc.invalidateQueries({ queryKey: ["sites"] });
+};
 
 /** Poll a job until it settles, then refresh whatever it produced. */
 export const useJob = (jobId: string | null) => {
@@ -9,16 +33,30 @@ export const useJob = (jobId: string | null) => {
     queryKey: ["job", jobId],
     queryFn: async () => {
       const job = await getJob(jobId!);
-      if (job.status === "finished" || job.status === "failed") {
-        qc.invalidateQueries({ queryKey: ["suggestions"] });
-        qc.invalidateQueries({ queryKey: ["sites"] });
-      }
+      if (isTerminalJobStatus(job.status)) refreshJobOutputs(qc);
       return job;
     },
     enabled: jobId !== null,
     refetchInterval: (query) => {
       const s = query.state.data?.status;
-      return s === "finished" || s === "failed" ? false : 2000;
+      return isTerminalJobStatus(s) ? false : 1500;
     },
+  });
+};
+
+/** Restore scheduled/background jobs after refresh and keep their stage current. */
+export const useActiveJobs = () => {
+  const qc = useQueryClient();
+  const previous = useRef<JobRun[]>([]);
+
+  return useQuery({
+    queryKey: ["jobs", "active"],
+    queryFn: async () => {
+      const active = await getActiveJobs();
+      if (didActiveJobsFinish(previous.current, active)) refreshJobOutputs(qc);
+      previous.current = active;
+      return active;
+    },
+    refetchInterval: 1500,
   });
 };

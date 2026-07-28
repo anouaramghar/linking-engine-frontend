@@ -425,10 +425,10 @@ describe("ValidationPage live review state", () => {
     expect(document.body.textContent).toContain("Bulk rules act on pending suggestions");
   });
 
-  it("does not expose future suggestion methods", () => {
+  it("marks the future suggestion method as Soon", () => {
     render(<ValidationPage />);
 
-    expect(document.body.textContent).not.toContain("GNN");
+    expect(document.body.textContent).toContain("GraphSAGE Soon");
     expect(document.body.textContent).not.toContain("External links");
     expect(document.body.textContent).not.toContain("Generate anchors");
   });

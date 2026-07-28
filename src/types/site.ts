@@ -6,6 +6,9 @@ export interface Site {
   crawl_frequency: string;
   created_at: string;
   last_ingestion_status: string | null;
+  article_count?: number;
+  internal_link_count?: number;
+  last_crawl_at?: string | null;
 }
 
 export interface SiteCreate {

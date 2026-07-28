@@ -1,27 +1,54 @@
 import { useJob } from "../../hooks/useJobs";
+import {
+  isActiveJobStatus,
+  jobStatusGroup,
+  jobStatusLabel,
+} from "../../lib/jobStatus";
+import type { JobKind, JobStatus } from "../../types/job";
 
-const COLORS: Record<string, string> = {
-  queued: "text-stone-600",
-  started: "text-stone-800",
-  finished: "text-green-800",
-  failed: "text-red-800",
-};
+type JobSnapshot = Pick<JobStatus, "status" | "progress" | "error">;
+
+function ActivityDots() {
+  return (
+    <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+      {[0, 1, 2].map((index) => (
+        <span key={index} className={`job-activity-dot job-activity-dot-${index + 1}`} />
+      ))}
+    </span>
+  );
+}
 
 export default function JobStatusBadge({
   jobId,
-  label,
+  kind,
+  snapshot,
 }: {
   jobId: string | null;
-  label?: string;
+  kind: JobKind;
+  snapshot?: JobSnapshot;
 }) {
-  const { data: job } = useJob(jobId);
-  if (!jobId || !job) return null;
+  const { data: polledJob } = useJob(snapshot ? null : jobId);
+  const job = snapshot ?? polledJob;
+  if (!job) return null;
+  const active = isActiveJobStatus(job.status);
+  const label = jobStatusLabel(kind, job.status, job.progress);
+  const dotColor =
+    jobStatusGroup(job.status) === "succeeded"
+      ? "bg-success"
+      : jobStatusGroup(job.status) === "failed"
+        ? "bg-error"
+        : "bg-primary";
+
   return (
     <span
-      className={`whitespace-nowrap rounded-full bg-chip px-2.5 py-0.5 text-[11px] font-medium ${COLORS[job.status] ?? "text-stone-600"}`}
+      className="badge"
       title={job.error ?? undefined}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
     >
-      {label ? `${label}: ${job.status}` : `job ${job.status}`}
+      {active ? <ActivityDots /> : <span className={`dot ${dotColor}`} />}
+      {label}
     </span>
   );
 }

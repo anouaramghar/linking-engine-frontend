@@ -32,6 +32,18 @@ const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
   );
 
 describe("SuggestionPreview publication state", () => {
+  it("keeps the live cosine score and marks unavailable v1 evidence as Soon", () => {
+    renderPreview("pending");
+
+    expect(screen.getByText("90%")).not.toBeNull();
+    expect(screen.getByText("Placement context")).not.toBeNull();
+    expect(screen.getByText("Semantic relevance")).not.toBeNull();
+    expect(screen.getByText("Shared taxonomy")).not.toBeNull();
+    expect(screen.getByText("Target need")).not.toBeNull();
+    expect(screen.getByText("Direction fit")).not.toBeNull();
+    expect(screen.getAllByText("Soon")).toHaveLength(6);
+  });
+
   it("identifies an approved suggestion as queued but not live", () => {
     renderPreview("approved");
 

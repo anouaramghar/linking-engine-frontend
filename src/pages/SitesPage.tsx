@@ -12,27 +12,86 @@ import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
+import { useActiveJobs } from "../hooks/useJobs";
 import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
-import { ORBS, RQ_SCHEDULING_COPY, initials, timeAgo } from "../lib/utils";
+import { RQ_SCHEDULING_COPY, initials, orbPlateClass, timeAgo } from "../lib/utils";
+import type { JobKind, JobRun } from "../types/job";
 
 // Shared by the header and the rows so they cannot drift apart. The narrow
 // template buys the action column back from the three text columns: at 1024px
 // the wide one leaves it about 142px, and "Queueing…" beside the Actions menu
 // needs more than that. Name and URL already truncate, so they give it up best.
 const GRID =
-  "grid grid-cols-[1.6fr_1fr_.7fr_1fr_1.8fr] items-center gap-3" +
-  " xl:grid-cols-[2fr_1.2fr_.8fr_1fr_1.4fr]";
+  "grid grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] items-center gap-3" +
+  " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
+
+function SiteDetail({
+  label,
+  value,
+  title,
+}: {
+  label?: string;
+  value: string;
+  title?: string;
+}) {
+  return (
+    <span className="text-caption text-muted" title={title}>
+      {label && <span className="xl:hidden">{label}: </span>}
+      <span className="font-medium text-ink">{value}</span>
+    </span>
+  );
+}
 
 interface TrackedJob {
   siteId: number;
   label: string;
+  kind: JobKind;
   jobId: string;
+}
+
+function CurrentSiteStatus({
+  siteId,
+  siteStatus,
+  activeJobs,
+  trackedJobs,
+}: {
+  siteId: number;
+  siteStatus: string | null;
+  activeJobs: JobRun[];
+  trackedJobs: TrackedJob[];
+}) {
+  const active = activeJobs.find((job) => job.site_id === siteId);
+  if (active) {
+    return (
+      <JobStatusBadge
+        jobId={active.queue_job_id}
+        kind={active.kind}
+        snapshot={{
+          status: active.status,
+          progress: active.progress,
+          error: active.error,
+        }}
+      />
+    );
+  }
+
+  const tracked = [...trackedJobs].reverse().find((job) => job.siteId === siteId);
+  if (tracked) {
+    return <JobStatusBadge jobId={tracked.jobId} kind={tracked.kind} />;
+  }
+
+  return <SiteStatusBadge status={siteStatus} />;
 }
 
 export default function SitesPage() {
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
+  const totalArticles =
+    sites?.every((site) => site.article_count !== undefined)
+      ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
+      : null;
+  const activeJobs = useActiveJobs().data ?? [];
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -46,6 +105,7 @@ export default function SitesPage() {
   const run = async (
     siteId: number,
     label: string,
+    kind: JobKind,
     action: (id: number) => Promise<{ job_id: string }>,
   ) => {
     const key = busyKey(siteId, label);
@@ -57,7 +117,7 @@ export default function SitesPage() {
       // Keyed by site and action so a crawl badge survives a later publish.
       setJobs((current) => [
         ...current.filter((job) => !(job.siteId === siteId && job.label === label)),
-        { siteId, label, jobId: job_id },
+        { siteId, label, kind, jobId: job_id },
       ]);
       setNotice({ message: `${label} job queued.`, tone: "info" });
     } catch (error) {
@@ -85,41 +145,42 @@ export default function SitesPage() {
     });
   };
 
-  const actions: [string, (id: number) => Promise<{ job_id: string }>][] = [
-    ["Suggest (baseline)", triggerAnalysis],
-    ["Publish approved", publishSite],
+  const actions: [
+    string,
+    JobKind,
+    (id: number) => Promise<{ job_id: string }>,
+  ][] = [
+    ["Suggest (baseline)", "analysis", triggerAnalysis],
+    ["Publish approved", "publication", publishSite],
   ];
 
   return (
     <>
       <PageHeader
         title="Sites"
-        sub={`${sites?.length ?? 0} connected sites · current LinkMesh connectors`}
+        sub={`${sites?.length ?? 0} connected sites · ${
+          totalArticles === null ? "Soon" : totalArticles.toLocaleString()
+        } active articles normalized via ContentConnector`}
       />
       <div className="relative overflow-y-auto px-8 py-6">
         <div className="mb-4 flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowImport(true)}
-            className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-950"
-          >
+          <button onClick={() => setShowImport(true)} className="btn btn-primary">
             Import CSV
           </button>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium hover:border-stone-950"
-          >
+          <button onClick={() => setShowAdd(true)} className="btn btn-outline">
             + Connect site
           </button>
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
-        <div
-          className={`${GRID} px-5 pb-3 text-[11px] font-semibold uppercase tracking-widest text-stone-600`}
-        >
+        <div className={`${GRID} eyebrow px-5 pb-3`}>
           <div>Site</div>
           <div>Connector</div>
-          <div>Added</div>
+          <div className="xl:hidden">Details</div>
+          <div className="hidden xl:block">Articles</div>
+          <div className="hidden xl:block">Int. links</div>
+          <div className="hidden xl:block">Last crawl</div>
           <div>Status</div>
           <div />
         </div>
@@ -146,53 +207,76 @@ export default function SitesPage() {
           {sites?.map((site, index) => (
             <div
               key={site.id}
-              className={`${GRID} rounded-2xl border border-stone-200 bg-white px-5 py-4 text-[14.5px] hover:shadow-[0_4px_16px_rgba(0,0,0,.04)]`}
+              className={`${GRID} card px-5 py-4 text-body-sm transition-shadow hover:shadow-soft`}
             >
               <div className="flex items-center gap-3">
+                {/* {component.voice-icon-circular}, wearing one of the five
+                    atmospheric stops — the row's only colour. */}
                 <span
-                  className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-[11px] font-semibold text-stone-800"
-                  style={{
-                    background: `radial-gradient(circle at 30% 30%, ${ORBS[index % ORBS.length]}, #f0efed)`,
-                  }}
+                  className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
                 >
                   {initials(site.name)}
                 </span>
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-stone-950">{site.name}</div>
-                  <div className="truncate text-[12.5px] text-stone-600">
+                  <div className="truncate font-medium text-ink">{site.name}</div>
+                  <div className="truncate text-caption text-muted">
                     {site.base_url.replace(/^https?:\/\//, "")}
                   </div>
                 </div>
               </div>
-              <div className="text-stone-600">
+              <div className="text-body">
                 {site.platform === "wordpress" ? "WP REST API" : "Sitemap crawl"}
               </div>
-              <div className="text-stone-600" title={site.created_at ?? undefined}>
-                {timeAgo(site.created_at)}
+              <div className="flex flex-col gap-0.5 xl:hidden">
+                <SiteDetail
+                  label="Articles"
+                  value={site.article_count?.toLocaleString() ?? "Soon"}
+                />
+                <SiteDetail
+                  label="Int. links"
+                  value={site.internal_link_count?.toLocaleString() ?? "Soon"}
+                />
+                <SiteDetail
+                  label="Last crawl"
+                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
+                  title={site.last_crawl_at ?? undefined}
+                />
+              </div>
+              <div className="hidden xl:block">
+                <SiteDetail value={site.article_count?.toLocaleString() ?? "Soon"} />
+              </div>
+              <div className="hidden xl:block">
+                <SiteDetail value={site.internal_link_count?.toLocaleString() ?? "Soon"} />
+              </div>
+              <div className="hidden xl:block">
+                <SiteDetail
+                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
+                  title={site.last_crawl_at ?? undefined}
+                />
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <SiteStatusBadge status={site.last_ingestion_status} />
-                {jobs
-                  .filter((job) => job.siteId === site.id)
-                  .map((job) => (
-                    <JobStatusBadge key={job.jobId} jobId={job.jobId} label={job.label} />
-                  ))}
+                <CurrentSiteStatus
+                  siteId={site.id}
+                  siteStatus={site.last_ingestion_status}
+                  activeJobs={activeJobs}
+                  trackedJobs={jobs}
+                />
               </div>
-              <div className="flex items-center justify-end gap-1.5">
+              <div className="flex items-center justify-end gap-2">
                 <button
-                  onClick={() => void run(site.id, "Crawl", ingestSite)}
+                  onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
                   disabled={busy[busyKey(site.id, "Crawl")]}
-                  className="flex-none whitespace-nowrap rounded-full border border-stone-300 px-3 py-1.5 text-[13px] font-medium hover:border-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="btn btn-outline btn-sm"
                 >
                   {busy[busyKey(site.id, "Crawl")] ? "Queueing…" : "Crawl"}
                 </button>
                 <ActionMenu
                   label="Actions"
                   items={[
-                    ...actions.map(([label, action]) => ({
+                    ...actions.map(([label, kind, action]) => ({
                       label,
                       disabled: busy[busyKey(site.id, label)],
-                      onSelect: () => void run(site.id, label, action),
+                      onSelect: () => void run(site.id, label, kind, action),
                     })),
                     {
                       label: "Delete site",
@@ -207,9 +291,9 @@ export default function SitesPage() {
           ))}
         </div>
 
-        <div className="mt-4 text-[13.5px] leading-relaxed text-stone-600">
+        <div className="mt-5 text-caption leading-relaxed text-muted">
           Connectors normalize every platform into the same{" "}
-          <span className="rounded-full bg-chip px-2.5 py-0.5 text-[12.5px] text-stone-800">
+          <span className="rounded-pill bg-surface-strong px-2.5 py-0.5 text-caption text-ink">
             Article
           </span>{" "}
           object before baseline analysis. {RQ_SCHEDULING_COPY}

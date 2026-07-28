@@ -1,5 +1,5 @@
 const PANEL =
-  "rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-5 py-14 text-center";
+  "rounded-xl border border-dashed border-hairline-strong bg-canvas-soft px-5 py-14 text-center";
 
 /** A failed load, told apart from an empty result and offering a way forward. */
 export function ErrorPanel({
@@ -14,14 +14,16 @@ export function ErrorPanel({
   retrying?: boolean;
 }) {
   return (
-    <div role="alert" className={`${PANEL} border-red-200 bg-red-50`}>
-      <div className="text-[15px] font-medium text-red-800">{title}</div>
-      <div className="mx-auto mt-1 max-w-md text-sm text-red-700">{description}</div>
+    // The one place a whole surface goes chromatic, at the alpha the system's
+    // hairline weight implies rather than a saturated fill.
+    <div role="alert" className={`${PANEL} border-error/30 bg-error/5`}>
+      <div className="text-body-sm font-medium text-error">{title}</div>
+      <div className="mx-auto mt-2 max-w-md text-caption text-body">{description}</div>
       <button
         type="button"
         onClick={onRetry}
         disabled={retrying}
-        className="mt-4 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-800 hover:border-red-800 disabled:opacity-50"
+        className="btn btn-outline mt-5 border-error/40 bg-surface-card text-error hover:border-error"
       >
         {retrying ? "Retrying…" : "Try again"}
       </button>
@@ -30,7 +32,7 @@ export function ErrorPanel({
 }
 
 export function EmptyPanel({ children }: { children: React.ReactNode }) {
-  return <div className={`${PANEL} text-[15px] text-stone-600`}>{children}</div>;
+  return <div className={`${PANEL} text-body-sm text-muted`}>{children}</div>;
 }
 
 /** Placeholder rows shaped like the list they stand in for. */
@@ -38,16 +40,13 @@ export function SkeletonRows({ count = 4, label }: { count?: number; label: stri
   return (
     <div aria-busy="true" aria-label={label} className="flex flex-col gap-2.5">
       {Array.from({ length: count }, (_, index) => (
-        <div
-          key={index}
-          className="flex animate-pulse items-center gap-4 rounded-2xl border border-stone-200 bg-white px-5 py-4"
-        >
-          <div className="h-8 w-8 flex-none rounded-full bg-stone-200" />
+        <div key={index} className="card flex animate-pulse items-center gap-4 px-5 py-4">
+          <div className="h-8 w-8 flex-none rounded-full bg-hairline" />
           <div className="min-w-0 flex-1">
-            <div className="h-3.5 w-1/2 rounded bg-stone-200" />
-            <div className="mt-2 h-3 w-1/3 rounded bg-stone-100" />
+            <div className="h-3.5 w-1/2 rounded-xs bg-hairline" />
+            <div className="mt-2 h-3 w-1/3 rounded-xs bg-hairline-soft" />
           </div>
-          <div className="h-8 w-24 flex-none rounded-full bg-stone-100" />
+          <div className="h-8 w-24 flex-none rounded-pill bg-hairline-soft" />
         </div>
       ))}
     </div>

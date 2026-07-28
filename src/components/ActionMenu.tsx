@@ -110,7 +110,7 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
             setOpen(true);
           }
         }}
-        className="rounded-full border border-stone-300 px-3 py-1.5 text-[13px] font-medium hover:border-stone-950"
+        className="btn btn-outline btn-sm"
       >
         {label}
       </button>
@@ -123,7 +123,7 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) close(false);
           }}
-          className="absolute right-0 z-20 mt-1 w-48 rounded-2xl border border-stone-200 bg-white py-1.5 shadow-[0_8px_24px_rgba(0,0,0,.08)]"
+          className="card absolute right-0 z-20 mt-1 w-48 py-2 shadow-lift"
         >
           {items.map((item) => (
             <button
@@ -136,8 +136,8 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
                 close();
                 item.onSelect();
               }}
-              className={`block w-full px-4 py-2 text-left text-[13px] hover:bg-chip disabled:opacity-50 ${
-                item.danger ? "text-red-700" : ""
+              className={`block w-full px-4 py-2 text-left text-caption hover:bg-surface-strong disabled:opacity-50 ${
+                item.danger ? "text-error" : "text-body hover:text-ink"
               }`}
             >
               {item.label}

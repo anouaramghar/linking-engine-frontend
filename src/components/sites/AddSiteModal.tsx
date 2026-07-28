@@ -16,22 +16,19 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
     create.mutate(form, { onSuccess: onClose });
   };
 
-  const field =
-    "w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm focus:border-stone-950 focus:outline-none";
-
   return (
     <Modal title="Connect a site" onClose={onClose} panelClassName="max-w-md">
       <form onSubmit={submit}>
         <div className="flex flex-col gap-3">
           <input
-            className={field}
+            className="field"
             placeholder="Name — e.g. The Trail Post"
             value={form.name}
             onChange={(e) => set({ name: e.target.value })}
             required
           />
           <input
-            className={field}
+            className="field"
             placeholder="https://example.com"
             type="url"
             value={form.base_url}
@@ -39,7 +36,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
             required
           />
           <select
-            className={field}
+            className="field"
             value={form.platform}
             onChange={(e) => set({ platform: e.target.value as SiteCreate["platform"] })}
           >
@@ -49,13 +46,13 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
           {form.platform === "wordpress" && (
             <>
               <input
-                className={field}
+                className="field"
                 placeholder="WP username (for write-back)"
                 value={form.wp_username ?? ""}
                 onChange={(e) => set({ wp_username: e.target.value || undefined })}
               />
               <input
-                className={field}
+                className="field"
                 placeholder="WP application password"
                 type="password"
                 value={form.wp_app_password ?? ""}
@@ -65,23 +62,15 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
         {create.isError && (
-          <div role="alert" className="mt-3 text-sm text-red-700">
+          <div role="alert" className="mt-3 text-caption text-error">
             {errorDetail(create.error, "Could not create the site.")}
           </div>
         )}
         <div className="mt-6 flex gap-2">
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="flex-1 rounded-full border border-stone-800 bg-stone-800 py-2.5 text-[15px] font-medium text-white hover:bg-stone-950 disabled:opacity-50"
-          >
+          <button type="submit" disabled={create.isPending} className="btn btn-primary flex-1">
             {create.isPending ? "Connecting…" : "Connect site"}
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-stone-300 px-5 py-2.5 text-[15px] font-medium hover:border-stone-950"
-          >
+          <button type="button" onClick={onClose} className="btn btn-outline">
             Cancel
           </button>
         </div>
