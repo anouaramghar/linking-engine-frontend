@@ -9,6 +9,7 @@ interface Props {
   onAccept: () => void;
   onReject: () => void;
   onUndo: () => void;
+  showSource?: boolean;
   /** Set on the keyboard cursor's row so the queue can scroll it into view. */
   containerRef?: React.Ref<HTMLLIElement>;
 }
@@ -21,6 +22,7 @@ export default function SuggestionCard({
   onAccept,
   onReject,
   onUndo,
+  showSource = true,
   containerRef,
 }: Props) {
   const meta = STATUS_META[s.status];
@@ -46,11 +48,19 @@ export default function SuggestionCard({
       >
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-baseline gap-2 text-body-sm">
-            <span className="font-medium text-ink">{s.source_article.title}</span>
-            <span aria-hidden className="text-muted">
-              &rarr;
+            {showSource ? (
+              <>
+                <span className="font-medium text-ink">{s.source_article.title}</span>
+                <span aria-hidden className="text-muted">
+                  &rarr;
+                </span>
+              </>
+            ) : (
+              <span className="text-muted">Links to</span>
+            )}
+            <span className={showSource ? "text-body" : "font-medium text-ink"}>
+              {s.target_article.title}
             </span>
-            <span className="text-body">{s.target_article.title}</span>
           </span>
           <span className="mt-2 flex flex-wrap items-center gap-3">
             {s.anchor_text && (

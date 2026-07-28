@@ -237,6 +237,99 @@ describe("ValidationPage live review state", () => {
     expect(screen.getAllByRole("button", { name: /^Open suggestion:/ })).toHaveLength(2);
   });
 
+  it("groups suggestions by source id and disambiguates duplicate titles by URL", () => {
+    const firstSource = {
+      id: 101,
+      title: "Hello world!",
+      url: "https://example.com/2026/hello-world/",
+    };
+    const secondSource = {
+      id: 102,
+      title: "Hello world!",
+      url: "https://example.com/2025/hello-world-2/",
+    };
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      suggestion(1, {
+        source_article: firstSource,
+        target_article: { id: 201, title: "First target", url: "/first-target" },
+      }),
+      suggestion(2, {
+        source_article: firstSource,
+        target_article: { id: 202, title: "Second target", url: "/second-target" },
+      }),
+      suggestion(3, {
+        source_article: secondSource,
+        target_article: { id: 203, title: "Third target", url: "/third-target" },
+        status: "pending",
+      }),
+    );
+
+    render(<ValidationPage />);
+
+    const groups = screen.getAllByRole("region", { name: "Hello world!" });
+    expect(groups).toHaveLength(2);
+    expect(
+      within(groups[0]).getAllByRole("button", { name: /^Open suggestion:/ }),
+    ).toHaveLength(2);
+    expect(
+      within(groups[1]).getAllByRole("button", { name: /^Open suggestion:/ }),
+    ).toHaveLength(1);
+    expect(within(groups[0]).getByText(/\/2026\/hello-world\//)).not.toBeNull();
+    expect(within(groups[1]).getByText(/\/2025\/hello-world-2\//)).not.toBeNull();
+    expect(within(groups[0]).getByText("2 suggestions")).not.toBeNull();
+    expect(within(groups[1]).getByText("1 suggestion")).not.toBeNull();
+  });
+
+  it("collapses a source group without hiding other articles", async () => {
+    const user = userEvent.setup();
+    const sharedSource = {
+      id: 101,
+      title: "Shared source",
+      url: "https://example.com/shared-source/",
+    };
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      suggestion(1, { source_article: sharedSource }),
+      suggestion(2, {
+        source_article: sharedSource,
+        target_article: { id: 202, title: "Second target", url: "/second-target" },
+      }),
+      suggestion(3, {
+        source_article: {
+          id: 103,
+          title: "Another source",
+          url: "https://example.com/another-source/",
+        },
+        status: "pending",
+      }),
+    );
+    render(<ValidationPage />);
+
+    const group = screen.getByRole("region", { name: "Shared source" });
+    const collapse = within(group).getByRole("button", {
+      name: /Collapse suggestions for Shared source/,
+    });
+    await user.click(collapse);
+
+    expect(collapse.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      within(group).queryByRole("button", { name: /^Open suggestion:/ }),
+    ).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Open suggestion:/ })).toHaveLength(1);
+
+    await user.click(
+      within(group).getByRole("button", {
+        name: /Expand suggestions for Shared source/,
+      }),
+    );
+    expect(
+      within(group).getAllByRole("button", { name: /^Open suggestion:/ }),
+    ).toHaveLength(2);
+  });
+
   it("saves a confirmed bulk action through the backend mutation", async () => {
     const user = userEvent.setup();
     render(<ValidationPage />);

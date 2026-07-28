@@ -13,6 +13,7 @@ import type {
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
+import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import { useIncrementalList } from "../hooks/useIncrementalList";
@@ -27,6 +28,10 @@ import {
 } from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
 import { isConflict } from "../lib/errors";
+import {
+  groupSuggestionsBySource,
+  suggestionGroupKey,
+} from "../lib/suggestionGroups";
 import { isReversible, scorePercent } from "../lib/utils";
 import {
   clampThreshold,
@@ -60,6 +65,8 @@ interface BatchFailure {
 
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
 const STATUS_OVERRIDE_LIMIT = 5_000;
+const SOURCE_GROUP_PAGE_SIZE = 20;
+const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
 
 const EMPTY_COUNTS: SuggestionCounts = {
   pending: 0,
@@ -103,6 +110,9 @@ export default function ValidationPage() {
   const [siteFilter, setSiteFilter] = useState(0);
   const [threshold, setThreshold] = useState(80);
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
+  const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -180,14 +190,39 @@ export default function ValidationPage() {
     [resolvedSuggestions, siteFilter, statusFilter],
   );
 
+  const suggestionGroups = useMemo(
+    () => groupSuggestionsBySource(suggestions),
+    [suggestions],
+  );
+  const navigableSuggestions = useMemo(
+    () =>
+      suggestionGroups
+        .filter((group) => !collapsedSources.has(group.key))
+        .flatMap((group) => group.suggestions),
+    [collapsedSources, suggestionGroups],
+  );
+
   const {
-    visible: visibleSuggestions,
-    shown,
+    visible: visibleGroups,
     hasMore: hasMoreLoaded,
     showMore: showMoreLoaded,
     sentinel,
     autoLoadPaused,
-  } = useIncrementalList(suggestions, `${statusFilter}:${siteFilter}`);
+  } = useIncrementalList(
+    suggestionGroups,
+    `${statusFilter}:${siteFilter}`,
+    SOURCE_GROUP_PAGE_SIZE,
+    SOURCE_GROUP_AUTO_LOAD_LIMIT,
+  );
+  const visibleSuggestions = useMemo(
+    () => visibleGroups.flatMap((group) => group.suggestions),
+    [visibleGroups],
+  );
+  const visibleSuggestionIds = useMemo(
+    () => new Set(visibleSuggestions.map((suggestion) => suggestion.id)),
+    [visibleSuggestions],
+  );
+  const shown = visibleSuggestions.length;
 
   const hasMore =
     !suggestionsQuery.isPlaceholderData &&
@@ -301,12 +336,14 @@ export default function ValidationPage() {
     }
 
     if (selectedId !== null && applied.includes(selectedId)) {
-      const selectedIndex = suggestions.findIndex((item) => item.id === selectedId);
+      const selectedIndex = navigableSuggestions.findIndex(
+        (item) => item.id === selectedId,
+      );
       if (selectedIndex !== -1) {
         const removed = new Set(applied);
         // Resume at the true vacated position after every reviewed row above
         // the cursor has also left the filtered list.
-        lastIndex.current = suggestions
+        lastIndex.current = navigableSuggestions
           .slice(0, selectedIndex)
           .filter((suggestion) => !removed.has(suggestion.id)).length;
       }
@@ -349,9 +386,11 @@ export default function ValidationPage() {
    * selection stops resolving and `j` restarts from the top.
    */
   const successorOf = (id: number) => {
-    const index = suggestions.findIndex((item) => item.id === id);
+    const index = navigableSuggestions.findIndex((item) => item.id === id);
     if (index === -1) return null;
-    return (suggestions[index + 1] ?? suggestions[index - 1])?.id ?? null;
+    return (
+      navigableSuggestions[index + 1] ?? navigableSuggestions[index - 1]
+    )?.id ?? null;
   };
 
   const decide = (id: number, status: ReviewStatus) => {
@@ -501,23 +540,31 @@ export default function ValidationPage() {
   // render so a discarded concurrent render cannot record a place the editor
   // never saw.
   useEffect(() => {
-    const index = suggestions.findIndex((item) => item.id === selectedId);
+    const index = navigableSuggestions.findIndex(
+      (item) => item.id === selectedId,
+    );
     if (index !== -1) lastIndex.current = index;
-  }, [suggestions, selectedId]);
+  }, [navigableSuggestions, selectedId]);
 
   // Move the cursor within the visible list, seeding it at the top on first use.
   const step = (delta: number) => {
-    if (!suggestions.length) return;
-    const current = suggestions.findIndex((item) => item.id === selectedId);
+    if (!navigableSuggestions.length) return;
+    const current = navigableSuggestions.findIndex(
+      (item) => item.id === selectedId,
+    );
     // A bulk review can pull the cursor row out from under the selection. The
     // row that slid into its index is the one to resume on — snapping back to
     // the top of the queue would lose the editor's place entirely.
     const target = current === -1 ? lastIndex.current : current + delta;
-    const next = Math.min(suggestions.length - 1, Math.max(0, target));
+    const next = Math.min(
+      navigableSuggestions.length - 1,
+      Math.max(0, target),
+    );
     // Keep the cursor inside what is mounted, so paging never strands it on a
     // row that has no card to scroll to.
-    if (next >= shown) showMore();
-    setSelectedId(suggestions[next].id);
+    const nextSuggestion = navigableSuggestions[next];
+    if (!visibleSuggestionIds.has(nextSuggestion.id)) showMore();
+    setSelectedId(nextSuggestion.id);
   };
 
   useQueueShortcuts({
@@ -539,6 +586,23 @@ export default function ValidationPage() {
     // Optional-called: not every environment implements scrollIntoView.
     cursorRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [selectedId]);
+
+  const toggleSourceGroup = (groupKey: string) => {
+    const isCollapsing = !collapsedSources.has(groupKey);
+    setCollapsedSources((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+    if (
+      isCollapsing &&
+      selected &&
+      suggestionGroupKey(selected) === groupKey
+    ) {
+      setSelectedId(null);
+    }
+  };
 
   return (
     <>
@@ -618,21 +682,36 @@ export default function ValidationPage() {
 
             {!loading && !failed && (
               <>
-                <ul className="flex flex-col gap-2.5">
-                  {visibleSuggestions.map((suggestion) => (
-                    <SuggestionCard
-                      key={suggestion.id}
-                      suggestion={suggestion}
-                      siteName={siteName(suggestion.site_id)}
-                      selected={suggestion.id === selectedId}
-                      containerRef={suggestion.id === selectedId ? cursorRef : undefined}
-                      onOpen={() => setSelectedId(suggestion.id)}
-                      onAccept={() => decide(suggestion.id, "approved")}
-                      onReject={() => decide(suggestion.id, "rejected")}
-                      onUndo={() => undo([suggestion.id])}
-                    />
+                <div className="flex flex-col gap-3">
+                  {visibleGroups.map((group) => (
+                    <SuggestionGroup
+                      key={group.key}
+                      sourceArticle={group.sourceArticle}
+                      siteId={group.siteId}
+                      siteName={siteName(group.siteId)}
+                      count={group.suggestions.length}
+                      collapsed={collapsedSources.has(group.key)}
+                      onToggle={() => toggleSourceGroup(group.key)}
+                    >
+                      {group.suggestions.map((suggestion) => (
+                        <SuggestionCard
+                          key={suggestion.id}
+                          suggestion={suggestion}
+                          siteName={siteName(suggestion.site_id)}
+                          selected={suggestion.id === selectedId}
+                          showSource={false}
+                          containerRef={
+                            suggestion.id === selectedId ? cursorRef : undefined
+                          }
+                          onOpen={() => setSelectedId(suggestion.id)}
+                          onAccept={() => decide(suggestion.id, "approved")}
+                          onReject={() => decide(suggestion.id, "rejected")}
+                          onUndo={() => undo([suggestion.id])}
+                        />
+                      ))}
+                    </SuggestionGroup>
                   ))}
-                </ul>
+                </div>
                 {hasMore && (
                   <div ref={sentinel} className="flex flex-col items-center gap-2 py-2">
                     <button
