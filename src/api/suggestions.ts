@@ -184,3 +184,6 @@ export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus)
 
 export const triggerAnalysis = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}`).then((r) => r.data);
+
+export const triggerComparison = (siteId: number) =>
+  api.post<JobAccepted>(`/suggestions/${siteId}/compare`).then((r) => r.data);

@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { bulkCreateSites, listSites } from "./sites";
+import { bulkCreateSites, listSites, updateSuggestionMode } from "./sites";
 
 const get = vi.hoisted(() => vi.fn());
 const post = vi.hoisted(() => vi.fn());
+const put = vi.hoisted(() => vi.fn());
 
-vi.mock("./client", () => ({ api: { get, post } }));
+vi.mock("./client", () => ({ api: { get, post, put } }));
 
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
+  put.mockReset();
 });
 
 describe("listSites", () => {
@@ -40,5 +42,21 @@ describe("bulkCreateSites", () => {
 
     await expect(bulkCreateSites(sites)).resolves.toEqual(result);
     expect(post).toHaveBeenCalledWith("/sites/bulk", { sites });
+  });
+});
+
+describe("updateSuggestionMode", () => {
+  it("saves one site's future generation method", async () => {
+    const state = {
+      suggestion_mode: "experimental",
+      suggestion_mode_managed: false,
+      suggestion_comparison_enabled: false,
+    };
+    put.mockResolvedValue({ data: state });
+
+    await expect(updateSuggestionMode(42, "experimental")).resolves.toEqual(state);
+    expect(put).toHaveBeenCalledWith("/sites/42/suggestion-mode", {
+      suggestion_mode: "experimental",
+    });
   });
 });

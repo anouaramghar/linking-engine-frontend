@@ -5,7 +5,9 @@ import {
   createSite,
   deleteSite,
   listSites,
+  updateSuggestionMode,
 } from "../api/sites";
+import type { SuggestionMode } from "../types/site";
 
 export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
 
@@ -29,6 +31,20 @@ export const useDeleteSite = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: deleteSite,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+  });
+};
+
+export const useUpdateSuggestionMode = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      siteId,
+      suggestionMode,
+    }: {
+      siteId: number;
+      suggestionMode: SuggestionMode;
+    }) => updateSuggestionMode(siteId, suggestionMode),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
   });
 };

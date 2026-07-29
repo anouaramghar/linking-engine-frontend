@@ -3,6 +3,8 @@ import type {
   BulkImportResult,
   Site,
   SiteCreate,
+  SuggestionMode,
+  SuggestionModeState,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -30,6 +32,13 @@ export const bulkCreateSites = (sites: SiteCreate[]) =>
   api.post<BulkImportResult>("/sites/bulk", { sites }).then((r) => r.data);
 
 export const deleteSite = (id: number) => api.delete(`/sites/${id}`);
+
+export const updateSuggestionMode = (id: number, suggestionMode: SuggestionMode) =>
+  api
+    .put<SuggestionModeState>(`/sites/${id}/suggestion-mode`, {
+      suggestion_mode: suggestionMode,
+    })
+    .then((r) => r.data);
 
 export const ingestSite = (id: number) =>
   api.post<JobAccepted>(`/sites/${id}/ingest`).then((r) => r.data);
