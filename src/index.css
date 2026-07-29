@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  /* {colors.canvas} floor, {colors.body} running text. Headings opt into
+     {colors.ink} rather than the other way round — that is the editorial
+     hierarchy the system describes. */
+  @apply bg-canvas font-sans text-body antialiased;
+}
+
+/* One visible focus indicator for every control, so keyboard position is never
+   lost. Scoped to :focus-visible, so pointer users keep the clean look. */
+:focus-visible {
+  outline: 2px solid theme(colors.ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: theme(colors.orb-lavender);
+  color: theme(colors.ink);
+}
+
+/* Native number-input spinners clash with the pill styling */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/**
+ * The design system's components, as classes. These exist because the primary
+ * pill alone appears in eight places: written out as utilities each time, the
+ * eight copies drift, which is what the system's "use token refs everywhere"
+ * rule is guarding against. Anything the system names lives here; anything it
+ * doesn't is composed from utilities at the call site.
+ */
+@layer components {
+  /* {component.button-primary} / {component.button-outline} share a box: 40px
+     tall, 20px of horizontal room, pill. The outline's documented 9x19 padding
+     is its 1px border eating into the same outer box, so both carry a border. */
+  .btn {
+    @apply inline-flex h-10 flex-none items-center justify-center gap-2
+      whitespace-nowrap rounded-pill border px-5 text-button
+      transition-colors disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply border-primary bg-primary text-on-primary hover:bg-primary-active
+      hover:border-primary-active disabled:border-hairline disabled:bg-hairline
+      disabled:text-muted-soft;
+  }
+
+  .btn-outline {
+    @apply border-hairline-strong bg-transparent text-ink hover:border-ink
+      disabled:text-muted-soft disabled:hover:border-hairline-strong;
+  }
+
+  /* {component.button-tertiary-text} */
+  .btn-text {
+    @apply border-transparent bg-transparent text-ink hover:text-primary;
+  }
+
+  /* Destructive confirm. Not in the system — it documents no danger action, but
+     deleting a site with its articles and embeddings must not wear the same
+     ink pill as "Connect site". Uses {colors.semantic-error} unchanged. */
+  .btn-danger {
+    @apply border-error bg-error text-on-primary hover:border-error-active
+      hover:bg-error-active disabled:border-hairline disabled:bg-hairline
+      disabled:text-muted-soft;
+  }
+
+  /* Row-level actions. Same pill, 32px tall, so a table row of them does not
+     out-weigh the row's own content. */
+  .btn-sm {
+    @apply h-8 gap-1.5 px-4 text-[14px];
+  }
+
+  /* {component.text-input} — 44px, {rounded.md}, hairline-strong at rest. */
+  .field {
+    @apply h-11 w-full rounded-md border border-hairline-strong bg-surface-card
+      px-4 text-body-md text-ink placeholder:text-muted;
+  }
+
+  /* The system thickens the focused border to 2px. Painted as a border plus an
+     inset ring rather than a width change, so the field does not shift by a
+     pixel as focus lands on it. */
+  .field:focus {
+    border-color: theme(colors.ink);
+    box-shadow: inset 0 0 0 1px theme(colors.ink);
+  }
+
+  /* {component.feature-card} — white on the off-white canvas, held by a
+     hairline. `soft` is the system's single shadow tier. */
+  .card {
+    @apply rounded-xl border border-hairline bg-surface-card;
+  }
+
+  /* {component.badge-pill} */
+  .badge {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill
+      bg-surface-strong px-2.5 py-1 text-caption-upper uppercase text-ink;
+  }
+
+  /* The section label the system calls {typography.caption-uppercase}. */
+  .eyebrow {
+    @apply text-caption-upper uppercase text-muted;
+  }
+
+  /* Status dot. Colour is the only chromatic moment the system allows in
+     product chrome, so it stays 8px and never carries meaning alone — every
+     dot in this app sits beside its own text label. */
+  .dot {
+    @apply h-2 w-2 flex-none rounded-full;
+  }
+}
+
+.job-activity-dot {
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 9999px;
+  background: theme(colors.primary);
+  animation: job-activity-thinking 1.2s ease-in-out infinite;
+}
+
+.job-activity-dot-2 {
+  animation-delay: 0.16s;
+}
+
+.job-activity-dot-3 {
+  animation-delay: 0.32s;
+}
+
+@keyframes job-activity-thinking {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-activity-dot {
+    animation: none;
+    opacity: 0.75;
+  }
+}

@@ -1,0 +1,15 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.worktrees/
+Thumbs.db
+.DS_Store
