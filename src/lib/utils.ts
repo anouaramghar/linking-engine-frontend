@@ -1,4 +1,12 @@
-export const pct = (n: number) => `${Math.round(n * 100)}%`;
+import type { SuggestionStatus } from "../types/suggestion";
+
+/**
+ * The whole-percent score an editor sees. Threshold rules compare against this
+ * same value so a card labelled 80% is never swept up by a "below 80%" rule.
+ */
+export const scorePercent = (score: number) => Math.round(score * 100);
+
+export const pct = (n: number) => `${scorePercent(n)}%`;
 
 export const initials = (name: string) =>
   name
@@ -18,22 +26,53 @@ export const timeAgo = (iso: string | null) => {
 
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
-  gnn_graphsage: "GraphSAGE",
-  external_search: "external",
 };
 
-export const STATUS_META: Record<string, { label: string; dot: string; fg: string }> = {
-  pending: { label: "Pending", dot: "bg-stone-400", fg: "text-stone-800" },
-  approved: { label: "Approved", dot: "bg-green-600", fg: "text-green-600" },
-  rejected: { label: "Rejected", dot: "bg-red-600", fg: "text-red-600" },
-  applied: { label: "Applied", dot: "bg-blue-600", fg: "text-blue-600" },
+/**
+ * Status is carried by a dot beside its own text label, never by tinting the
+ * label itself. The design system has exactly two chromatic semantics
+ * ({colors.semantic-success} and {colors.semantic-error}); the in-between
+ * states borrow ink and muted rather than inventing a warning hue, and
+ * "Publishing" pulses because it is the only status that is still moving.
+ */
+export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string }> = {
+  pending: { label: "Pending review", dot: "bg-muted-soft" },
+  approved: { label: "Queued for publish", dot: "bg-primary" },
+  rejected: { label: "Rejected", dot: "bg-error" },
+  applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
+  applied: { label: "Published live", dot: "bg-success" },
 };
 
-// The prototype's pastel orbs — used for site avatars and KPI cards
-export const ORBS = [
-  "rgba(167,229,211,.45)",
-  "rgba(244,197,168,.45)",
-  "rgba(200,184,224,.45)",
-  "rgba(168,200,232,.45)",
-  "rgba(232,184,196,.45)",
-];
+/** Once publishing starts the worker owns the row, so the decision is final. */
+export const isReversible = (status: SuggestionStatus) =>
+  status === "approved" || status === "rejected";
+
+export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
+  approved: "Queued for the next publish batch. Not live yet.",
+  applying: "Publishing is in progress.",
+  applied: "Published to the live article.",
+};
+
+export const RQ_SCHEDULING_COPY = "Scheduled re-crawls run through RQ.";
+
+/**
+ * The system's five atmospheric gradient stops — mint, peach, lavender, sky,
+ * rose — expressed through theme tokens rather than a second copy of their
+ * colour values. Keeping each complete class here also makes it visible to
+ * Tailwind's scanner.
+ */
+const ORB_PLATE_CLASSES = [
+  "bg-[radial-gradient(circle_at_30%_30%,theme(colors.orb-mint/45%),theme(colors.surface-strong))]",
+  "bg-[radial-gradient(circle_at_30%_30%,theme(colors.orb-peach/45%),theme(colors.surface-strong))]",
+  "bg-[radial-gradient(circle_at_30%_30%,theme(colors.orb-lavender/45%),theme(colors.surface-strong))]",
+  "bg-[radial-gradient(circle_at_30%_30%,theme(colors.orb-sky/45%),theme(colors.surface-strong))]",
+  "bg-[radial-gradient(circle_at_30%_30%,theme(colors.orb-rose/45%),theme(colors.surface-strong))]",
+] as const;
+
+/**
+ * A {component.voice-icon-circular} plate, blooming one of the five stops over
+ * {colors.surface-strong}. Sites cycle the palette by index, so a fleet reads
+ * as one system rather than five unrelated badges.
+ */
+export const orbPlateClass = (index: number) =>
+  ORB_PLATE_CLASSES[index % ORB_PLATE_CLASSES.length];

@@ -1,31 +1,166 @@
+import { useState } from "react";
+
+import type { BulkReviewAction } from "../../lib/suggestionReview";
+
 interface Chip {
   key: string;
   label: string;
   count: number;
 }
 
+export interface BulkConfirmation {
+  action: BulkReviewAction;
+  count: number;
+  threshold: number;
+  siteLabel: string;
+  undoAvailable: boolean;
+}
+
 interface Props {
   chips: Chip[];
   active: string;
   onSelect: (key: string) => void;
+  threshold: number;
+  onThresholdChange: (threshold: number) => void;
+  acceptCount: number;
+  rejectCount: number;
+  /** False when the active status filter shows no pending suggestions to act on. */
+  actionable: boolean;
+  confirmation: BulkConfirmation | null;
+  onRequest: (action: BulkReviewAction) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
 }
 
-export default function BulkActions({ chips, active, onSelect }: Props) {
+export default function BulkActions({
+  chips,
+  active,
+  onSelect,
+  threshold,
+  onThresholdChange,
+  acceptCount,
+  rejectCount,
+  actionable,
+  confirmation,
+  onRequest,
+  onConfirm,
+  onCancel,
+}: Props) {
+  // Mirrors the committed threshold, but tolerates the transient empty string
+  // and any leading zeros while the field is being edited. Resynced during
+  // render when the parent clamps the value, so the input never paints a
+  // number the rule is no longer using.
+  const [draft, setDraft] = useState(String(threshold));
+  const [seenThreshold, setSeenThreshold] = useState(threshold);
+  if (seenThreshold !== threshold) {
+    setSeenThreshold(threshold);
+    if (Number(draft) !== threshold) setDraft(String(threshold));
+  }
+
+  const comparison =
+    confirmation?.action === "approve"
+      ? `at least ${confirmation.threshold}%`
+      : `below ${confirmation?.threshold}%`;
+  const verb = confirmation?.action === "approve" ? "Accept" : "Reject";
+
   return (
-    <>
-      {chips.map((c) => (
+    <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {chips.map((chip) => (
+          <button
+            key={chip.key}
+            onClick={() => onSelect(chip.key)}
+            className={`btn btn-sm ${active === chip.key ? "btn-primary" : "btn-outline"}`}
+          >
+            {chip.label} &middot; {chip.count}
+          </button>
+        ))}
+      </div>
+
+      <div
+        aria-label="Bulk review controls"
+        className="card flex flex-wrap items-center gap-3 p-3"
+      >
+        <label className="flex items-center gap-2 text-caption text-muted">
+          Score threshold
+          {/* The ring lives on the pill so the inner input can stay borderless. */}
+          <span className="flex h-8 items-center rounded-pill border border-hairline-strong bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
+            <input
+              aria-label="Score threshold"
+              type="number"
+              min={0}
+              max={100}
+              value={draft}
+              onChange={(event) => {
+                // Keep the raw text while editing so clearing the field doesn't
+                // snap to 0 and rewrite the rule under the user's cursor.
+                setDraft(event.target.value);
+                if (event.target.value !== "") onThresholdChange(Number(event.target.value));
+              }}
+              onBlur={() => setDraft(String(threshold))}
+              style={{ width: `${Math.max(draft.length, 1)}ch` }}
+              className="bg-transparent text-right text-caption font-medium text-ink outline-none"
+            />
+            <span className="text-caption text-muted">%</span>
+          </span>
+        </label>
+
+        {!actionable && (
+          <span className="text-caption text-muted">
+            Bulk rules act on pending suggestions - switch to Pending review or All.
+          </span>
+        )}
+
+        <div className="min-w-4 flex-1" />
         <button
-          key={c.key}
-          onClick={() => onSelect(c.key)}
-          className={`rounded-full border px-4 py-2 text-sm font-medium ${
-            active === c.key
-              ? "border-stone-800 bg-stone-800 text-white"
-              : "border-stone-300 text-stone-950 hover:border-stone-950"
-          }`}
+          type="button"
+          disabled={!actionable || acceptCount === 0}
+          onClick={() => onRequest("approve")}
+          className="btn btn-primary btn-sm"
         >
-          {c.label} · {c.count}
+          Accept &ge; {threshold}% &middot; {acceptCount}
         </button>
-      ))}
-    </>
+        <button
+          type="button"
+          disabled={!actionable || rejectCount === 0}
+          onClick={() => onRequest("reject")}
+          className="btn btn-outline btn-sm"
+        >
+          Reject &lt; {threshold}% &middot; {rejectCount}
+        </button>
+      </div>
+
+      {confirmation && (
+        <div
+          role="alertdialog"
+          aria-label="Confirm bulk review"
+          // The system has no warning colour and asks for none: an interrupt
+          // reads as a raised band on {colors.surface-strong} rather than a
+          // saturated fill.
+          className="flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-strong px-4 py-3"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-body-sm font-medium text-ink">
+              {verb} {confirmation.count} pending suggestion
+              {confirmation.count === 1 ? "" : "s"}?
+            </div>
+            <div className="mt-1 text-caption text-body">
+              {confirmation.siteLabel} &middot; score {comparison}. Only pending
+              suggestions matching this rule are affected.{" "}
+              {confirmation.undoAvailable
+                ? "The decision can be undone."
+                : "This change is too large to undo in one step."}{" "}
+              Approved links are not live until published.
+            </div>
+          </div>
+          <button type="button" onClick={onCancel} className="btn btn-outline btn-sm">
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} className="btn btn-primary btn-sm">
+            Confirm {confirmation.action === "approve" ? "accept" : "reject"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

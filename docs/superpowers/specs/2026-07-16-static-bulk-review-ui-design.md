@@ -1,5 +1,10 @@
 # Static Bulk Review UI Design
 
+> **Superseded in part (2026-07-21).** This document describes the original
+> frontend-only prototype. The review queue now sends real review mutations, the
+> method filter was never built, and Undo is supported. See "Amendments" at the
+> end for what still holds.
+
 ## Goal
 
 Add a frontend-only, interactive prototype for reviewing link suggestions at volume and make publication state unambiguous. The prototype must not modify backend code or send review mutations to the API.
@@ -97,3 +102,108 @@ Automated tests cover:
 - The absence of Celery scheduling copy and presence of the RQ copy.
 
 Verification also includes a production frontend build and a browser check of the review queue at desktop width. The browser check confirms filtering, confirmation, local status changes, queued-versus-published language, empty-target disabling, and that no review mutation request is sent.
+
+## Amendments (2026-07-21)
+
+Changes made after the UI/UX review; where these conflict with the text above,
+these win.
+
+### Reversed: local-only mutations
+
+The queue now calls the single-review and bulk-review endpoints for real.
+In-memory status overrides remain, but only as an optimistic bridge across the
+refetch: `pruneStatusOverrides` drops an override once the server agrees with it,
+and always yields to `applying` / `applied`, which the publication worker owns.
+
+### Added: Undo
+
+`ReviewStatus` gained `pending` on both sides of the API, so a decision can be
+walked back from the card, the preview, or the result toast. `_review` clears
+`reviewed_at` when reverting. Suggestions that reached `applying` or `applied`
+stay final — the existing publish guard returns 409.
+
+### Changed: bulk rules are scoped to the visible list
+
+`getBulkTargets` takes the active status filter and returns nothing unless the
+visible list can contain pending suggestions. Previously a rule run from the
+Rejected or Published list silently mutated the pending backlog.
+
+### Changed: thresholds compare on the displayed score
+
+Both the badge and the rule use `scorePercent` (whole percent). A suggestion
+shown as 80% is never swept up by a "below 80%" rule.
+
+### Not built: the method filter
+
+`All methods` / `Baseline` / `GNN` was specified but never implemented, and the
+tests assert GNN is absent from the UI. Baseline cosine is the only method the
+engine produces today; the filter should return with the second method.
+
+### Added: publish handoff
+
+Approving happens in the queue but publishing was reachable only from the Sites
+page. The queue now shows an approved-backlog banner that enqueues a publish job
+per affected site. A 409 from a site already publishing is reported as
+"already publishing", not as a failure.
+
+## Amendments (2026-07-21, follow-up review)
+
+A second pass over the changes above. Where these conflict with anything
+earlier, these win.
+
+### Changed: bulk review applies what it can
+
+`POST /suggestions/bulk-review` no longer fails the whole batch when one row has
+moved on. It reviews every row it can and returns
+`{reviewed[], skipped[], status}`, where `skipped` lists suggestions that were
+already picked up for publishing or had expired.
+
+Undo races that worker by design — an approval can be picked up while the undo
+affordance is still on screen — and all-or-nothing meant one claimed row left
+the editor unable to walk back any of the others, behind a "please try again"
+that could never succeed. The queue now overrides only the rows that actually
+moved and names the rest. A batch that changes nothing says so instead of
+inviting a retry.
+
+The single-suggestion endpoint still returns 409; the queue reports that as a
+settled outcome ("already publishing"), not a transient failure.
+
+### Changed: the keyboard cursor follows the queue
+
+Reviewing removes a row from every filter but `All`, which left `selectedId`
+pointing at a row the list no longer contained — `j` then restarted at the top
+of the queue, so reviewing row 50 sent the editor back to row 1 and `k` was
+useless. A decision on the cursor row now hands the cursor to whatever takes its
+place, which is what makes `a a a` walk the queue. When a bulk review removes
+the cursor row instead, `step` resumes from the vacated index rather than the
+top. Deciding a row that is *not* the cursor row leaves the cursor alone.
+
+### Changed: scroll-loading is capped
+
+`useIncrementalList` bounded only the first mount: its IntersectionObserver kept
+loading a page per intersection, so an unattended scroll walked the whole queue
+into the DOM — the freeze the hook exists to prevent. Auto-loading now stops at
+`AUTO_LOAD_LIMIT` (500 rows); past that "Show more" is the only way forward, and
+the counter says why it paused.
+
+### Changed: ActionMenu honours its role
+
+`role="menu"` is a promise about the keyboard. The menu now implements it:
+arrows move between enabled items and wrap, Home/End jump to the ends, and
+items carry `tabindex="-1"` so the menu owns focus while open. Escape closes and
+returns focus to the trigger; Tab closes without preventing the browser's next
+focus move. ArrowDown opens on the first enabled item, while ArrowUp opens on
+the last; clicking the trigger keeps the first-item behavior.
+
+### Changed: error notices interrupt
+
+`Notice` renders `role="alert"` for the error tone and `role="status"` for
+information. A failure should reach a screen reader when it happens rather than
+queueing behind whatever is being read.
+
+### Constraint: client page size is pinned to the engine's cap
+
+The dashboard walks every list endpoint in pages of 1000, which is exactly
+`MAX_PAGE_SIZE`. Raising either page size without raising the cap turns every
+list request into a 422. `test_every_list_endpoint_accepts_exactly_max_page_size`
+holds the boundary from the backend side.

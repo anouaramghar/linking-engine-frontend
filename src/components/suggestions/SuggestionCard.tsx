@@ -1,5 +1,5 @@
+import { METHOD_LABEL, STATUS_META, isReversible, pct } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
-import { METHOD_LABEL, STATUS_META, pct } from "../../lib/utils";
 
 interface Props {
   suggestion: Suggestion;
@@ -9,6 +9,9 @@ interface Props {
   onAccept: () => void;
   onReject: () => void;
   onUndo: () => void;
+  showSource?: boolean;
+  /** Set on the keyboard cursor's row so the queue can scroll it into view. */
+  containerRef?: React.Ref<HTMLLIElement>;
 }
 
 export default function SuggestionCard({
@@ -19,80 +22,106 @@ export default function SuggestionCard({
   onAccept,
   onReject,
   onUndo,
+  showSource = true,
+  containerRef,
 }: Props) {
   const meta = STATUS_META[s.status];
-  const targetTitle = s.target_article?.title ?? s.external_title ?? s.external_url ?? "";
+
+  const method = METHOD_LABEL[s.method] ?? s.method;
 
   return (
-    <div
-      onClick={onOpen}
-      className={`flex animate-rowIn cursor-pointer items-center gap-4 rounded-2xl border bg-white px-5 py-4 transition-shadow hover:shadow-[0_4px_16px_rgba(0,0,0,.04)] ${
-        selected ? "border-stone-950" : "border-stone-200"
+    <li
+      ref={containerRef}
+      aria-current={selected || undefined}
+      className={`card flex animate-rowIn items-center gap-4 px-5 py-4 transition-shadow hover:shadow-soft ${
+        selected ? "border-ink" : ""
       }`}
     >
-      <span className={`h-2 w-2 flex-none rounded-full ${meta.dot}`} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-2 text-[15px]">
-          <span className="font-medium text-stone-950">{s.source_article.title}</span>
-          <span className="text-stone-400">→</span>
-          <span className="text-stone-600">{targetTitle}</span>
-        </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
-          {s.anchor_text && (
-            <span className="rounded-full bg-chip px-3 py-0.5 text-[13px] text-stone-800">
-              “{s.anchor_text}”
+      <span className={`dot ${meta.dot}`} />
+      {/* A real button so the preview is reachable by keyboard, with the row
+          actions kept outside it rather than nested inside a control. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}`}
+        className="flex min-w-0 flex-1 items-center gap-4 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-2 text-body-sm">
+            {showSource ? (
+              <>
+                <span className="font-medium text-ink">{s.source_article.title}</span>
+                <span aria-hidden className="text-muted">
+                  &rarr;
+                </span>
+              </>
+            ) : (
+              <span className="text-muted">Links to</span>
+            )}
+            <span className={showSource ? "text-body" : "font-medium text-ink"}>
+              {s.target_article.title}
             </span>
-          )}
-          <span className="text-[13px] text-stone-400">{siteName}</span>
-          <span className="rounded-full border border-stone-200 px-2 py-0.5 text-[11px] uppercase tracking-wide text-stone-500">
-            {METHOD_LABEL[s.method] ?? s.method}
           </span>
-          {s.trust_score !== null && (
-            <span className="text-[13px] text-stone-400">trust {pct(s.trust_score)}</span>
-          )}
-        </div>
-      </div>
-      <div className="w-[104px] flex-none text-right">
-        <div className="text-base font-medium text-stone-950">{pct(s.score)}</div>
-        <div className="mb-1 mt-1.5 h-[3px] overflow-hidden rounded bg-stone-200">
-          <div className="h-full rounded bg-stone-800" style={{ width: pct(s.score) }} />
-        </div>
-        <div className="text-[11.5px] text-stone-400">{METHOD_LABEL[s.method] ?? s.method}</div>
-      </div>
-      <div className="flex w-[158px] flex-none items-center justify-end gap-1.5">
+          <span className="mt-2 flex flex-wrap items-center gap-3">
+            {s.anchor_text && (
+              <span className="rounded-pill bg-surface-strong px-3 py-0.5 text-caption text-ink">
+                &ldquo;{s.anchor_text}&rdquo;
+              </span>
+            )}
+            <span className="text-caption text-muted">{siteName}</span>
+            <span className="rounded-pill border border-hairline px-2.5 py-1 text-caption-upper uppercase text-muted">
+              {method}
+            </span>
+          </span>
+        </span>
+        <span className="w-[104px] flex-none text-right">
+          <span className="block text-body-md font-medium text-ink">{pct(s.score)}</span>
+          <span className="mb-1 mt-2 block h-[3px] overflow-hidden rounded-pill bg-hairline">
+            <span
+              className="block h-full rounded-pill bg-primary"
+              style={{ width: pct(s.score) }}
+            />
+          </span>
+          <span className="block text-[11px] text-muted">
+            GraphSAGE <span className="font-medium text-ink">Soon</span>
+          </span>
+        </span>
+      </button>
+      {/* Fixed to the widest reversible state so the status badge and Undo
+          stay inside their column instead of spilling over the score. */}
+      <div className="flex w-[272px] flex-none items-center justify-end gap-2">
         {s.status === "pending" ? (
           <>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 onAccept();
               }}
-              className="rounded-full border border-stone-800 bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-950"
+              className="btn btn-primary btn-sm"
             >
               Accept
             </button>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 onReject();
               }}
-              className="rounded-full border border-stone-300 px-[15px] py-2 text-sm font-medium text-stone-950 hover:border-stone-950"
+              className="btn btn-outline btn-sm"
             >
               Reject
             </button>
           </>
         ) : (
           <>
-            <span className={`rounded-full bg-chip px-3 py-1 text-xs font-medium ${meta.fg}`}>
-              {meta.label}
-            </span>
-            {s.status !== "applied" && (
+            <span className="badge">{meta.label}</span>
+            {isReversible(s.status) && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
                   onUndo();
                 }}
-                className="rounded-full border border-stone-300 px-3 py-2 text-[13px] font-medium text-stone-500 hover:border-stone-950 hover:text-stone-950"
+                className="btn btn-outline btn-sm"
               >
                 Undo
               </button>
@@ -100,6 +129,6 @@ export default function SuggestionCard({
           </>
         )}
       </div>
-    </div>
+    </li>
   );
 }
