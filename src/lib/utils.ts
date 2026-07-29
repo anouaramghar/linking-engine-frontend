@@ -26,6 +26,7 @@ export const timeAgo = (iso: string | null) => {
 
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
+  hybrid_bm25: "hybrid BM25",
 };
 
 /**

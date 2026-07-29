@@ -93,7 +93,9 @@ export default function SuggestionPreview({
       <div className="my-5 grid grid-cols-2 gap-2.5">
         <div className="relative overflow-hidden rounded-xxl border border-hairline bg-canvas-soft p-4">
           <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[radial-gradient(circle,theme(colors.orb-sky/40%),transparent_70%)]" />
-          <div className="eyebrow">Cosine baseline</div>
+          <div className="eyebrow">
+            {s.method === "hybrid_bm25" ? "Semantic similarity" : "Cosine baseline"}
+          </div>
           <div className="mt-2 font-serif text-display-md text-ink">{pct(s.score)}</div>
         </div>
         <div className="rounded-xxl border border-hairline bg-surface-card p-4">

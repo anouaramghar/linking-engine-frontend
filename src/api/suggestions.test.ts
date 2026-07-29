@@ -59,7 +59,6 @@ describe("cursor queue reads", () => {
 
     expect(api.get).toHaveBeenNthCalledWith(1, "/suggestions", {
       params: {
-        method: "baseline_cosine",
         site_id: 3,
         status: "pending",
         include_total: true,
@@ -68,7 +67,6 @@ describe("cursor queue reads", () => {
     });
     expect(api.get).toHaveBeenNthCalledWith(2, "/suggestions", {
       params: {
-        method: "baseline_cosine",
         site_id: 3,
         status: "pending",
         after_score: 0.9,
@@ -98,7 +96,6 @@ describe("cursor queue reads", () => {
 
     expect(api.get).toHaveBeenCalledWith("/suggestions/counts", {
       params: {
-        method: "baseline_cosine",
         site_id: 3,
         min_percent: 80,
       },
@@ -112,7 +109,6 @@ describe("cursor queue reads", () => {
 
     expect(api.get).toHaveBeenCalledWith("/suggestions/counts", {
       params: {
-        method: "baseline_cosine",
         max_percent: 80,
       },
     });
@@ -142,7 +138,6 @@ describe("filtered bulk review", () => {
       {
         status: "approved",
         threshold_percent: 80,
-        method: "baseline_cosine",
         site_id: 3,
       },
     );

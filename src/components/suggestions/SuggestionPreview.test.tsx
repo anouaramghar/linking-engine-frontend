@@ -44,6 +44,23 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getAllByText("Soon")).toHaveLength(6);
   });
 
+  it("labels hybrid pilot suggestions without calling the score BM25 confidence", () => {
+    const hybrid = { ...suggestion("pending"), method: "hybrid_bm25" };
+    render(
+      <SuggestionPreview
+        suggestion={hybrid}
+        siteName="Example site"
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Semantic similarity")).not.toBeNull();
+    expect(screen.queryByText("Cosine baseline")).toBeNull();
+  });
+
   it("identifies an approved suggestion as queued but not live", () => {
     renderPreview("approved");
 
@@ -117,5 +134,21 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("shows the hybrid method on a pilot card", () => {
+    render(
+      <SuggestionCard
+        suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("hybrid BM25")).not.toBeNull();
   });
 });
