@@ -8,7 +8,6 @@ import {
   listSuggestionPage,
   reviewSuggestion,
   triggerAnalysis,
-  triggerComparison,
 } from "./suggestions";
 
 const api = vi.hoisted(() => ({
@@ -167,17 +166,15 @@ describe("filtered bulk review", () => {
 });
 
 describe("current suggestion mutations", () => {
-  it("uses the backend's review, generation, and comparison routes", async () => {
+  it("uses the backend's review and global Hybrid generation routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post
       .mockResolvedValueOnce({ data: { reviewed: [8, 9], skipped: [], status: "rejected" } })
-      .mockResolvedValueOnce({ data: { job_id: "analysis-job" } })
-      .mockResolvedValueOnce({ data: { job_id: "comparison-job" } });
+      .mockResolvedValueOnce({ data: { job_id: "analysis-job" } });
 
     await reviewSuggestion(7, "approved");
     await bulkReview([8, 9], "rejected");
     await triggerAnalysis(3);
-    await triggerComparison(3);
 
     expect(api.put).toHaveBeenCalledWith("/suggestions/7", { status: "approved" });
     expect(api.post).toHaveBeenNthCalledWith(1, "/suggestions/bulk-review", {
@@ -185,7 +182,6 @@ describe("current suggestion mutations", () => {
       status: "rejected",
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
-    expect(api.post).toHaveBeenNthCalledWith(3, "/suggestions/3/compare");
   });
 });
 

@@ -1,8 +1,8 @@
 /**
  * The queue must never filter itself down to one ranking method.
  *
- * During the pilot a site's queue holds `baseline_cosine` rows written before
- * enrollment and `hybrid_bm25` rows written after it. The backend returns every
+ * During the global transition a site's queue can hold historical or fallback
+ * `baseline_cosine` rows beside new `hybrid_bm25` rows. The backend returns every
  * method unless a request asks for one, so these tests pin the absence of that
  * parameter: a `method` key silently added to any of these calls would hide real
  * rows from the editor who has to decide about them, and would make the counts

@@ -102,7 +102,7 @@ export default function SuggestionPreview({
           </div>
           <div className="mt-2 font-serif text-display-md text-ink">{pct(s.score)}</div>
           {/*
-            The percentage above is similarity for every method. On a pilot row it
+            The percentage above is similarity for every method. On a Hybrid row it
             is *not* what chose the suggestion, so the selection score is shown as
             its own raw number — never rescaled into a second percentage, which
             would read as a confidence it is not.

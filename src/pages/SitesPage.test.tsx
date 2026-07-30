@@ -14,19 +14,11 @@ const mocks = vi.hoisted(() => ({
   activeJobs: {
     data: [] as unknown[],
   },
-  updateMode: {
-    mutate: vi.fn(),
-    reset: vi.fn(),
-    isPending: false,
-    isError: false,
-    error: null as unknown,
-  },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateSuggestionMode: () => mocks.updateMode,
 }));
 
 vi.mock("../hooks/useJobs", () => ({
@@ -42,11 +34,6 @@ beforeEach(() => {
     isFetching: false,
   });
   mocks.activeJobs.data = [];
-  mocks.updateMode.mutate.mockReset();
-  mocks.updateMode.reset.mockReset();
-  mocks.updateMode.isPending = false;
-  mocks.updateMode.isError = false;
-  mocks.updateMode.error = null;
 });
 
 afterEach(cleanup);
@@ -170,16 +157,13 @@ describe("SitesPage job progress", () => {
   });
 });
 
-describe("SitesPage suggestion method controls", () => {
+describe("SitesPage global Hybrid controls", () => {
   const site = {
     id: 42,
     name: "Docs",
     base_url: "https://docs.example.com",
     platform: "wordpress",
     crawl_frequency: "daily",
-    suggestion_mode: "standard",
-    suggestion_mode_managed: false,
-    suggestion_comparison_enabled: false,
     suggestion_slots_available: 3,
     created_at: "2026-07-28T08:00:00Z",
     last_ingestion_status: "succeeded",
@@ -188,20 +172,20 @@ describe("SitesPage suggestion method controls", () => {
     last_crawl_at: "2026-07-28T08:00:00Z",
   };
 
-  it("uses one generation action and shows the saved site method", () => {
+  it("shows one global method and one generation action", () => {
     mocks.sites.data = [site];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Standard");
+    expect(document.body.textContent).toContain("Hybrid");
     expect(document.body.textContent).not.toContain("Suggest (baseline)");
 
     fireEvent.click(screen.getByRole("button", { name: "Actions" }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Compare methods" })).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Suggestion method…" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Compare methods" })).toBeNull();
+    expect(screen.queryByText(/Suggestion method/)).toBeNull();
   });
 
-  it("explains a full queue while leaving comparison available", () => {
+  it("explains a full queue without exposing another ranking path", () => {
     mocks.sites.data = [{ ...site, suggestion_slots_available: 0 }];
     render(<SitesPage />);
 
@@ -209,30 +193,7 @@ describe("SitesPage suggestion method controls", () => {
     const generate = screen.getByRole("menuitem", {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
-    const compare = screen.getByRole("menuitem", {
-      name: "Compare methods",
-    }) as HTMLButtonElement;
-
     expect(generate.disabled).toBe(true);
-    expect(compare.disabled).toBe(false);
-  });
-
-  it("saves an experimental method without replacing existing suggestions", () => {
-    mocks.sites.data = [site];
-    render(<SitesPage />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Suggestion method…" }));
-
-    expect(screen.getByRole("dialog").textContent).toContain(
-      "Existing suggestions and editorial decisions stay in place.",
-    );
-    fireEvent.click(screen.getByRole("radio", { name: /Experimental/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save method" }));
-
-    expect(mocks.updateMode.mutate).toHaveBeenCalledWith(
-      { siteId: 42, suggestionMode: "experimental" },
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
+    expect(screen.queryByRole("menuitem", { name: "Compare methods" })).toBeNull();
   });
 });

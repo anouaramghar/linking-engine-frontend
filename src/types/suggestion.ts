@@ -22,7 +22,7 @@ export type ReviewStatus = "approved" | "rejected" | "pending";
  */
 export interface SuggestionScoreComponents {
   version?: string;
-  /** Which signal produced the delivered order. `bm25_512` for the pilot. */
+  /** Which signal produced the delivered order. `bm25_512` for global Hybrid. */
   final_order?: string;
   score_is?: string;
   recipe?: string;
