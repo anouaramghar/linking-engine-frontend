@@ -38,6 +38,10 @@ export default function SuggestionPreview({
   // Beside the list this is ordinary page content; over the list it is a dialog.
   // The trap follows the same switch, so Tab only stops escaping once there is
   // something behind the panel to escape into.
+  // Shown only when the engine reported one, so a baseline row and an engine
+  // that predates the components both simply omit it.
+  const bm25Score =
+    s.method === "hybrid_bm25" ? s.score_components?.bm25_score : undefined;
   const overlaid = useMediaQuery(OVERLAY_PREVIEW_QUERY);
   const panel = useRef<HTMLElement>(null);
   const onKeyDown = useFocusTrap(panel, onClose, overlaid);
@@ -97,6 +101,17 @@ export default function SuggestionPreview({
             {s.method === "hybrid_bm25" ? "Semantic similarity" : "Cosine baseline"}
           </div>
           <div className="mt-2 font-serif text-display-md text-ink">{pct(s.score)}</div>
+          {/*
+            The percentage above is similarity for every method. On a pilot row it
+            is *not* what chose the suggestion, so the selection score is shown as
+            its own raw number — never rescaled into a second percentage, which
+            would read as a confidence it is not.
+          */}
+          {bm25Score !== undefined && (
+            <div className="mt-1 text-caption text-muted">
+              Selected by BM25 &middot; score {bm25Score.toFixed(1)}
+            </div>
+          )}
         </div>
         <div className="rounded-xxl border border-hairline bg-surface-card p-4">
           <div className="eyebrow">GraphSAGE</div>

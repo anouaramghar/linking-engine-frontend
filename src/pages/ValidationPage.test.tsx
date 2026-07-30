@@ -692,3 +692,84 @@ describe("ValidationPage load states", () => {
     expect(document.body.textContent).toContain("No sites are connected yet");
   });
 });
+
+describe("ValidationPage mixed-method queue", () => {
+  /**
+   * A pilot site's queue holds both methods at once: rows written before
+   * enrollment and rows written after it. Neither may be hidden, miscounted, or
+   * made harder to act on than the other.
+   */
+  const hybrid = (id: number, overrides: Partial<Suggestion> = {}) =>
+    suggestion(id, {
+      method: "hybrid_bm25",
+      score_components: {
+        version: "hybrid_bm25_v1",
+        final_order: "bm25_512",
+        bm25_score: 12.5,
+        semantic: 0.8,
+      },
+      ...overrides,
+    });
+
+  it("lists baseline and hybrid rows side by side", () => {
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      suggestion(1),
+      hybrid(2),
+    );
+    render(<ValidationPage />);
+
+    expect(screen.getByText("Source 1")).not.toBeNull();
+    expect(screen.getByText("Source 2")).not.toBeNull();
+    expect(screen.getByText("hybrid BM25")).not.toBeNull();
+    expect(screen.getByText("cosine")).not.toBeNull();
+  });
+
+  it("counts a hybrid row in the status chips like any other", () => {
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      suggestion(1),
+      hybrid(2),
+      hybrid(3, { status: "approved" }),
+    );
+    render(<ValidationPage />);
+
+    expect(screen.getByRole("button", { name: /Pending.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+  });
+
+  it("reviews a hybrid row through the same mutation as a baseline row", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.splice(0, mocks.suggestions.length, hybrid(2));
+    render(<ValidationPage />);
+
+    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+
+    expect(mocks.reviewMutate).toHaveBeenCalledWith(
+      { id: 2, status: "approved" },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("applies a threshold rule across both methods at once", async () => {
+    const user = userEvent.setup();
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      suggestion(1, { score: 0.9 }),
+      hybrid(2, { score: 0.85 }),
+    );
+    render(<ValidationPage />);
+
+    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
+    expect(screen.getByRole("alertdialog").textContent).toContain("2 pending suggestion");
+    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+
+    // The rule carries no method, so it reaches the hybrid row too.
+    const [rule] = mocks.filteredBulkMutate.mock.calls[0];
+    expect(rule).not.toHaveProperty("method");
+    expect(rule.thresholdPercent).toBe(80);
+  });
+});
