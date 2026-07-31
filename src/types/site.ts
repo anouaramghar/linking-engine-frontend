@@ -4,7 +4,8 @@ export interface Site {
   base_url: string;
   platform: "wordpress" | "html";
   crawl_frequency: string;
-  suggestion_mode: SuggestionMode;
+  suggestion_method?: "hybrid_bm25";
+  suggestion_mode: "experimental";
   suggestion_mode_managed: boolean;
   suggestion_comparison_enabled: boolean;
   suggestion_slots_available: number;
@@ -13,14 +14,6 @@ export interface Site {
   article_count?: number;
   internal_link_count?: number;
   last_crawl_at?: string | null;
-}
-
-export type SuggestionMode = "standard" | "experimental";
-
-export interface SuggestionModeState {
-  suggestion_mode: SuggestionMode;
-  suggestion_mode_managed: boolean;
-  suggestion_comparison_enabled: boolean;
 }
 
 export interface SiteCreate {

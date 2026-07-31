@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
-import { triggerAnalysis, triggerComparison } from "../api/suggestions";
+import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
@@ -12,13 +12,11 @@ import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
-import SuggestionMethodDialog from "../components/sites/SuggestionMethodDialog";
 import { useActiveJobs } from "../hooks/useJobs";
-import { useDeleteSite, useSites, useUpdateSuggestionMode } from "../hooks/useSites";
+import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
 import { RQ_SCHEDULING_COPY, initials, orbPlateClass, timeAgo } from "../lib/utils";
 import type { JobKind, JobRun } from "../types/job";
-import type { Site, SuggestionMode } from "../types/site";
 
 // Shared by the header and the rows so they cannot drift apart. The narrow
 // template buys the action column back from the three text columns: at 1024px
@@ -86,23 +84,14 @@ function CurrentSiteStatus({
   return <SiteStatusBadge status={siteStatus} />;
 }
 
-function SuggestionMethodBadge({ site }: { site: Site }) {
-  const experimental = site.suggestion_mode === "experimental";
-  const label = site.suggestion_comparison_enabled
-    ? "Standard + comparison"
-    : experimental
-      ? "Experimental"
-      : "Standard";
-  const title = site.suggestion_mode_managed
-    ? "Managed by the server rollout configuration"
-    : experimental
-      ? "Future suggestions use cosine candidates with BM25 keyword matching"
-      : "Future suggestions use cosine semantic similarity";
-
+function SuggestionMethodBadge() {
   return (
-    <span className="badge" title={title}>
-      <span className={`dot ${experimental ? "bg-primary" : "bg-hairline-strong"}`} />
-      {label}
+    <span
+      className="badge"
+      title="Hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
+    >
+      <span className="dot bg-primary" />
+      Hybrid
     </span>
   );
 }
@@ -116,14 +105,12 @@ export default function SitesPage() {
       : null;
   const activeJobs = useActiveJobs().data ?? [];
   const deleteSite = useDeleteSite();
-  const updateMode = useUpdateSuggestionMode();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<TrackedJob[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
-  const [methodSite, setMethodSite] = useState<Site | null>(null);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
 
@@ -154,26 +141,6 @@ export default function SitesPage() {
     } finally {
       setBusy((current) => ({ ...current, [key]: false }));
     }
-  };
-
-  const saveSuggestionMode = (suggestionMode: SuggestionMode) => {
-    if (!methodSite) return;
-    const site = methodSite;
-    setNotice(null);
-    updateMode.mutate(
-      { siteId: site.id, suggestionMode },
-      {
-        onSuccess: () => {
-          setMethodSite(null);
-          setNotice({
-            message: `${site.name} will use ${
-              suggestionMode === "experimental" ? "Experimental" : "Standard"
-            } ranking for future suggestions.`,
-            tone: "info",
-          });
-        },
-      },
-    );
   };
 
   const remove = () => {
@@ -303,7 +270,7 @@ export default function SitesPage() {
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
-                <SuggestionMethodBadge site={site} />
+                <SuggestionMethodBadge />
               </div>
               <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
@@ -334,42 +301,8 @@ export default function SitesPage() {
                           "Generate suggestions",
                           "analysis",
                           triggerAnalysis,
-                          `${
-                            site.suggestion_mode === "experimental"
-                              ? "Experimental"
-                              : "Standard"
-                          } suggestion generation queued.`,
+                          "Hybrid suggestion generation queued.",
                         ),
-                    },
-                    {
-                      label: "Compare methods",
-                      disabled:
-                        busy[busyKey(site.id, "Compare methods")] ||
-                        activeJobs.some(
-                          (job) => job.site_id === site.id && job.kind === "analysis",
-                        ),
-                      onSelect: () =>
-                        void run(
-                          site.id,
-                          "Compare methods",
-                          "analysis",
-                          triggerComparison,
-                          "Comparison queued. It will not add suggestions to the review queue.",
-                        ),
-                    },
-                    {
-                      label: site.suggestion_mode_managed
-                        ? "Suggestion method — managed"
-                        : "Suggestion method…",
-                      disabled:
-                        site.suggestion_mode_managed ||
-                        activeJobs.some(
-                          (job) => job.site_id === site.id && job.kind === "analysis",
-                        ),
-                      onSelect: () => {
-                        updateMode.reset();
-                        setMethodSite(site);
-                      },
                     },
                     {
                       label: "Publish approved",
@@ -405,22 +338,6 @@ export default function SitesPage() {
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
-      {methodSite && (
-        <SuggestionMethodDialog
-          site={methodSite}
-          pending={updateMode.isPending}
-          error={
-            updateMode.isError
-              ? errorDetail(
-                  updateMode.error,
-                  "The suggestion method could not be saved. Please try again.",
-                )
-              : undefined
-          }
-          onSave={saveSuggestionMode}
-          onClose={() => setMethodSite(null)}
-        />
-      )}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}
