@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 describe("useSuggestions", () => {
-  it("requests total only on the first cursor page", async () => {
+  it("requests each cursor page without a redundant total count", async () => {
     const filters = { siteId: 3, status: "pending" as const };
     const cursor = { score: 0.8, id: 19 };
     const { result } = renderHook(() => useSuggestions(filters));
@@ -49,18 +49,8 @@ describe("useSuggestions", () => {
     await query.queryFn({ pageParam: null });
     await query.queryFn({ pageParam: cursor });
 
-    expect(mocks.listSuggestionPage).toHaveBeenNthCalledWith(
-      1,
-      filters,
-      null,
-      true,
-    );
-    expect(mocks.listSuggestionPage).toHaveBeenNthCalledWith(
-      2,
-      filters,
-      cursor,
-      false,
-    );
+    expect(mocks.listSuggestionPage).toHaveBeenNthCalledWith(1, filters, null);
+    expect(mocks.listSuggestionPage).toHaveBeenNthCalledWith(2, filters, cursor);
     expect(query.getNextPageParam({ next_cursor: cursor })).toEqual(cursor);
     expect(query.getNextPageParam({ next_cursor: null })).toBeUndefined();
   });

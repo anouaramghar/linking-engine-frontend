@@ -26,7 +26,9 @@ export default {
       ink: "#0c0a09",
       body: "#4e4e4e",
       "body-strong": "#292524",
-      muted: "#777169",
+      // Darkened from the source palette so normal caption text clears WCAG AA
+      // on every light product surface, including {colors.surface-strong}.
+      muted: "#706a62",
       "muted-soft": "#a8a29e",
       "on-primary": "#ffffff",
       "on-dark": "#ffffff",

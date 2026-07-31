@@ -32,19 +32,17 @@ const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
   );
 
 describe("SuggestionPreview publication state", () => {
-  it("keeps the live cosine score and marks unavailable v1 evidence as Soon", () => {
+  it("keeps the live cosine score without advertising unsupported future signals", () => {
     renderPreview("pending");
 
     expect(screen.getByText("90%")).not.toBeNull();
     expect(screen.getByText("Placement context")).not.toBeNull();
-    expect(screen.getByText("Semantic relevance")).not.toBeNull();
-    expect(screen.getByText("Shared taxonomy")).not.toBeNull();
-    expect(screen.getByText("Target need")).not.toBeNull();
-    expect(screen.getByText("Direction fit")).not.toBeNull();
-    expect(screen.getAllByText("Soon")).toHaveLength(6);
+    expect(screen.getAllByText("Soon")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("GraphSAGE");
+    expect(document.body.textContent).not.toContain("Shared taxonomy");
   });
 
-  it("labels hybrid pilot suggestions without calling the score BM25 confidence", () => {
+  it("labels Hybrid suggestions without calling the score BM25 confidence", () => {
     const hybrid = { ...suggestion("pending"), method: "hybrid_bm25" };
     render(
       <SuggestionPreview
@@ -172,7 +170,7 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
-  it("shows the hybrid method on a pilot card", () => {
+  it("shows the Hybrid method on a current card", () => {
     render(
       <SuggestionCard
         suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}

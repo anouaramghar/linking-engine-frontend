@@ -9,7 +9,7 @@ colors:
   ink: "#0c0a09"
   body: "#4e4e4e"
   body-strong: "#292524"
-  muted: "#777169"
+  muted: "#706a62"
   muted-soft: "#a8a29e"
   hairline: "#e7e5e4"
   hairline-soft: "#f0efed"
@@ -293,7 +293,7 @@ CTAs are subtle: a near-black ink pill (`{component.button-primary}`) is the pri
 - **Ink** (`{colors.ink}` — #0c0a09): Display, primary text.
 - **Body** (`{colors.body}` — #4e4e4e): Default running-text.
 - **Body Strong** (`{colors.body-strong}` — #292524): Same as primary — emphasis.
-- **Muted** (`{colors.muted}` — #777169): Sub-titles.
+- **Muted** (`{colors.muted}` — #706a62): Sub-titles; adjusted for WCAG AA contrast on every light product surface.
 - **Muted Soft** (`{colors.muted-soft}` — #a8a29e): Disabled text.
 - **On Primary** (`{colors.on-primary}` — #ffffff): White text on ink pill.
 - **On Dark** (`{colors.on-dark}` — #ffffff): White text on dark hero.
@@ -478,8 +478,9 @@ The system uses **hairline + soft drop**. Cards float above the off-white canvas
 | Wide | > 1280px | Content caps at 1200px. |
 
 ### Touch Targets
-- Primary pill at 40px height — at WCAG AA, padded for AAA.
-- Voice icon circles 32px — padded row creates effective 48px tap zone.
+- Primary pills render at 44px on mobile and coarse pointers, then 40px in pointer-dense desktop layouts.
+- Compact row actions render at 44px on mobile and coarse pointers, then 32px on fine pointers.
+- Voice icon circles remain 32px because the padded row creates an effective 48px tap zone.
 
 ### Collapsing Strategy
 - Top nav switches to hamburger below 768px.

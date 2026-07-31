@@ -32,7 +32,7 @@ import {
   groupSuggestionsBySource,
   suggestionGroupKey,
 } from "../lib/suggestionGroups";
-import { isReversible, scorePercent } from "../lib/utils";
+import { formatCount, isReversible, scorePercent } from "../lib/utils";
 import {
   clampThreshold,
   filterSuggestions,
@@ -311,21 +311,27 @@ export default function ValidationPage() {
     skipped: number[] | number,
     describe: (count: number) => string,
     failure?: BatchFailure,
+    reviewedCount = reviewed.length,
   ) => {
     const applied = reviewed;
+    const confirmedCount = Math.max(reviewedCount, applied.length);
+    const unknownIdCount = confirmedCount - applied.length;
     const skippedCount = Array.isArray(skipped) ? skipped.length : skipped;
     const aside = skippedCount
       ? `${skippedCount} ${plural(skippedCount)} ${skippedCount === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skippedCount === 1 ? "it" : "they"} could not be changed.`
       : "";
     const failureMessage = failure
       ? [
-          `${applied.length} ${applied.length === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
+          `${confirmedCount} ${confirmedCount === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
           `${failure.failed} ${plural(failure.failed)} in the failed request could not be confirmed.`,
           `${failure.notAttempted} later ${plural(failure.notAttempted)} ${failure.notAttempted === 1 ? "was" : "were"} not attempted.`,
         ].join(" ")
       : "";
+    const legacyMessage = unknownIdCount
+      ? `The older engine confirmed ${unknownIdCount} ${unknownIdCount === 1 ? "decision" : "decisions"} without returning ${unknownIdCount === 1 ? "its suggestion ID" : "their suggestion IDs"}. The queue has been refreshed, and no further undo is available from this message.`
+      : "";
 
-    if (!applied.length) {
+    if (!confirmedCount) {
       setNotice({
         message: failure
           ? [failureMessage, aside].filter(Boolean).join(" ")
@@ -335,7 +341,9 @@ export default function ValidationPage() {
       return;
     }
 
-    if (selectedId !== null && applied.includes(selectedId)) {
+    if (unknownIdCount) {
+      setSelectedId(null);
+    } else if (selectedId !== null && applied.includes(selectedId)) {
       const selectedIndex = navigableSuggestions.findIndex(
         (item) => item.id === selectedId,
       );
@@ -350,13 +358,13 @@ export default function ValidationPage() {
     }
 
     applyStatuses(applied, status, {
-      message: [failureMessage || describe(applied.length), aside]
+      message: [failureMessage || describe(confirmedCount), aside, legacyMessage]
         .filter(Boolean)
         .join(" "),
       // A partial result needs attention, so it stays until dismissed.
       tone: skippedCount || failure ? "error" : "info",
       // Undoing an undo is just a re-review; only decisions offer it.
-      undoIds: status === "pending" ? undefined : applied,
+      undoIds: status === "pending" || unknownIdCount ? undefined : applied,
     });
   };
 
@@ -375,6 +383,7 @@ export default function ValidationPage() {
         failed: error.failedIds.length,
         notAttempted: error.notAttemptedIds.length,
       },
+      error.completed.reviewedCount,
     );
     return true;
   };
@@ -423,12 +432,14 @@ export default function ValidationPage() {
     bulkReview.mutate(
       { ids, status: "pending" },
       {
-        onSuccess: ({ reviewed, skipped }) =>
+        onSuccess: ({ reviewed, reviewedCount, skipped }) =>
           applyBatch(
             reviewed,
             "pending",
             skipped,
             (count) => `${count} ${plural(count)} restored to pending review.`,
+            undefined,
+            reviewedCount,
           ),
         onError: (error) => {
           if (
@@ -608,12 +619,14 @@ export default function ValidationPage() {
     <>
       <PageHeader
         title="Link suggestions"
-        sub={`${pendingTotal} pending across ${sites?.length ?? 0} sites · queued links are not live until published`}
-        badge="Baseline cosine"
+        sub={`${pendingTotal} pending across ${sites?.length ?? 0} ${
+          (sites?.length ?? 0) === 1 ? "site" : "sites"
+        } · queued links are not live until published`}
+        badge="Standard + experimental"
       />
       <div className="relative flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
-          <div className="mb-4 flex items-start gap-3">
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start">
             <BulkActions
               chips={chips}
               active={statusFilter}
@@ -641,7 +654,7 @@ export default function ValidationPage() {
                 setSiteFilter(Number(event.target.value));
                 setConfirmation(null);
               }}
-              className="h-8 cursor-pointer rounded-pill border border-hairline-strong bg-surface-card px-3.5 text-caption text-ink"
+              className="touch-target h-11 w-full cursor-pointer rounded-pill border border-hairline-strong bg-surface-card px-3.5 text-caption text-ink sm:h-8 sm:w-auto"
             >
               <option value={0}>All sites</option>
               {sites?.map((site) => (
@@ -723,7 +736,7 @@ export default function ValidationPage() {
                       {suggestionsQuery.isFetchingNextPage ? "Loading more..." : "Show more"}
                     </button>
                     <span className="text-caption text-muted">
-                      Showing {shown.toLocaleString()} of {queueTotal.toLocaleString()}
+                      Showing {formatCount(shown)} of {formatCount(queueTotal)}
                       {queueAutoLoadPaused && (
                         <>
                           {" "}
@@ -737,8 +750,8 @@ export default function ValidationPage() {
                 {suggestions.length === 0 && (
                   <EmptyPanel>
                     {hasSites
-                      ? "No suggestions match these filters. Run baseline suggestions from the Sites page, or try another status or site."
-                      : "No sites are connected yet. Connect a site on the Sites page, crawl it, then run baseline suggestions."}
+                      ? "No suggestions match these filters. Generate suggestions from the Sites page, or try another status or site."
+                      : "No sites are connected yet. Connect a site on the Sites page, crawl it, then generate suggestions."}
                   </EmptyPanel>
                 )}
               </>

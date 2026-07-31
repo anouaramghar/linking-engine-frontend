@@ -44,7 +44,6 @@ const queueParams = (filters: SuggestionQueueFilters) => ({
 export const listSuggestionPage = (
   filters: SuggestionQueueFilters,
   cursor: SuggestionCursor | null,
-  includeTotal: boolean,
 ) =>
   api
     .get<SuggestionPage>("/suggestions", {
@@ -53,7 +52,6 @@ export const listSuggestionPage = (
         ...(cursor === null
           ? {}
           : { after_score: cursor.score, after_id: cursor.id }),
-        include_total: includeTotal,
         limit: SUGGESTION_PAGE_SIZE,
       },
     })
@@ -82,6 +80,8 @@ export const reviewSuggestion = (id: number, status: ReviewStatus) =>
 export interface BulkReviewResult {
   /** Rows that actually moved. */
   reviewed: number[];
+  /** Includes legacy engines that confirm a count without returning row ids. */
+  reviewedCount: number;
   /** Rows already picked up for publishing or expired, left untouched. */
   skipped: number[];
   status: ReviewStatus;
@@ -152,7 +152,12 @@ const BULK_REVIEW_CHUNK_SIZE = ENGINE_PAGE_LIMIT;
  * up on the same rows rather than finish sooner.
  */
 export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus) => {
-  const merged: BulkReviewResult = { reviewed: [], skipped: [], status };
+  const merged: BulkReviewResult = {
+    reviewed: [],
+    reviewedCount: 0,
+    skipped: [],
+    status,
+  };
 
   for (let start = 0; start < suggestion_ids.length; start += BULK_REVIEW_CHUNK_SIZE) {
     const chunk = suggestion_ids.slice(start, start + BULK_REVIEW_CHUNK_SIZE);
@@ -163,12 +168,18 @@ export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus)
           status,
         })
         .then((r) => r.data);
-      merged.reviewed.push(...(Array.isArray(result.reviewed) ? result.reviewed : []));
+      if (Array.isArray(result.reviewed)) {
+        merged.reviewed.push(...result.reviewed);
+        merged.reviewedCount += result.reviewed.length;
+      } else {
+        merged.reviewedCount += result.reviewed ?? 0;
+      }
       merged.skipped.push(...(result.skipped ?? []));
     } catch (cause) {
       throw new BulkReviewChunkError(
         {
           reviewed: [...merged.reviewed],
+          reviewedCount: merged.reviewedCount,
           skipped: [...merged.skipped],
           status,
         },
@@ -184,3 +195,6 @@ export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus)
 
 export const triggerAnalysis = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}`).then((r) => r.data);
+
+export const triggerComparison = (siteId: number) =>
+  api.post<JobAccepted>(`/suggestions/${siteId}/compare`).then((r) => r.data);

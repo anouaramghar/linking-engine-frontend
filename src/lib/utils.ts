@@ -8,6 +8,8 @@ export const scorePercent = (score: number) => Math.round(score * 100);
 
 export const pct = (n: number) => `${scorePercent(n)}%`;
 
+export const formatCount = (count: number) => new Intl.NumberFormat("en-US").format(count);
+
 export const initials = (name: string) =>
   name
     .split(" ")
@@ -42,6 +44,7 @@ export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string 
   rejected: { label: "Rejected", dot: "bg-error" },
   applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
   applied: { label: "Published live", dot: "bg-success" },
+  expired: { label: "Expired", dot: "bg-muted-soft" },
 };
 
 /** Once publishing starts the worker owns the row, so the decision is final. */

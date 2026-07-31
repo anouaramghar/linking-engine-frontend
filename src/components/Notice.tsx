@@ -60,7 +60,7 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
           type="button"
           onClick={onUndo}
           disabled={undoPending}
-          className="rounded-pill border border-on-dark/40 px-3 py-1 text-caption font-medium hover:bg-on-dark/15 disabled:opacity-50"
+          className="touch-target inline-flex min-h-11 items-center rounded-pill border border-on-dark/40 px-3 text-caption font-medium hover:bg-on-dark/15 disabled:opacity-50 sm:min-h-8"
         >
           {undoPending ? "Undoing…" : "Undo"}
         </button>
@@ -69,7 +69,7 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
         type="button"
         aria-label="Dismiss message"
         onClick={onDismiss}
-        className="rounded-pill px-2 py-1 text-body-md leading-none text-on-dark-soft hover:bg-on-dark/15 hover:text-on-dark"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-body-md leading-none text-on-dark-soft hover:bg-on-dark/15 hover:text-on-dark"
       >
         &times;
       </button>

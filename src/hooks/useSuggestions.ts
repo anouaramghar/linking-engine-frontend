@@ -25,8 +25,7 @@ export const useSuggestions = (
 ) => {
   const query = useInfiniteQuery({
     queryKey: ["suggestions", "queue", filters],
-    queryFn: ({ pageParam }) =>
-      listSuggestionPage(filters, pageParam, pageParam === null),
+    queryFn: ({ pageParam }) => listSuggestionPage(filters, pageParam),
     initialPageParam: null as SuggestionCursor | null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     placeholderData: keepPreviousData,
@@ -36,8 +35,6 @@ export const useSuggestions = (
   return {
     ...query,
     items: query.data?.pages.flatMap((page) => page.items) ?? [],
-    // Only the first page asks the backend for this count.
-    total: query.data?.pages[0]?.total ?? 0,
   };
 };
 

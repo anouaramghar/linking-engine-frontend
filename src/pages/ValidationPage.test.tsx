@@ -447,7 +447,7 @@ describe("ValidationPage live review state", () => {
     await user.click(screen.getByRole("button", { name: /Accept.*3/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
     mocks.bulkError = new BulkReviewChunkError(
-      { reviewed: [1], skipped: [], status: "pending" },
+      { reviewed: [1], reviewedCount: 1, skipped: [], status: "pending" },
       [4],
       [5],
     );
@@ -518,10 +518,11 @@ describe("ValidationPage live review state", () => {
     expect(document.body.textContent).toContain("Bulk rules act on pending suggestions");
   });
 
-  it("marks the future suggestion method as Soon", () => {
+  it("shows the real scoring signal without advertising unsupported future methods", () => {
     render(<ValidationPage />);
 
-    expect(document.body.textContent).toContain("GraphSAGE Soon");
+    expect(document.body.textContent).toContain("Semantic match");
+    expect(document.body.textContent).not.toContain("GraphSAGE");
     expect(document.body.textContent).not.toContain("External links");
     expect(document.body.textContent).not.toContain("Generate anchors");
   });
@@ -695,9 +696,8 @@ describe("ValidationPage load states", () => {
 
 describe("ValidationPage mixed-method queue", () => {
   /**
-   * A pilot site's queue holds both methods at once: rows written before
-   * enrollment and rows written after it. Neither may be hidden, miscounted, or
-   * made harder to act on than the other.
+   * A queue can retain historical cosine rows beside current Hybrid rows.
+   * Neither may be hidden, miscounted, or made harder to act on than the other.
    */
   const hybrid = (id: number, overrides: Partial<Suggestion> = {}) =>
     suggestion(id, {

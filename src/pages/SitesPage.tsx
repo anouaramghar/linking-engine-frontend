@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
-import { triggerAnalysis } from "../api/suggestions";
+import { triggerAnalysis, triggerComparison } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
@@ -12,18 +12,20 @@ import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
+import SuggestionMethodDialog from "../components/sites/SuggestionMethodDialog";
 import { useActiveJobs } from "../hooks/useJobs";
-import { useDeleteSite, useSites } from "../hooks/useSites";
+import { useDeleteSite, useSites, useUpdateSuggestionMode } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
 import { RQ_SCHEDULING_COPY, initials, orbPlateClass, timeAgo } from "../lib/utils";
 import type { JobKind, JobRun } from "../types/job";
+import type { Site, SuggestionMode } from "../types/site";
 
 // Shared by the header and the rows so they cannot drift apart. The narrow
 // template buys the action column back from the three text columns: at 1024px
 // the wide one leaves it about 142px, and "Queueing…" beside the Actions menu
 // needs more than that. Name and URL already truncate, so they give it up best.
 const GRID =
-  "grid grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] items-center gap-3" +
+  "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
 
 function SiteDetail({
@@ -84,14 +86,23 @@ function CurrentSiteStatus({
   return <SiteStatusBadge status={siteStatus} />;
 }
 
-function SuggestionMethodBadge() {
+function SuggestionMethodBadge({ site }: { site: Site }) {
+  const experimental = site.suggestion_mode === "experimental";
+  const label = site.suggestion_comparison_enabled
+    ? "Standard + comparison"
+    : experimental
+      ? "Experimental"
+      : "Standard";
+  const title = site.suggestion_mode_managed
+    ? "Managed by the server rollout configuration"
+    : experimental
+      ? "Future suggestions use cosine candidates with BM25 keyword matching"
+      : "Future suggestions use cosine semantic similarity";
+
   return (
-    <span
-      className="badge"
-      title="Hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
-    >
-      <span className="dot bg-primary" />
-      Hybrid
+    <span className="badge" title={title}>
+      <span className={`dot ${experimental ? "bg-primary" : "bg-hairline-strong"}`} />
+      {label}
     </span>
   );
 }
@@ -105,12 +116,14 @@ export default function SitesPage() {
       : null;
   const activeJobs = useActiveJobs().data ?? [];
   const deleteSite = useDeleteSite();
+  const updateMode = useUpdateSuggestionMode();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<TrackedJob[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [methodSite, setMethodSite] = useState<Site | null>(null);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
 
@@ -143,6 +156,26 @@ export default function SitesPage() {
     }
   };
 
+  const saveSuggestionMode = (suggestionMode: SuggestionMode) => {
+    if (!methodSite) return;
+    const site = methodSite;
+    setNotice(null);
+    updateMode.mutate(
+      { siteId: site.id, suggestionMode },
+      {
+        onSuccess: () => {
+          setMethodSite(null);
+          setNotice({
+            message: `${site.name} will use ${
+              suggestionMode === "experimental" ? "Experimental" : "Standard"
+            } ranking for future suggestions.`,
+            tone: "info",
+          });
+        },
+      },
+    );
+  };
+
   const remove = () => {
     if (!pendingDelete) return;
     const { id, name } = pendingDelete;
@@ -162,11 +195,13 @@ export default function SitesPage() {
     <>
       <PageHeader
         title="Sites"
-        sub={`${sites?.length ?? 0} connected sites · ${
+        sub={`${sites?.length ?? 0} connected ${
+          (sites?.length ?? 0) === 1 ? "site" : "sites"
+        } · ${
           totalArticles === null ? "Soon" : totalArticles.toLocaleString()
         } active articles normalized via ContentConnector`}
       />
-      <div className="relative overflow-y-auto px-8 py-6">
+      <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap gap-2">
           <button onClick={() => setShowImport(true)} className="btn btn-primary">
             Import CSV
@@ -178,7 +213,7 @@ export default function SitesPage() {
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
-        <div className={`${GRID} eyebrow px-5 pb-3`}>
+        <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
           <div>Site</div>
           <div>Connector</div>
           <div className="xl:hidden">Details</div>
@@ -211,7 +246,7 @@ export default function SitesPage() {
           {sites?.map((site, index) => (
             <div
               key={site.id}
-              className={`${GRID} card px-5 py-4 text-body-sm transition-shadow hover:shadow-soft`}
+              className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
             >
               <div className="flex items-center gap-3">
                 {/* {component.voice-icon-circular}, wearing one of the five
@@ -228,8 +263,11 @@ export default function SitesPage() {
                   </div>
                 </div>
               </div>
-              <div className="text-body">
-                {site.platform === "wordpress" ? "WP REST API" : "Sitemap crawl"}
+              <div className="text-caption text-muted lg:text-body">
+                <span className="lg:hidden">Connector: </span>
+                <span className="font-medium text-ink lg:font-normal lg:text-body">
+                  {site.platform === "wordpress" ? "WP REST API" : "Sitemap crawl"}
+                </span>
               </div>
               <div className="flex flex-col gap-0.5 xl:hidden">
                 <SiteDetail
@@ -265,10 +303,11 @@ export default function SitesPage() {
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
-                <SuggestionMethodBadge />
+                <SuggestionMethodBadge site={site} />
               </div>
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
+                  type="button"
                   onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
                   disabled={busy[busyKey(site.id, "Crawl")]}
                   className="btn btn-outline btn-sm"
@@ -295,8 +334,42 @@ export default function SitesPage() {
                           "Generate suggestions",
                           "analysis",
                           triggerAnalysis,
-                          "Hybrid suggestion generation queued.",
+                          `${
+                            site.suggestion_mode === "experimental"
+                              ? "Experimental"
+                              : "Standard"
+                          } suggestion generation queued.`,
                         ),
+                    },
+                    {
+                      label: "Compare methods",
+                      disabled:
+                        busy[busyKey(site.id, "Compare methods")] ||
+                        activeJobs.some(
+                          (job) => job.site_id === site.id && job.kind === "analysis",
+                        ),
+                      onSelect: () =>
+                        void run(
+                          site.id,
+                          "Compare methods",
+                          "analysis",
+                          triggerComparison,
+                          "Comparison queued. It will not add suggestions to the review queue.",
+                        ),
+                    },
+                    {
+                      label: site.suggestion_mode_managed
+                        ? "Suggestion method — managed"
+                        : "Suggestion method…",
+                      disabled:
+                        site.suggestion_mode_managed ||
+                        activeJobs.some(
+                          (job) => job.site_id === site.id && job.kind === "analysis",
+                        ),
+                      onSelect: () => {
+                        updateMode.reset();
+                        setMethodSite(site);
+                      },
                     },
                     {
                       label: "Publish approved",
@@ -332,6 +405,22 @@ export default function SitesPage() {
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+      {methodSite && (
+        <SuggestionMethodDialog
+          site={methodSite}
+          pending={updateMode.isPending}
+          error={
+            updateMode.isError
+              ? errorDetail(
+                  updateMode.error,
+                  "The suggestion method could not be saved. Please try again.",
+                )
+              : undefined
+          }
+          onSave={saveSuggestionMode}
+          onClose={() => setMethodSite(null)}
+        />
+      )}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}

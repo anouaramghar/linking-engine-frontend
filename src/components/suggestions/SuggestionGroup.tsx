@@ -34,7 +34,7 @@ export default function SuggestionGroup({
       aria-labelledby={headingId}
       className="overflow-hidden rounded-xxl border border-hairline bg-surface-card"
     >
-      <div className="flex items-center gap-4 border-b border-hairline bg-canvas-soft px-5 py-4">
+      <div className="flex flex-col items-stretch gap-3 border-b border-hairline bg-canvas-soft px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
         <button
           type="button"
           aria-expanded={!collapsed}
@@ -58,7 +58,7 @@ export default function SuggestionGroup({
             </span>
           </span>
         </button>
-        <span className="badge flex-none">
+        <span className="badge flex-none self-start">
           {count} {count === 1 ? "suggestion" : "suggestions"}
         </span>
       </div>

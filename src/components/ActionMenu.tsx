@@ -136,7 +136,7 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
                 close();
                 item.onSelect();
               }}
-              className={`block w-full px-4 py-2 text-left text-caption hover:bg-surface-strong disabled:opacity-50 ${
+              className={`block min-h-11 w-full px-4 py-2 text-left text-caption hover:bg-surface-strong disabled:opacity-50 ${
                 item.danger ? "text-error" : "text-body hover:text-ink"
               }`}
             >

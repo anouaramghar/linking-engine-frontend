@@ -9,7 +9,8 @@ export type SuggestionStatus =
   | "approved"
   | "rejected"
   | "applying"
-  | "applied";
+  | "applied"
+  | "expired";
 /** Statuses an editor can set directly. 'pending' undoes an earlier decision. */
 export type ReviewStatus = "approved" | "rejected" | "pending";
 
@@ -22,7 +23,7 @@ export type ReviewStatus = "approved" | "rejected" | "pending";
  */
 export interface SuggestionScoreComponents {
   version?: string;
-  /** Which signal produced the delivered order. `bm25_512` for global Hybrid. */
+  /** Which signal produced the delivered order. `bm25_512` for the pilot. */
   final_order?: string;
   score_is?: string;
   recipe?: string;

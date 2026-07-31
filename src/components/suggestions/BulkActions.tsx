@@ -84,7 +84,7 @@ export default function BulkActions({
         <label className="flex items-center gap-2 text-caption text-muted">
           Score threshold
           {/* The ring lives on the pill so the inner input can stay borderless. */}
-          <span className="flex h-8 items-center rounded-pill border border-hairline-strong bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
+          <span className="touch-target flex h-11 items-center rounded-pill border border-hairline-strong bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink sm:h-8">
             <input
               aria-label="Score threshold"
               type="number"

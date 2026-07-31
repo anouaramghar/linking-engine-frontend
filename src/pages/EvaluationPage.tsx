@@ -1,6 +1,6 @@
 import PageHeader from "../components/PageHeader";
 
-const KPIS = ["Recall@10", "Recall@5", "MRR", "Editor acceptance"];
+const KPIS = ["Candidate recall", "Hit@5", "NDCG@5", "Editor acceptance"];
 
 const KPI_ORBS = [
   "bg-[radial-gradient(circle,theme(colors.orb-mint/45%),transparent_70%)]",
@@ -9,17 +9,30 @@ const KPI_ORBS = [
   "bg-[radial-gradient(circle,theme(colors.orb-peach/45%),transparent_70%)]",
 ];
 
-const COMPARISON_METRICS = ["Recall@10", "Precision@10", "MRR"];
+const QUALITY_CHECKS = [
+  {
+    label: "Candidate coverage",
+    description: "Do semantic and lexical retrieval find enough eligible articles?",
+  },
+  {
+    label: "Final ranking",
+    description: "Does BM25-512 place useful links in the first three positions?",
+  },
+  {
+    label: "Editorial usefulness",
+    description: "Do editors approve rank 1, rank 2, and rank 3 suggestions?",
+  },
+];
 
 export default function EvaluationPage() {
   return (
     <>
       <PageHeader
         title="Evaluation"
-        sub="GraphSAGE and cosine-baseline comparison · live evaluation data: Soon"
+        sub="Hybrid retrieval quality · live evaluation data: Soon"
         badge="Soon"
       />
-      <div className="relative overflow-y-auto px-8 py-6">
+      <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {KPIS.map((label, index) => (
             <div key={label} className="card relative overflow-hidden px-6 py-5">
@@ -33,25 +46,26 @@ export default function EvaluationPage() {
           ))}
         </div>
 
-        <section className="card mt-4 px-8 py-7">
-          <h2 className="font-serif text-display-sm text-ink">Masked-link recovery</h2>
+        <section className="card mt-4 px-4 py-5 sm:px-8 sm:py-7">
+          <h2 className="font-serif text-display-sm text-ink">Hybrid quality checks</h2>
           <p className="mt-2 max-w-3xl text-body-sm text-muted">
-            GraphSAGE and cosine-baseline results will appear here when the evaluation
-            pipeline is connected to the dashboard.
+            Hybrid combines semantic and lexical retrieval, then uses BM25-512 for the
+            final order. Live measurements will appear here when the evaluation pipeline
+            is connected to the dashboard.
           </p>
 
           <div className="mt-6 flex max-w-3xl flex-col gap-4">
-            {COMPARISON_METRICS.map((metric) => (
+            {QUALITY_CHECKS.map((check) => (
               <div
-                key={metric}
-                className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b border-hairline pb-4 last:border-0"
+                key={check.label}
+                className="flex flex-col gap-2 border-b border-hairline pb-4 last:border-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
               >
-                <div className="text-body-sm font-medium text-ink">{metric}</div>
-                <div className="text-caption text-muted">
-                  GraphSAGE <span className="font-medium text-ink">Soon</span>
+                <div className="min-w-0">
+                  <div className="text-body-sm font-medium text-ink">{check.label}</div>
+                  <div className="mt-1 text-caption text-muted">{check.description}</div>
                 </div>
-                <div className="text-caption text-muted">
-                  Cosine <span className="font-medium text-ink">Soon</span>
+                <div className="badge flex-none">
+                  Live data <span className="font-medium text-ink">Soon</span>
                 </div>
               </div>
             ))}
