@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
@@ -111,6 +111,14 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const visibleSites = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return sites;
+    return sites?.filter((site) =>
+      [site.name, site.base_url, site.platform].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [search, sites]);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
 
@@ -163,19 +171,42 @@ export default function SitesPage() {
       <PageHeader
         title="Sites"
         sub={`${sites?.length ?? 0} connected ${
-          (sites?.length ?? 0) === 1 ? "site" : "sites"
+          (sites?.length ?? 0) === 1 ? "source" : "sources"
         } · ${
           totalArticles === null ? "Soon" : totalArticles.toLocaleString()
         } active articles normalized via ContentConnector`}
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <button onClick={() => setShowImport(true)} className="btn btn-primary">
             Import CSV
           </button>
           <button onClick={() => setShowAdd(true)} className="btn btn-outline">
-            + Connect site
+            + Connect source
           </button>
+          <label className="min-w-52 flex-1 sm:max-w-sm">
+            <span className="sr-only">Search sources</span>
+            <input
+              type="search"
+              className="field"
+              placeholder="Search name, URL or connector"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-outline"
+            disabled={sitesQuery.isFetching}
+            onClick={() => void sitesQuery.refetch()}
+          >
+            {sitesQuery.isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+          {sitesQuery.dataUpdatedAt > 0 && (
+            <span className="text-caption text-muted">
+              Updated {timeAgo(new Date(sitesQuery.dataUpdatedAt).toISOString())}
+            </span>
+          )}
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
@@ -210,7 +241,7 @@ export default function SitesPage() {
         )}
 
         <div className="flex flex-col gap-2.5">
-          {sites?.map((site, index) => (
+          {visibleSites?.map((site, index) => (
             <div
               key={site.id}
               className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
@@ -233,7 +264,11 @@ export default function SitesPage() {
               <div className="text-caption text-muted lg:text-body">
                 <span className="lg:hidden">Connector: </span>
                 <span className="font-medium text-ink lg:font-normal lg:text-body">
-                  {site.platform === "wordpress" ? "WP REST API" : "Sitemap crawl"}
+                  {site.platform === "wordpress"
+                    ? "WP REST API"
+                    : site.platform === "pool"
+                      ? "Content pool"
+                      : "Sitemap crawl"}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5 xl:hidden">
@@ -270,7 +305,7 @@ export default function SitesPage() {
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
-                <SuggestionMethodBadge />
+                {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
               <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
@@ -284,37 +319,41 @@ export default function SitesPage() {
                 <ActionMenu
                   label="Actions"
                   items={[
-                    {
-                      label:
-                        site.suggestion_slots_available === 0
-                          ? "Generate suggestions — queue full"
-                          : "Generate suggestions",
-                      disabled:
-                        site.suggestion_slots_available === 0 ||
-                        busy[busyKey(site.id, "Generate suggestions")] ||
-                        activeJobs.some(
-                          (job) => job.site_id === site.id && job.kind === "analysis",
-                        ),
-                      onSelect: () =>
-                        void run(
-                          site.id,
-                          "Generate suggestions",
-                          "analysis",
-                          triggerAnalysis,
-                          "Hybrid suggestion generation queued.",
-                        ),
-                    },
-                    {
-                      label: "Publish approved",
-                      disabled: busy[busyKey(site.id, "Publish approved")],
-                      onSelect: () =>
-                        void run(
-                          site.id,
-                          "Publish approved",
-                          "publication",
-                          publishSite,
-                        ),
-                    },
+                    ...(site.platform === "pool"
+                      ? []
+                      : [
+                          {
+                            label:
+                              site.suggestion_slots_available === 0
+                                ? "Generate suggestions — queue full"
+                                : "Generate suggestions",
+                            disabled:
+                              site.suggestion_slots_available === 0 ||
+                              busy[busyKey(site.id, "Generate suggestions")] ||
+                              activeJobs.some(
+                                (job) => job.site_id === site.id && job.kind === "analysis",
+                              ),
+                            onSelect: () =>
+                              void run(
+                                site.id,
+                                "Generate suggestions",
+                                "analysis",
+                                triggerAnalysis,
+                                "Hybrid suggestion generation queued.",
+                              ),
+                          },
+                          {
+                            label: "Publish approved",
+                            disabled: busy[busyKey(site.id, "Publish approved")],
+                            onSelect: () =>
+                              void run(
+                                site.id,
+                                "Publish approved",
+                                "publication",
+                                publishSite,
+                              ),
+                          },
+                        ]),
                     {
                       label: "Delete site",
                       danger: true,
@@ -327,6 +366,13 @@ export default function SitesPage() {
             </div>
           ))}
         </div>
+
+        {!sitesQuery.isPending &&
+          !sitesQuery.isError &&
+          sites?.length !== 0 &&
+          visibleSites?.length === 0 && (
+            <EmptyPanel>No connected source matches “{search}”.</EmptyPanel>
+          )}
 
         <div className="mt-5 text-caption leading-relaxed text-muted">
           Connectors normalize every platform into the same{" "}

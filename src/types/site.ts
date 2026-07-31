@@ -2,7 +2,7 @@ export interface Site {
   id: number;
   name: string;
   base_url: string;
-  platform: "wordpress" | "html";
+  platform: "wordpress" | "html" | "pool";
   crawl_frequency: string;
   suggestion_method?: "hybrid_bm25";
   suggestion_mode: "experimental";
@@ -19,7 +19,7 @@ export interface Site {
 export interface SiteCreate {
   name: string;
   base_url: string;
-  platform: "wordpress" | "html";
+  platform: "wordpress" | "html" | "pool";
   wp_username?: string;
   wp_app_password?: string;
 }

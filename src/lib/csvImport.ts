@@ -127,7 +127,7 @@ const toSite = (cells: Record<string, string>): { site: SiteCreate | null; error
 
   // Absent or blank platform means the common case: a WordPress site.
   const platform = (cells.platform || "wordpress").toLowerCase();
-  if (platform !== "wordpress" && platform !== "html") {
+  if (platform !== "wordpress" && platform !== "html" && platform !== "pool") {
     return { site: null, error: `unknown platform "${cells.platform}"` };
   }
 

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     isError: false,
     isFetching: false,
     refetch: vi.fn(),
+    dataUpdatedAt: 0,
   },
   activeJobs: {
     data: [] as unknown[],
@@ -32,6 +33,7 @@ beforeEach(() => {
     isPending: false,
     isError: false,
     isFetching: false,
+    dataUpdatedAt: 0,
   });
   mocks.activeJobs.data = [];
 });
@@ -196,5 +198,39 @@ describe("SitesPage Hybrid standard", () => {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
     expect(generate.disabled).toBe(true);
+  });
+});
+
+describe("SitesPage source controls", () => {
+  it("filters connected sources without hiding the fleet total", () => {
+    mocks.sites.data = [
+      { id: 1, name: "Docs", base_url: "https://docs.example.com", platform: "wordpress" },
+      { id: 2, name: "News pool", base_url: "https://example.com/feed", platform: "pool" },
+    ];
+    render(<SitesPage />);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sources" }), {
+      target: { value: "pool" },
+    });
+
+    expect(document.body.textContent).toContain("2 connected sources");
+    expect(document.body.textContent).toContain("News pool");
+    expect(document.body.textContent).not.toContain("docs.example.com");
+  });
+
+  it("keeps pool actions read-only", () => {
+    mocks.sites.data = [{
+      id: 2,
+      name: "News pool",
+      base_url: "https://example.com/feed",
+      platform: "pool",
+      suggestion_slots_available: 0,
+    }];
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.queryByRole("menuitem", { name: /Generate suggestions/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Publish approved" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Delete site" })).not.toBeNull();
   });
 });

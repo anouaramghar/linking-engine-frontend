@@ -8,6 +8,7 @@ import type { SiteCreate } from "../../types/site";
 export default function AddSiteModal({ onClose }: { onClose: () => void }) {
   const create = useCreateSite();
   const [form, setForm] = useState<SiteCreate>({ name: "", base_url: "", platform: "wordpress" });
+  const [clientError, setClientError] = useState<string | null>(null);
   const nameId = useId();
   const urlId = useId();
   const platformId = useId();
@@ -19,7 +20,24 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    create.mutate(form, { onSuccess: onClose });
+    setClientError(null);
+    let baseUrl: string;
+    try {
+      const parsed = new URL(form.base_url.trim());
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+      baseUrl = parsed.toString().replace(/\/$/, "");
+    } catch {
+      setClientError("Enter a complete URL starting with http:// or https://.");
+      return;
+    }
+    if (
+      form.platform === "wordpress" &&
+      Boolean(form.wp_username) !== Boolean(form.wp_app_password)
+    ) {
+      setClientError("Provide both WordPress credentials, or leave both blank.");
+      return;
+    }
+    create.mutate({ ...form, name: form.name.trim(), base_url: baseUrl }, { onSuccess: onClose });
   };
 
   return (
@@ -66,11 +84,26 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
               name="platform"
               className="field"
               value={form.platform}
-              onChange={(e) => set({ platform: e.target.value as SiteCreate["platform"] })}
+              onChange={(e) => {
+                const platform = e.target.value as SiteCreate["platform"];
+                set({
+                  platform,
+                  ...(platform === "wordpress"
+                    ? {}
+                    : { wp_username: undefined, wp_app_password: undefined }),
+                });
+              }}
             >
               <option value="wordpress">WordPress (REST API)</option>
               <option value="html">Static HTML (sitemap crawl)</option>
+              <option value="pool">Content pool (RSS or Wikipedia)</option>
             </select>
+            {form.platform === "pool" && (
+              <p className="mt-1.5 text-caption leading-relaxed text-muted">
+                Use an RSS/Atom feed URL or a Wikipedia article URL. Pool content is a read-only
+                suggestion target and refreshes daily.
+              </p>
+            )}
           </div>
           {form.platform === "wordpress" && (
             <>
@@ -116,9 +149,9 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
             </>
           )}
         </div>
-        {create.isError && (
+        {(clientError || create.isError) && (
           <div role="alert" className="mt-3 text-caption text-error">
-            {errorDetail(create.error, "Could not create the site.")}
+            {clientError ?? errorDetail(create.error, "Could not create the site.")}
           </div>
         )}
         <div className="mt-6 flex gap-2">

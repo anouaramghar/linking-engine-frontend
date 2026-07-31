@@ -9,6 +9,7 @@ const TEMPLATE = [
   "name,base_url,platform,wp_username,wp_app_password",
   "The Trail Post,https://trail.example.com,wordpress,editor,xxxx xxxx xxxx xxxx",
   "Static Docs,https://docs.example.com,html,,",
+  "Industry Feed,https://news.example.com/feed.xml,pool,,",
   "",
 ].join("\n");
 
@@ -74,7 +75,8 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
     <Modal title="Import sites from CSV" onClose={onClose} panelClassName="max-w-3xl">
       <p className="-mt-3 mb-5 text-caption text-muted">
         Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
-        <code>platform</code>, <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
+        <code>platform</code> (<code>wordpress</code>, <code>html</code>, or <code>pool</code>),{" "}
+        <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
         {MAX_BULK_SITES.toLocaleString()} sites per file.{" "}
         <a
           href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
