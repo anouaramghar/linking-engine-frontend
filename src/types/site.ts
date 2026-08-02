@@ -4,6 +4,8 @@ export interface Site {
   base_url: string;
   platform: "wordpress" | "html";
   crawl_frequency: string;
+  suggestion_method: "hybrid_bm25";
+  suggestion_slots_available: number;
   created_at: string;
   last_ingestion_status: string | null;
   article_count?: number;

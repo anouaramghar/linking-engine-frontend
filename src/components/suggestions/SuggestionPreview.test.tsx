@@ -44,6 +44,59 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getAllByText("Soon")).toHaveLength(6);
   });
 
+  it("labels hybrid pilot suggestions without calling the score BM25 confidence", () => {
+    const hybrid = { ...suggestion("pending"), method: "hybrid_bm25" };
+    render(
+      <SuggestionPreview
+        suggestion={hybrid}
+        siteName="Example site"
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Semantic similarity")).not.toBeNull();
+    expect(screen.queryByText("Cosine baseline")).toBeNull();
+  });
+
+  it("reports the BM25 selection score as its own raw number", () => {
+    // The percentage is similarity; BM25 is what chose the row. Showing BM25 as a
+    // second percentage would read as a confidence, which it is not.
+    const hybrid: Suggestion = {
+      ...suggestion("pending"),
+      method: "hybrid_bm25",
+      score_components: {
+        version: "hybrid_bm25_v1",
+        final_order: "bm25_512",
+        bm25_score: 12.47,
+        semantic: 0.9,
+      },
+    };
+    render(
+      <SuggestionPreview
+        suggestion={hybrid}
+        siteName="Example site"
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Selected by BM25 · score 12.5")).not.toBeNull();
+    expect(screen.getByText("90%")).not.toBeNull();
+    expect(screen.queryByText("12%")).toBeNull();
+  });
+
+  it("shows no selection score when the engine reported none", () => {
+    // A baseline row, or an engine that predates the components.
+    renderPreview("pending");
+
+    expect(screen.queryByText(/Selected by BM25/)).toBeNull();
+  });
+
   it("identifies an approved suggestion as queued but not live", () => {
     renderPreview("approved");
 
@@ -117,5 +170,21 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("shows the hybrid method on a pilot card", () => {
+    render(
+      <SuggestionCard
+        suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("hybrid BM25")).not.toBeNull();
   });
 });

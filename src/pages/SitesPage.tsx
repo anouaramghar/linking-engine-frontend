@@ -84,6 +84,18 @@ function CurrentSiteStatus({
   return <SiteStatusBadge status={siteStatus} />;
 }
 
+function SuggestionMethodBadge() {
+  return (
+    <span
+      className="badge"
+      title="Hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
+    >
+      <span className="dot bg-primary" />
+      Hybrid
+    </span>
+  );
+}
+
 export default function SitesPage() {
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
@@ -107,6 +119,7 @@ export default function SitesPage() {
     label: string,
     kind: JobKind,
     action: (id: number) => Promise<{ job_id: string }>,
+    queuedMessage?: string,
   ) => {
     const key = busyKey(siteId, label);
     if (busy[key]) return;
@@ -119,7 +132,7 @@ export default function SitesPage() {
         ...current.filter((job) => !(job.siteId === siteId && job.label === label)),
         { siteId, label, kind, jobId: job_id },
       ]);
-      setNotice({ message: `${label} job queued.`, tone: "info" });
+      setNotice({ message: queuedMessage ?? `${label} job queued.`, tone: "info" });
     } catch (error) {
       setNotice({
         message: errorDetail(error, `${label} could not be queued. Please try again.`),
@@ -144,15 +157,6 @@ export default function SitesPage() {
         }),
     });
   };
-
-  const actions: [
-    string,
-    JobKind,
-    (id: number) => Promise<{ job_id: string }>,
-  ][] = [
-    ["Suggest (baseline)", "analysis", triggerAnalysis],
-    ["Publish approved", "publication", publishSite],
-  ];
 
   return (
     <>
@@ -261,6 +265,7 @@ export default function SitesPage() {
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
+                <SuggestionMethodBadge />
               </div>
               <div className="flex items-center justify-end gap-2">
                 <button
@@ -273,11 +278,37 @@ export default function SitesPage() {
                 <ActionMenu
                   label="Actions"
                   items={[
-                    ...actions.map(([label, kind, action]) => ({
-                      label,
-                      disabled: busy[busyKey(site.id, label)],
-                      onSelect: () => void run(site.id, label, kind, action),
-                    })),
+                    {
+                      label:
+                        site.suggestion_slots_available === 0
+                          ? "Generate suggestions — queue full"
+                          : "Generate suggestions",
+                      disabled:
+                        site.suggestion_slots_available === 0 ||
+                        busy[busyKey(site.id, "Generate suggestions")] ||
+                        activeJobs.some(
+                          (job) => job.site_id === site.id && job.kind === "analysis",
+                        ),
+                      onSelect: () =>
+                        void run(
+                          site.id,
+                          "Generate suggestions",
+                          "analysis",
+                          triggerAnalysis,
+                          "Hybrid suggestion generation queued.",
+                        ),
+                    },
+                    {
+                      label: "Publish approved",
+                      disabled: busy[busyKey(site.id, "Publish approved")],
+                      onSelect: () =>
+                        void run(
+                          site.id,
+                          "Publish approved",
+                          "publication",
+                          publishSite,
+                        ),
+                    },
                     {
                       label: "Delete site",
                       danger: true,
@@ -296,7 +327,7 @@ export default function SitesPage() {
           <span className="rounded-pill bg-surface-strong px-2.5 py-0.5 text-caption text-ink">
             Article
           </span>{" "}
-          object before baseline analysis. {RQ_SCHEDULING_COPY}
+          object before suggestion analysis. {RQ_SCHEDULING_COPY}
         </div>
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}

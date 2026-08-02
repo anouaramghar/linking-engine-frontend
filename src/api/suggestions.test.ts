@@ -59,7 +59,6 @@ describe("cursor queue reads", () => {
 
     expect(api.get).toHaveBeenNthCalledWith(1, "/suggestions", {
       params: {
-        method: "baseline_cosine",
         site_id: 3,
         status: "pending",
         include_total: true,
@@ -68,7 +67,6 @@ describe("cursor queue reads", () => {
     });
     expect(api.get).toHaveBeenNthCalledWith(2, "/suggestions", {
       params: {
-        method: "baseline_cosine",
         site_id: 3,
         status: "pending",
         after_score: 0.9,
@@ -98,7 +96,6 @@ describe("cursor queue reads", () => {
 
     expect(api.get).toHaveBeenCalledWith("/suggestions/counts", {
       params: {
-        method: "baseline_cosine",
         site_id: 3,
         min_percent: 80,
       },
@@ -112,7 +109,6 @@ describe("cursor queue reads", () => {
 
     expect(api.get).toHaveBeenCalledWith("/suggestions/counts", {
       params: {
-        method: "baseline_cosine",
         max_percent: 80,
       },
     });
@@ -142,7 +138,6 @@ describe("filtered bulk review", () => {
       {
         status: "approved",
         threshold_percent: 80,
-        method: "baseline_cosine",
         site_id: 3,
       },
     );
@@ -171,7 +166,7 @@ describe("filtered bulk review", () => {
 });
 
 describe("current suggestion mutations", () => {
-  it("uses the backend's single-review, bulk-review, and baseline-analysis routes", async () => {
+  it("uses the backend's review and global Hybrid generation routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post
       .mockResolvedValueOnce({ data: { reviewed: [8, 9], skipped: [], status: "rejected" } })

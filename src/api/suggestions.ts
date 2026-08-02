@@ -14,7 +14,6 @@ import { ENGINE_PAGE_LIMIT } from "./engineLimits";
  * `test_every_list_endpoint_accepts_exactly_max_page_size`.
  */
 export const SUGGESTION_PAGE_SIZE = ENGINE_PAGE_LIMIT;
-export const SUGGESTION_METHOD = "baseline_cosine";
 
 export interface SuggestionCursor {
   score: number;
@@ -36,7 +35,6 @@ export interface SuggestionQueueFilters {
 }
 
 const queueParams = (filters: SuggestionQueueFilters) => ({
-  method: SUGGESTION_METHOD,
   ...(filters.siteId === undefined ? {} : { site_id: filters.siteId }),
   ...(filters.status === undefined ? {} : { status: filters.status }),
   ...(filters.minPercent === undefined ? {} : { min_percent: filters.minPercent }),
@@ -107,7 +105,6 @@ export const bulkReviewByFilter = (rule: FilteredBulkReviewRule) =>
     .post<FilteredBulkReviewResult>("/suggestions/bulk-review-by-filter", {
       status: rule.status,
       threshold_percent: rule.thresholdPercent,
-      method: SUGGESTION_METHOD,
       ...(rule.siteId === undefined
         ? { all_sites: true }
         : { site_id: rule.siteId }),

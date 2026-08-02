@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
@@ -154,5 +154,46 @@ describe("SitesPage job progress", () => {
 
     expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
     expect(document.body.textContent).not.toContain("Indexed");
+  });
+});
+
+describe("SitesPage global Hybrid controls", () => {
+  const site = {
+    id: 42,
+    name: "Docs",
+    base_url: "https://docs.example.com",
+    platform: "wordpress",
+    crawl_frequency: "daily",
+    suggestion_slots_available: 3,
+    created_at: "2026-07-28T08:00:00Z",
+    last_ingestion_status: "succeeded",
+    article_count: 20,
+    internal_link_count: 10,
+    last_crawl_at: "2026-07-28T08:00:00Z",
+  };
+
+  it("shows one global method and one generation action", () => {
+    mocks.sites.data = [site];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Hybrid");
+    expect(document.body.textContent).not.toContain("Suggest (baseline)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Compare methods" })).toBeNull();
+    expect(screen.queryByText(/Suggestion method/)).toBeNull();
+  });
+
+  it("explains a full queue without exposing another ranking path", () => {
+    mocks.sites.data = [{ ...site, suggestion_slots_available: 0 }];
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    const generate = screen.getByRole("menuitem", {
+      name: "Generate suggestions — queue full",
+    }) as HTMLButtonElement;
+    expect(generate.disabled).toBe(true);
+    expect(screen.queryByRole("menuitem", { name: "Compare methods" })).toBeNull();
   });
 });
