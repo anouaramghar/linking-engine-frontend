@@ -530,7 +530,7 @@ describe("ValidationPage live review state", () => {
     expect(
       (screen.getByRole("button", { name: /^Accept ≥/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(document.body.textContent).toContain("Bulk rules act on pending suggestions");
+    expect(document.body.textContent).toContain("Switch to Pending review or All to use bulk review");
   });
 
   it("shows the real scoring signal without advertising unsupported future methods", () => {

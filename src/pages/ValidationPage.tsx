@@ -728,7 +728,7 @@ export default function ValidationPage() {
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
           {/* Any filter change invalidates a confirmation in flight: the rule it
               describes was defined over the previous set of rows. */}
-          <div className="mb-4 flex flex-col gap-3">
+          <div className="mb-5 flex flex-col gap-4">
             <QueueFilters
               filters={filters}
               onChange={(patch) => {
@@ -768,23 +768,30 @@ export default function ValidationPage() {
           {/* The queue's fast path, said out loud. It was reachable but written
               down nowhere, and a single unmodified key that files a review is
               also one an editor has to be able to switch off. */}
-          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
-            {shortcutsEnabled ? (
-              <span>
-                Keyboard <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
-              </span>
-            ) : (
-              <span>Keyboard shortcuts are off.</span>
-            )}
-            <button
-              type="button"
-              onClick={toggleShortcuts}
-              aria-pressed={shortcutsEnabled}
-              className="rounded-pill px-2 py-0.5 text-caption font-medium text-ink underline underline-offset-2 hover:text-primary"
-            >
-              {shortcutsEnabled ? "Turn off" : "Turn on"}
-            </button>
-          </div>
+          <details className="mb-4 text-caption text-muted">
+            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-strong">
+              <span aria-hidden="true">⌨</span>
+              <span className="font-medium text-ink">Keyboard shortcuts</span>
+              <span>({shortcutsEnabled ? "on" : "off"})</span>
+            </summary>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3">
+              {shortcutsEnabled ? (
+                <span>
+                  <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
+                </span>
+              ) : (
+                <span>Keyboard shortcuts are off.</span>
+              )}
+              <button
+                type="button"
+                onClick={toggleShortcuts}
+                aria-pressed={shortcutsEnabled}
+                className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+              >
+                {shortcutsEnabled ? "Turn off" : "Turn on"}
+              </button>
+            </div>
+          </details>
 
           <PublishBanner
             approved={approvedCount}

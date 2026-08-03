@@ -176,6 +176,7 @@ describe("queue filters", () => {
     const user = userEvent.setup();
     renderQueue();
 
+    await user.click(screen.getByRole("button", { name: /More filters/ }));
     await user.click(screen.getByLabelText("Hide reverse duplicates"));
 
     await waitFor(() => expect(mocks.queueFilters?.excludeReciprocal).toBe(true));
@@ -242,6 +243,7 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue();
 
+    await user.click(screen.getByRole("button", { name: /More filters/ }));
     expect(
       (screen.getByLabelText("Minimum score") as HTMLInputElement).disabled,
     ).toBe(false);
@@ -280,6 +282,8 @@ describe("bulk rule preview", () => {
 
     await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     expect(screen.queryByRole("button", { name: "Confirm accept" })).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /More filters/ }));
 
     await user.click(screen.getByLabelText("Hide reverse duplicates"));
 

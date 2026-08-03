@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { MAX_SEARCH_TERM } from "../../api/suggestions";
 import { useDebouncedField } from "../../hooks/useDebouncedField";
 import { clampThreshold } from "../../lib/suggestionReview";
@@ -11,7 +13,7 @@ const SEARCH_DELAY_MS = 300;
 const SCORE_DELAY_MS = 250;
 
 const control =
-  "touch-target h-11 rounded-pill border border-hairline-control bg-surface-card px-3.5 text-caption text-ink sm:h-8";
+  "touch-target h-11 rounded-md border border-hairline-control bg-surface-card px-3.5 text-caption text-ink sm:h-10";
 
 interface Props {
   filters: QueueFilterState;
@@ -32,6 +34,10 @@ export default function QueueFilters({
   onClear,
   scoreLockedBy,
 }: Props) {
+  const advancedFilterCount =
+    Number(filters.minScore > 0) + Number(filters.hideReciprocal);
+  const [advancedOpen, setAdvancedOpen] = useState(advancedFilterCount > 0);
+
   const search = useDebouncedField<string>({
     value: filters.q,
     format: (value) => value,
@@ -43,7 +49,7 @@ export default function QueueFilters({
   const minScore = useDebouncedField<number>({
     value: filters.minScore,
     format: (value) => (value === 0 ? "" : String(value)),
-    // An empty box is "no lower bound", which is a real value here — unlike a
+    // An empty box is "no lower bound", which is a real value here - unlike a
     // half-typed number, it should commit.
     parse: (draft) => (draft.trim() === "" ? 0 : clampThreshold(Number(draft))),
     commit: (minScore) => onChange({ minScore }),
@@ -54,93 +60,130 @@ export default function QueueFilters({
     <div
       aria-label="Queue filters"
       role="search"
-      className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
+      className="card flex flex-col gap-3 p-3 sm:p-4"
     >
-      <label className="flex min-w-0 flex-1 items-center sm:max-w-xs">
-        <span className="sr-only">Search article titles</span>
-        <input
-          type="search"
-          value={search.draft}
-          onChange={(event) => search.change(event.target.value)}
-          onBlur={search.flush}
-          maxLength={MAX_SEARCH_TERM}
-          placeholder="Search titles…"
-          className={`${control} w-full`}
-        />
-      </label>
-
-      <select
-        aria-label="Site filter"
-        value={filters.siteId}
-        onChange={(event) => onChange({ siteId: Number(event.target.value) })}
-        className={`${control} w-full cursor-pointer sm:w-auto`}
-      >
-        <option value={0}>All sites</option>
-        {sites?.map((site) => (
-          <option key={site.id} value={site.id}>
-            {site.name}
-          </option>
-        ))}
-      </select>
-
-      <select
-        aria-label="Target filter"
-        value={filters.targetOrigin}
-        onChange={(event) =>
-          onChange({
-            targetOrigin: event.target.value as SuggestionTargetOrigin | "",
-          })
-        }
-        className={`${control} w-full cursor-pointer sm:w-auto`}
-      >
-        {/* The same words the card's badge uses, so the filter and the row it
-            selects describe a target the same way. */}
-        <option value="">Any target</option>
-        <option value="internal">{TARGET_ORIGIN_LABEL.internal}</option>
-        <option value="content_pool">{TARGET_ORIGIN_LABEL.content_pool}</option>
-      </select>
-
-      <label
-        className={`flex items-center gap-2 text-caption ${
-          scoreLockedBy ? "text-muted" : "text-body"
-        }`}
-      >
-        Min score
-        <span className={`${control} flex items-center gap-1 px-3`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <label className="flex min-w-0 flex-1 items-center sm:min-w-[16rem]">
+          <span className="sr-only">Search article titles</span>
           <input
-            type="number"
-            min={0}
-            max={100}
-            inputMode="numeric"
-            aria-label="Minimum score"
-            // While a bulk rule is being confirmed the queue is showing that
-            // rule's window, not this one. Editing it there would silently
-            // disagree with what the confirmation says it will act on.
-            disabled={Boolean(scoreLockedBy)}
-            value={minScore.draft}
-            onChange={(event) => minScore.change(event.target.value)}
-            onBlur={minScore.flush}
-            placeholder="0"
-            className="w-10 bg-transparent text-right text-caption font-medium text-ink outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            type="search"
+            value={search.draft}
+            onChange={(event) => search.change(event.target.value)}
+            onBlur={search.flush}
+            maxLength={MAX_SEARCH_TERM}
+            placeholder="Search titles..."
+            className={`${control} w-full`}
           />
-          <span className="text-muted">%</span>
-        </span>
-      </label>
+        </label>
 
-      <label className="flex items-center gap-2 text-caption text-body">
-        <input
-          type="checkbox"
-          checked={filters.hideReciprocal}
-          onChange={(event) => onChange({ hideReciprocal: event.target.checked })}
-          className="h-4 w-4 rounded border-hairline-control"
-        />
-        Hide reverse duplicates
-      </label>
+        <select
+          aria-label="Site filter"
+          value={filters.siteId}
+          onChange={(event) => onChange({ siteId: Number(event.target.value) })}
+          className={`${control} w-full cursor-pointer sm:w-auto`}
+        >
+          <option value={0}>All sites</option>
+          {sites?.map((site) => (
+            <option key={site.id} value={site.id}>
+              {site.name}
+            </option>
+          ))}
+        </select>
 
-      {isFiltered && (
-        <button type="button" onClick={onClear} className="btn btn-outline btn-sm">
-          Clear filters
+        <select
+          aria-label="Target filter"
+          value={filters.targetOrigin}
+          onChange={(event) =>
+            onChange({
+              targetOrigin: event.target.value as SuggestionTargetOrigin | "",
+            })
+          }
+          className={`${control} w-full cursor-pointer sm:w-auto`}
+        >
+          {/* The same words the card's badge uses, so the filter and the row it
+              selects describe a target the same way. */}
+          <option value="">Any target</option>
+          <option value="internal">{TARGET_ORIGIN_LABEL.internal}</option>
+          <option value="content_pool">{TARGET_ORIGIN_LABEL.content_pool}</option>
+        </select>
+
+        <button
+          type="button"
+          aria-expanded={advancedOpen}
+          aria-controls="queue-advanced-filters"
+          onClick={() => setAdvancedOpen((open) => !open)}
+          className={`btn btn-outline btn-sm ${
+            advancedOpen ? "border-ink bg-surface-strong" : ""
+          }`}
+        >
+          More filters
+          {advancedFilterCount > 0 && (
+            <span className="rounded-pill bg-surface-strong px-1.5 py-0.5 text-caption-upper text-ink">
+              {advancedFilterCount}
+            </span>
+          )}
+          <span aria-hidden="true">{advancedOpen ? "-" : "+"}</span>
         </button>
+
+        {isFiltered && (
+          <button type="button" onClick={onClear} className="btn btn-text btn-sm">
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      {advancedOpen && (
+        <div
+          id="queue-advanced-filters"
+          className="flex flex-col gap-3 border-t border-hairline-soft pt-3 sm:flex-row sm:flex-wrap sm:items-center"
+        >
+          <label
+            className={`flex items-center gap-2 text-caption ${
+              scoreLockedBy ? "text-muted" : "text-body"
+            }`}
+          >
+            <span>Minimum match score</span>
+            <span
+              className={`${control} flex items-center gap-1 px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink`}
+            >
+              <input
+                type="number"
+                min={0}
+                max={100}
+                inputMode="numeric"
+                aria-label="Minimum score"
+                // While a bulk rule is being confirmed the queue is showing
+                // that rule's window, not this one. Editing it there would
+                // silently disagree with what the confirmation says it will
+                // act on.
+                disabled={Boolean(scoreLockedBy)}
+                value={minScore.draft}
+                onChange={(event) => minScore.change(event.target.value)}
+                onBlur={minScore.flush}
+                placeholder="0"
+                className="w-10 bg-transparent text-right text-caption font-medium text-ink outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <span className="text-muted">%</span>
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2 text-caption text-body">
+            <input
+              type="checkbox"
+              checked={filters.hideReciprocal}
+              aria-label="Hide reverse duplicates"
+              onChange={(event) => onChange({ hideReciprocal: event.target.checked })}
+              className="h-4 w-4 rounded border-hairline-control"
+            />
+            Hide reciprocal links
+          </label>
+
+          {scoreLockedBy && (
+            <span className="text-caption text-muted">
+              Locked while the {scoreLockedBy} is being confirmed.
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
