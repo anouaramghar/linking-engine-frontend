@@ -11,7 +11,6 @@ beforeEach(() => {
   get.mockReset();
   post.mockReset();
 });
-
 describe("listSites", () => {
   it("loads every page instead of stopping at the API's default limit", async () => {
     const firstPage = Array.from({ length: 1000 }, (_, index) => ({ id: index + 1 }));
@@ -28,8 +27,19 @@ describe("listSites", () => {
       params: { limit: 1000, offset: 1000 },
     });
   });
-});
 
+  it("fails visibly when the API repeats a full page", async () => {
+    const repeatedPage = Array.from({ length: 1000 }, (_, index) => ({
+      id: index + 1,
+    }));
+    get.mockResolvedValue({ data: repeatedPage });
+
+    await expect(listSites()).rejects.toThrow(
+      "The sites API repeated a page instead of advancing its offset.",
+    );
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+});
 describe("bulkCreateSites", () => {
   it("posts the parsed sites using the backend bulk-import contract", async () => {
     const sites = [

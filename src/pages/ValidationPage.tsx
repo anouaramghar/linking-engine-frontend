@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
@@ -12,13 +12,19 @@ import type {
 } from "../api/suggestions";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
+import QueueFilters from "../components/suggestions/QueueFilters";
+import { useQueueFilters } from "../hooks/useQueueFilters";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { usePendingPublication, usePublishSites } from "../hooks/usePublish";
-import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
+import {
+  SHORTCUT_HINT,
+  useQueueShortcuts,
+  useShortcutsEnabled,
+} from "../hooks/useQueueShortcuts";
 import {
   useBulkReview,
   useFilteredBulkReview,
@@ -32,7 +38,7 @@ import {
   groupSuggestionsBySource,
   suggestionGroupKey,
 } from "../lib/suggestionGroups";
-import { isReversible, scorePercent } from "../lib/utils";
+import { formatCount, isReversible, scorePercent } from "../lib/utils";
 import {
   clampThreshold,
   filterSuggestions,
@@ -106,9 +112,12 @@ const resolveCounts = (
 };
 
 export default function ValidationPage() {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
-  const [siteFilter, setSiteFilter] = useState(0);
-  const [threshold, setThreshold] = useState(80);
+  const { filters, setFilters, reset: clearFilters, isFiltered } = useQueueFilters();
+  const {
+    status: statusFilter,
+    siteId: siteFilter,
+    threshold,
+  } = filters;
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
     () => new Set(),
@@ -120,24 +129,69 @@ export default function ValidationPage() {
   const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
 
+  const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
+
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
   const hasSites = Boolean(sites?.length);
+
+  /**
+   * Everything that narrows the queue except its score window and its status.
+   *
+   * The bulk rule is defined over exactly this set plus its own threshold, so
+   * anything added here is automatically carried into the rule as well — which
+   * is what keeps "accept the 412 shown" from drifting back into a promise the
+   * dashboard cannot keep.
+   */
   const scope = useMemo<SuggestionQueueFilters>(
-    () => (siteFilter === 0 ? {} : { siteId: siteFilter }),
-    [siteFilter],
+    () => ({
+      ...(siteFilter === 0 ? {} : { siteId: siteFilter }),
+      ...(filters.q.trim() === "" ? {} : { q: filters.q.trim() }),
+      ...(filters.targetOrigin === "" ? {} : { targetOrigin: filters.targetOrigin }),
+      ...(filters.hideReciprocal ? { excludeReciprocal: true } : {}),
+    }),
+    [siteFilter, filters.q, filters.targetOrigin, filters.hideReciprocal],
   );
+
+  /**
+   * The score window the list is actually showing.
+   *
+   * While a bulk rule is being confirmed, the queue switches to that rule's own
+   * window — the whole point of the confirmation is that the editor can look at
+   * the rows before agreeing to review them in one go. The browse filter comes
+   * back the moment the confirmation is cancelled.
+   */
+  const scoreWindow = useMemo<SuggestionQueueFilters>(() => {
+    if (confirmation) {
+      return confirmation.action === "approve"
+        ? { minPercent: confirmation.threshold }
+        : { maxPercent: confirmation.threshold };
+    }
+    return filters.minScore === 0 ? {} : { minPercent: filters.minScore };
+  }, [confirmation, filters.minScore]);
+
+  // A rule only ever matches pending rows, so previewing one has to look at
+  // pending rows regardless of which chip is selected.
+  const effectiveStatus: StatusFilter = confirmation ? "pending" : statusFilter;
+
   const queueFilters = useMemo<SuggestionQueueFilters>(
     () => ({
       ...scope,
-      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+      ...scoreWindow,
+      ...(effectiveStatus === "all" ? {} : { status: effectiveStatus }),
     }),
-    [scope, statusFilter],
+    [scope, scoreWindow, effectiveStatus],
   );
   const suggestionsQuery = useSuggestions(queueFilters, hasSites);
   const sourceSuggestions = suggestionsQuery.items;
   const fleetCountsQuery = useSuggestionCounts({}, hasSites);
-  const scopedCountsQuery = useSuggestionCounts(scope, hasSites);
+  // The chips label the list, so they count inside the same window it shows —
+  // otherwise "Pending review · 805" sits above a filtered queue of nine.
+  const scopedFilters = useMemo(
+    () => ({ ...scope, ...scoreWindow }),
+    [scope, scoreWindow],
+  );
+  const scopedCountsQuery = useSuggestionCounts(scopedFilters, hasSites);
   const acceptCountsQuery = useSuggestionCounts(
     { ...scope, minPercent: threshold },
     hasSites,
@@ -185,9 +239,9 @@ export default function ValidationPage() {
     () =>
       filterSuggestions(resolvedSuggestions, {
         siteId: siteFilter,
-        status: statusFilter,
+        status: effectiveStatus,
       }),
-    [resolvedSuggestions, siteFilter, statusFilter],
+    [resolvedSuggestions, siteFilter, effectiveStatus],
   );
 
   const suggestionGroups = useMemo(
@@ -210,7 +264,9 @@ export default function ValidationPage() {
     autoLoadPaused,
   } = useIncrementalList(
     suggestionGroups,
-    `${statusFilter}:${siteFilter}`,
+    // Every filter belongs in this key: a narrowed queue that kept the previous
+    // window would open already scrolled past rows the editor has not seen.
+    JSON.stringify([effectiveStatus, queueFilters]),
     SOURCE_GROUP_PAGE_SIZE,
     SOURCE_GROUP_AUTO_LOAD_LIMIT,
   );
@@ -240,31 +296,49 @@ export default function ValidationPage() {
     }
   };
 
-  const siteName = (id: number) =>
-    sites?.find((site) => site.id === id)?.name ?? `site ${id}`;
-  const fleetCounts = resolveCounts(
-    fleetCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    {},
+  // Names are looked up per rendered row, so the linear scan is hoisted into a
+  // map rather than repeated for every suggestion in the queue.
+  const siteNames = useMemo(
+    () => new Map(sites?.map((site) => [site.id, site.name])),
+    [sites],
   );
-  const scopedCounts = resolveCounts(
-    scopedCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    scope,
+  const siteName = useCallback(
+    (id: number) => siteNames.get(id) ?? `site ${id}`,
+    [siteNames],
   );
-  const acceptCounts = resolveCounts(
-    acceptCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    { ...scope, minPercent: threshold },
+
+  // Each of these walks the whole loaded queue. Unmemoised they ran four full
+  // passes on every render — including every cursor move — which is what made
+  // holding `j` down feel heavy once a few hundred rows were mounted.
+  const fleetCounts = useMemo(
+    () => resolveCounts(fleetCountsQuery.data, sourceSuggestions, statusOverrides, {}),
+    [fleetCountsQuery.data, sourceSuggestions, statusOverrides],
   );
-  const rejectCounts = resolveCounts(
-    rejectCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    { ...scope, maxPercent: threshold },
+  const scopedCounts = useMemo(
+    () =>
+      resolveCounts(
+        scopedCountsQuery.data,
+        sourceSuggestions,
+        statusOverrides,
+        scopedFilters,
+      ),
+    [scopedCountsQuery.data, sourceSuggestions, statusOverrides, scopedFilters],
+  );
+  const acceptCounts = useMemo(
+    () =>
+      resolveCounts(acceptCountsQuery.data, sourceSuggestions, statusOverrides, {
+        ...scope,
+        minPercent: threshold,
+      }),
+    [acceptCountsQuery.data, sourceSuggestions, statusOverrides, scope, threshold],
+  );
+  const rejectCounts = useMemo(
+    () =>
+      resolveCounts(rejectCountsQuery.data, sourceSuggestions, statusOverrides, {
+        ...scope,
+        maxPercent: threshold,
+      }),
+    [rejectCountsQuery.data, sourceSuggestions, statusOverrides, scope, threshold],
   );
   const chips = [
     ...CHIP_DEFS.map((chip) => ({ ...chip, count: scopedCounts[chip.key] })),
@@ -274,7 +348,7 @@ export default function ValidationPage() {
   const acceptCount = acceptCounts.pending;
   const rejectCount = rejectCounts.pending;
   const queueTotal =
-    statusFilter === "all" ? scopedCounts.total : scopedCounts[statusFilter];
+    effectiveStatus === "all" ? scopedCounts.total : scopedCounts[effectiveStatus];
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
     setStatusOverrides((current) => {
@@ -311,21 +385,27 @@ export default function ValidationPage() {
     skipped: number[] | number,
     describe: (count: number) => string,
     failure?: BatchFailure,
+    reviewedCount = reviewed.length,
   ) => {
     const applied = reviewed;
+    const confirmedCount = Math.max(reviewedCount, applied.length);
+    const unknownIdCount = confirmedCount - applied.length;
     const skippedCount = Array.isArray(skipped) ? skipped.length : skipped;
     const aside = skippedCount
       ? `${skippedCount} ${plural(skippedCount)} ${skippedCount === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skippedCount === 1 ? "it" : "they"} could not be changed.`
       : "";
     const failureMessage = failure
       ? [
-          `${applied.length} ${applied.length === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
+          `${confirmedCount} ${confirmedCount === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
           `${failure.failed} ${plural(failure.failed)} in the failed request could not be confirmed.`,
           `${failure.notAttempted} later ${plural(failure.notAttempted)} ${failure.notAttempted === 1 ? "was" : "were"} not attempted.`,
         ].join(" ")
       : "";
+    const legacyMessage = unknownIdCount
+      ? `The older engine confirmed ${unknownIdCount} ${unknownIdCount === 1 ? "decision" : "decisions"} without returning ${unknownIdCount === 1 ? "its suggestion ID" : "their suggestion IDs"}. The queue has been refreshed, and no further undo is available from this message.`
+      : "";
 
-    if (!applied.length) {
+    if (!confirmedCount) {
       setNotice({
         message: failure
           ? [failureMessage, aside].filter(Boolean).join(" ")
@@ -335,7 +415,9 @@ export default function ValidationPage() {
       return;
     }
 
-    if (selectedId !== null && applied.includes(selectedId)) {
+    if (unknownIdCount) {
+      setSelectedId(null);
+    } else if (selectedId !== null && applied.includes(selectedId)) {
       const selectedIndex = navigableSuggestions.findIndex(
         (item) => item.id === selectedId,
       );
@@ -350,13 +432,13 @@ export default function ValidationPage() {
     }
 
     applyStatuses(applied, status, {
-      message: [failureMessage || describe(applied.length), aside]
+      message: [failureMessage || describe(confirmedCount), aside, legacyMessage]
         .filter(Boolean)
         .join(" "),
       // A partial result needs attention, so it stays until dismissed.
       tone: skippedCount || failure ? "error" : "info",
       // Undoing an undo is just a re-review; only decisions offer it.
-      undoIds: status === "pending" ? undefined : applied,
+      undoIds: status === "pending" || unknownIdCount ? undefined : applied,
     });
   };
 
@@ -375,6 +457,7 @@ export default function ValidationPage() {
         failed: error.failedIds.length,
         notAttempted: error.notAttemptedIds.length,
       },
+      error.completed.reviewedCount,
     );
     return true;
   };
@@ -423,12 +506,14 @@ export default function ValidationPage() {
     bulkReview.mutate(
       { ids, status: "pending" },
       {
-        onSuccess: ({ reviewed, skipped }) =>
+        onSuccess: ({ reviewed, reviewedCount, skipped }) =>
           applyBatch(
             reviewed,
             "pending",
             skipped,
             (count) => `${count} ${plural(count)} restored to pending review.`,
+            undefined,
+            reviewedCount,
           ),
         onError: (error) => {
           if (
@@ -448,6 +533,25 @@ export default function ValidationPage() {
       },
     );
   };
+
+  /**
+   * Row handlers that never change identity.
+   *
+   * `decide` and `undo` close over the cursor and the filtered list, so they
+   * are rebuilt on every render — handed to a memoised card that defeats the
+   * memo entirely. Latching them in a ref (the same trick `useQueueShortcuts`
+   * and `Notice` already use for their timers) gives every row one stable
+   * callback for the life of the page, so a cursor move re-renders the two
+   * rows whose selection actually changed instead of all of them.
+   */
+  const rowActions = useRef({ decide, undo });
+  useEffect(() => {
+    rowActions.current = { decide, undo };
+  });
+  const openRow = useCallback((id: number) => setSelectedId(id), []);
+  const acceptRow = useCallback((id: number) => rowActions.current.decide(id, "approved"), []);
+  const rejectRow = useCallback((id: number) => rowActions.current.decide(id, "rejected"), []);
+  const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
 
   const requestBulk = (action: BulkReviewAction) => {
     const count = action === "approve" ? acceptCount : rejectCount;
@@ -472,7 +576,11 @@ export default function ValidationPage() {
     setConfirmation(null);
     filteredReview.mutate(
       {
-        siteId: siteFilter === 0 ? undefined : siteFilter,
+        // Exactly the filters the queue was showing while this was confirmed.
+        siteId: scope.siteId,
+        q: scope.q,
+        targetOrigin: scope.targetOrigin,
+        excludeReciprocal: scope.excludeReciprocal,
         status,
         thresholdPercent: confirmation.threshold,
       },
@@ -567,20 +675,23 @@ export default function ValidationPage() {
     setSelectedId(nextSuggestion.id);
   };
 
-  useQueueShortcuts({
-    onNext: () => step(1),
-    onPrevious: () => step(-1),
-    onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
-    onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
-    onUndo: () => {
-      if (selected && isReversible(selected.status)) undo([selected.id]);
-      else if (notice?.undoIds?.length) undo(notice.undoIds);
+  useQueueShortcuts(
+    {
+      onNext: () => step(1),
+      onPrevious: () => step(-1),
+      onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
+      onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
+      onUndo: () => {
+        if (selected && isReversible(selected.status)) undo([selected.id]);
+        else if (notice?.undoIds?.length) undo(notice.undoIds);
+      },
+      onEscape: () => {
+        if (confirmation) setConfirmation(null);
+        else setSelectedId(null);
+      },
     },
-    onEscape: () => {
-      if (confirmation) setConfirmation(null);
-      else setSelectedId(null);
-    },
-  });
+    shortcutsEnabled,
+  );
 
   useEffect(() => {
     // Optional-called: not every environment implements scrollIntoView.
@@ -608,22 +719,39 @@ export default function ValidationPage() {
     <>
       <PageHeader
         title="Link suggestions"
-        sub={`${pendingTotal} pending across ${sites?.length ?? 0} sites · queued links are not live until published`}
-        badge="Baseline cosine"
+        sub={`${pendingTotal} pending across ${sites?.length ?? 0} ${
+          (sites?.length ?? 0) === 1 ? "site" : "sites"
+        } · queued links are not live until published`}
+        badge="Hybrid"
       />
       <div className="relative flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
-          <div className="mb-4 flex items-start gap-3">
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+          {/* Any filter change invalidates a confirmation in flight: the rule it
+              describes was defined over the previous set of rows. */}
+          <div className="mb-5 flex flex-col gap-4">
+            <QueueFilters
+              filters={filters}
+              onChange={(patch) => {
+                setFilters(patch);
+                setConfirmation(null);
+              }}
+              sites={sites}
+              isFiltered={isFiltered}
+              onClear={() => {
+                clearFilters();
+                setConfirmation(null);
+              }}
+            />
             <BulkActions
               chips={chips}
               active={statusFilter}
               onSelect={(status) => {
-                setStatusFilter(status as StatusFilter);
+                setFilters({ status: status as StatusFilter });
                 setConfirmation(null);
               }}
               threshold={threshold}
               onThresholdChange={(value) => {
-                setThreshold(clampThreshold(value));
+                setFilters({ threshold: clampThreshold(value) });
                 setConfirmation(null);
               }}
               acceptCount={acceptCount}
@@ -634,23 +762,35 @@ export default function ValidationPage() {
               onConfirm={confirmBulk}
               onCancel={() => setConfirmation(null)}
             />
-            <select
-              aria-label="Site filter"
-              value={siteFilter}
-              onChange={(event) => {
-                setSiteFilter(Number(event.target.value));
-                setConfirmation(null);
-              }}
-              className="h-8 cursor-pointer rounded-pill border border-hairline-strong bg-surface-card px-3.5 text-caption text-ink"
-            >
-              <option value={0}>All sites</option>
-              {sites?.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
-                </option>
-              ))}
-            </select>
           </div>
+
+          {/* The queue's fast path, said out loud. It was reachable but written
+              down nowhere, and a single unmodified key that files a review is
+              also one an editor has to be able to switch off. */}
+          <details className="mb-4 text-caption text-muted">
+            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-strong">
+              <span aria-hidden="true">⌨</span>
+              <span className="font-medium text-ink">Keyboard shortcuts</span>
+              <span>({shortcutsEnabled ? "on" : "off"})</span>
+            </summary>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3">
+              {shortcutsEnabled ? (
+                <span>
+                  <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
+                </span>
+              ) : (
+                <span>Keyboard shortcuts are off.</span>
+              )}
+              <button
+                type="button"
+                onClick={toggleShortcuts}
+                aria-pressed={shortcutsEnabled}
+                className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+              >
+                {shortcutsEnabled ? "Turn off" : "Turn on"}
+              </button>
+            </div>
+          </details>
 
           <PublishBanner
             approved={approvedCount}
@@ -703,10 +843,10 @@ export default function ValidationPage() {
                           containerRef={
                             suggestion.id === selectedId ? cursorRef : undefined
                           }
-                          onOpen={() => setSelectedId(suggestion.id)}
-                          onAccept={() => decide(suggestion.id, "approved")}
-                          onReject={() => decide(suggestion.id, "rejected")}
-                          onUndo={() => undo([suggestion.id])}
+                          onOpen={openRow}
+                          onAccept={acceptRow}
+                          onReject={rejectRow}
+                          onUndo={undoRow}
                         />
                       ))}
                     </SuggestionGroup>
@@ -722,8 +862,13 @@ export default function ValidationPage() {
                     >
                       {suggestionsQuery.isFetchingNextPage ? "Loading more..." : "Show more"}
                     </button>
-                    <span className="text-caption text-muted">
-                      Showing {shown.toLocaleString()} of {queueTotal.toLocaleString()}
+                    {/* Paging and filtering both change this line and nothing
+                        else on screen, so it has to announce itself. Bare
+                        aria-live rather than role="status": the notice above is
+                        the page's status region, and two of them would make
+                        "the status message" ambiguous to a screen reader. */}
+                    <span aria-live="polite" className="text-caption text-muted">
+                      Showing {formatCount(shown)} of {formatCount(queueTotal)}
                       {queueAutoLoadPaused && (
                         <>
                           {" "}
@@ -736,9 +881,23 @@ export default function ValidationPage() {
                 )}
                 {suggestions.length === 0 && (
                   <EmptyPanel>
-                    {hasSites
-                      ? "No suggestions match these filters. Run baseline suggestions from the Sites page, or try another status or site."
-                      : "No sites are connected yet. Connect a site on the Sites page, crawl it, then run baseline suggestions."}
+                    {!hasSites ? (
+                      "No sites are connected yet. Connect a site on the Sites page, crawl it, then generate suggestions."
+                    ) : isFiltered ? (
+                      <>
+                        No suggestions match these filters.{" "}
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+                        >
+                          Clear filters
+                        </button>{" "}
+                        to see the whole queue.
+                      </>
+                    ) : (
+                      "This queue is empty. Generate suggestions from the Sites page."
+                    )}
                   </EmptyPanel>
                 )}
               </>

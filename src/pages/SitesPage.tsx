@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
@@ -15,15 +15,22 @@ import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
-import { RQ_SCHEDULING_COPY, initials, orbPlateClass, timeAgo } from "../lib/utils";
+import {
+  RQ_SCHEDULING_COPY,
+  formatCount,
+  initials,
+  orbPlateClass,
+  timeAgo,
+} from "../lib/utils";
 import type { JobKind, JobRun } from "../types/job";
+import type { Site } from "../types/site";
 
 // Shared by the header and the rows so they cannot drift apart. The narrow
 // template buys the action column back from the three text columns: at 1024px
 // the wide one leaves it about 142px, and "Queueing…" beside the Actions menu
 // needs more than that. Name and URL already truncate, so they give it up best.
 const GRID =
-  "grid grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] items-center gap-3" +
+  "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
 
 function SiteDetail({
@@ -51,16 +58,15 @@ interface TrackedJob {
 }
 
 function CurrentSiteStatus({
-  siteId,
-  siteStatus,
+  site,
   activeJobs,
   trackedJobs,
 }: {
-  siteId: number;
-  siteStatus: string | null;
+  site: Site;
   activeJobs: JobRun[];
   trackedJobs: TrackedJob[];
 }) {
+  const siteId = site.id;
   const active = activeJobs.find((job) => job.site_id === siteId);
   if (active) {
     return (
@@ -81,7 +87,33 @@ function CurrentSiteStatus({
     return <JobStatusBadge jobId={tracked.jobId} kind={tracked.kind} />;
   }
 
-  return <SiteStatusBadge status={siteStatus} />;
+  return (
+    <SiteStatusBadge
+      status={site.last_ingestion_status}
+      lastCrawlAt={site.last_crawl_at}
+      analysisStatus={site.last_analysis_status}
+      lastAnalysisAt={site.last_analysis_at}
+    />
+  );
+}
+
+/**
+ * Hybrid is the managed standard for every non-pool source, so this states the
+ * site's configuration rather than reading any one row. The title says so out
+ * loud: a queue card reports how that particular suggestion was produced, which
+ * for an older row can still be the cosine baseline, and the two are not in
+ * disagreement when it happens.
+ */
+function SuggestionMethodBadge() {
+  return (
+    <span
+      className="badge"
+      title="Generation method for new suggestions: hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
+    >
+      <span className="dot bg-primary" />
+      Hybrid
+    </span>
+  );
 }
 
 export default function SitesPage() {
@@ -99,6 +131,14 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const visibleSites = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return sites;
+    return sites?.filter((site) =>
+      [site.name, site.base_url, site.platform].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [search, sites]);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
 
@@ -107,6 +147,7 @@ export default function SitesPage() {
     label: string,
     kind: JobKind,
     action: (id: number) => Promise<{ job_id: string }>,
+    queuedMessage?: string,
   ) => {
     const key = busyKey(siteId, label);
     if (busy[key]) return;
@@ -119,7 +160,7 @@ export default function SitesPage() {
         ...current.filter((job) => !(job.siteId === siteId && job.label === label)),
         { siteId, label, kind, jobId: job_id },
       ]);
-      setNotice({ message: `${label} job queued.`, tone: "info" });
+      setNotice({ message: queuedMessage ?? `${label} job queued.`, tone: "info" });
     } catch (error) {
       setNotice({
         message: errorDetail(error, `${label} could not be queued. Please try again.`),
@@ -145,36 +186,44 @@ export default function SitesPage() {
     });
   };
 
-  const actions: [
-    string,
-    JobKind,
-    (id: number) => Promise<{ job_id: string }>,
-  ][] = [
-    ["Suggest (baseline)", "analysis", triggerAnalysis],
-    ["Publish approved", "publication", publishSite],
-  ];
-
   return (
     <>
       <PageHeader
         title="Sites"
-        sub={`${sites?.length ?? 0} connected sites · ${
-          totalArticles === null ? "Soon" : totalArticles.toLocaleString()
+        sub={`${sites?.length ?? 0} connected ${
+          (sites?.length ?? 0) === 1 ? "source" : "sources"
+        } · ${
+          totalArticles === null ? "Soon" : formatCount(totalArticles)
         } active articles normalized via ContentConnector`}
       />
-      <div className="relative overflow-y-auto px-8 py-6">
-        <div className="mb-4 flex flex-wrap gap-2">
+      <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <button onClick={() => setShowImport(true)} className="btn btn-primary">
             Import CSV
           </button>
           <button onClick={() => setShowAdd(true)} className="btn btn-outline">
-            + Connect site
+            + Connect source
           </button>
+          <label className="min-w-52 flex-1 sm:max-w-sm">
+            <span className="sr-only">Search sources</span>
+            <input
+              type="search"
+              className="field"
+              placeholder="Search name, URL or connector"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          {sitesQuery.dataUpdatedAt > 0 && (
+            <span className="text-caption text-muted">
+              Updated {timeAgo(new Date(sitesQuery.dataUpdatedAt).toISOString())}
+            </span>
+          )}
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
-        <div className={`${GRID} eyebrow px-5 pb-3`}>
+        <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
           <div>Site</div>
           <div>Connector</div>
           <div className="xl:hidden">Details</div>
@@ -204,10 +253,10 @@ export default function SitesPage() {
         )}
 
         <div className="flex flex-col gap-2.5">
-          {sites?.map((site, index) => (
+          {visibleSites?.map((site, index) => (
             <div
               key={site.id}
-              className={`${GRID} card px-5 py-4 text-body-sm transition-shadow hover:shadow-soft`}
+              className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
             >
               <div className="flex items-center gap-3">
                 {/* {component.voice-icon-circular}, wearing one of the five
@@ -224,17 +273,30 @@ export default function SitesPage() {
                   </div>
                 </div>
               </div>
-              <div className="text-body">
-                {site.platform === "wordpress" ? "WP REST API" : "Sitemap crawl"}
+              <div className="text-caption text-muted lg:text-body">
+                <span className="lg:hidden">Connector: </span>
+                <span className="font-medium text-ink lg:font-normal lg:text-body">
+                  {site.platform === "wordpress"
+                    ? "WP REST API"
+                    : site.platform === "pool"
+                      ? "Content pool"
+                      : "Sitemap crawl"}
+                </span>
               </div>
               <div className="flex flex-col gap-0.5 xl:hidden">
                 <SiteDetail
                   label="Articles"
-                  value={site.article_count?.toLocaleString() ?? "Soon"}
+                  value={
+                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                  }
                 />
                 <SiteDetail
                   label="Int. links"
-                  value={site.internal_link_count?.toLocaleString() ?? "Soon"}
+                  value={
+                    site.internal_link_count === undefined
+                      ? "Soon"
+                      : formatCount(site.internal_link_count)
+                  }
                 />
                 <SiteDetail
                   label="Last crawl"
@@ -243,10 +305,20 @@ export default function SitesPage() {
                 />
               </div>
               <div className="hidden xl:block">
-                <SiteDetail value={site.article_count?.toLocaleString() ?? "Soon"} />
+                <SiteDetail
+                  value={
+                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                  }
+                />
               </div>
               <div className="hidden xl:block">
-                <SiteDetail value={site.internal_link_count?.toLocaleString() ?? "Soon"} />
+                <SiteDetail
+                  value={
+                    site.internal_link_count === undefined
+                      ? "Soon"
+                      : formatCount(site.internal_link_count)
+                  }
+                />
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
@@ -256,14 +328,15 @@ export default function SitesPage() {
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <CurrentSiteStatus
-                  siteId={site.id}
-                  siteStatus={site.last_ingestion_status}
+                  site={site}
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
+                {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
-              <div className="flex items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
+                  type="button"
                   onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
                   disabled={busy[busyKey(site.id, "Crawl")]}
                   className="btn btn-outline btn-sm"
@@ -273,11 +346,41 @@ export default function SitesPage() {
                 <ActionMenu
                   label="Actions"
                   items={[
-                    ...actions.map(([label, kind, action]) => ({
-                      label,
-                      disabled: busy[busyKey(site.id, label)],
-                      onSelect: () => void run(site.id, label, kind, action),
-                    })),
+                    ...(site.platform === "pool"
+                      ? []
+                      : [
+                          {
+                            label:
+                              site.suggestion_slots_available === 0
+                                ? "Generate suggestions — queue full"
+                                : "Generate suggestions",
+                            disabled:
+                              site.suggestion_slots_available === 0 ||
+                              busy[busyKey(site.id, "Generate suggestions")] ||
+                              activeJobs.some(
+                                (job) => job.site_id === site.id && job.kind === "analysis",
+                              ),
+                            onSelect: () =>
+                              void run(
+                                site.id,
+                                "Generate suggestions",
+                                "analysis",
+                                triggerAnalysis,
+                                "Hybrid suggestion generation queued.",
+                              ),
+                          },
+                          {
+                            label: "Publish approved",
+                            disabled: busy[busyKey(site.id, "Publish approved")],
+                            onSelect: () =>
+                              void run(
+                                site.id,
+                                "Publish approved",
+                                "publication",
+                                publishSite,
+                              ),
+                          },
+                        ]),
                     {
                       label: "Delete site",
                       danger: true,
@@ -291,12 +394,19 @@ export default function SitesPage() {
           ))}
         </div>
 
+        {!sitesQuery.isPending &&
+          !sitesQuery.isError &&
+          sites?.length !== 0 &&
+          visibleSites?.length === 0 && (
+            <EmptyPanel>No connected source matches “{search}”.</EmptyPanel>
+          )}
+
         <div className="mt-5 text-caption leading-relaxed text-muted">
           Connectors normalize every platform into the same{" "}
           <span className="rounded-pill bg-surface-strong px-2.5 py-0.5 text-caption text-ink">
             Article
           </span>{" "}
-          object before baseline analysis. {RQ_SCHEDULING_COPY}
+          object before suggestion analysis. {RQ_SCHEDULING_COPY}
         </div>
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}

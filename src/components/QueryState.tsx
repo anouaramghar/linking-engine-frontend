@@ -17,13 +17,13 @@ export function ErrorPanel({
     // The one place a whole surface goes chromatic, at the alpha the system's
     // hairline weight implies rather than a saturated fill.
     <div role="alert" className={`${PANEL} border-error/30 bg-error/5`}>
-      <div className="text-body-sm font-medium text-error">{title}</div>
+      <div className="text-body-sm font-medium text-error-ink">{title}</div>
       <div className="mx-auto mt-2 max-w-md text-caption text-body">{description}</div>
       <button
         type="button"
         onClick={onRetry}
         disabled={retrying}
-        className="btn btn-outline mt-5 border-error/40 bg-surface-card text-error hover:border-error"
+        className="btn btn-outline mt-5 border-error/40 bg-surface-card text-error-ink hover:border-error"
       >
         {retrying ? "Retrying…" : "Try again"}
       </button>

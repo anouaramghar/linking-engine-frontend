@@ -26,7 +26,9 @@ export default {
       ink: "#0c0a09",
       body: "#4e4e4e",
       "body-strong": "#292524",
-      muted: "#777169",
+      // Darkened from the source palette so normal caption text clears WCAG AA
+      // on every light product surface, including {colors.surface-strong}.
+      muted: "#706a62",
       "muted-soft": "#a8a29e",
       "on-primary": "#ffffff",
       "on-dark": "#ffffff",
@@ -36,6 +38,14 @@ export default {
       hairline: "#e7e5e4",
       "hairline-soft": "#f0efed",
       "hairline-strong": "#d6d3d1",
+      // Derived: the boundary of a control the user is meant to type into.
+      // `hairline-strong` measures 1.49:1 on {colors.surface-card}, and a field
+      // whose fill matches the page is identified by its border alone — WCAG
+      // 1.4.11 wants 3:1 for that. A border has a surface on each side, so this
+      // is the lightest value in the same stone family that clears 3:1 against
+      // all three grounds a control can sit between: surface-card 3.33,
+      // canvas-soft 3.19, canvas 3.05. Still a hairline, not a rule.
+      "hairline-control": "#928c84",
 
       // Surface
       canvas: "#f5f5f5",
@@ -61,6 +71,12 @@ export default {
       // as a single flat value but no press state, and destructive confirms need
       // one. Kept as the same hue one step darker so it reads as the same token.
       "error-active": "#b91c1c",
+      // Derived: `error` as *text*. #dc2626 clears AA on pure white (4.83:1) but
+      // the app almost never puts it there — on the tinted `bg-error/5` grounds
+      // where failures are actually reported it falls to 4.1–4.3:1. Same value
+      // as `error-active` on purpose: one hue, two intents. `error` stays the
+      // fill and border; `error-ink` is the only one allowed to carry words.
+      "error-ink": "#b91c1c",
     },
     borderRadius: {
       none: "0px",
@@ -102,6 +118,10 @@ export default {
         "body-md": ["16px", { lineHeight: "1.5", letterSpacing: "0.16px" }],
         "body-sm": ["15px", { lineHeight: "1.47", letterSpacing: "0.15px" }],
         caption: ["14px", { lineHeight: "1.5", letterSpacing: "0" }],
+        // Derived: the system's smallest size is `caption-upper`, but that cut
+        // is uppercase, tracked and semibold — wrong for a sentence-case metric
+        // label under a number. This is the same 12px step in ordinary voice.
+        "caption-sm": ["12px", { lineHeight: "1.4", letterSpacing: "0" }],
         "caption-upper": ["12px", { lineHeight: "1.4", letterSpacing: "0.96px", fontWeight: "600" }],
         button: ["15px", { lineHeight: "1", letterSpacing: "0", fontWeight: "500" }],
         "nav-link": ["15px", { lineHeight: "1.4", letterSpacing: "0", fontWeight: "500" }],

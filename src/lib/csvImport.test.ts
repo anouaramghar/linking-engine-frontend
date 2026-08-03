@@ -65,6 +65,11 @@ describe("parseSiteCsv", () => {
     expect(rows[0].site?.base_url).toBe("https://trail.example.com");
   });
 
+  it("accepts content-pool sources", () => {
+    const { rows } = parseSiteCsv(`${header}\nNews,https://example.com/feed.xml,pool`);
+    expect(rows[0].site?.platform).toBe("pool");
+  });
+
   it("reports the real file line for each bad row and keeps the good ones", () => {
     const { rows } = parseSiteCsv(
       [

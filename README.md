@@ -1,93 +1,82 @@
-# linking-engine-frontend
+# LinkMesh dashboard
 
+The LinkMesh frontend is a React and Vite dashboard for connecting sites, reviewing
+internal-link suggestions, starting crawl and publish jobs, and monitoring their
+progress. Browser requests stay on the same origin and are proxied to the LinkMesh
+backend in both development and production.
 
+## Requirements
 
-## Getting started
+- Node.js 22 and npm
+- A running LinkMesh backend
+- A LinkMesh API key for the production container; local Vite may omit it only
+  when backend authentication is disabled
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Local development
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+From this directory in Windows PowerShell:
 
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+```powershell
+Copy-Item .env.example .env
+npm.cmd ci
+npm.cmd run dev
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/brian_olson-group/linking-engine-frontend.git
-git branch -M main
-git push -uf origin main
+
+Open <http://127.0.0.1:5173>. Vite forwards `/api` requests to `BACKEND_URL`.
+
+Edit `.env` for your local backend:
+
+```dotenv
+VITE_API_BASE_URL=/api
+BACKEND_URL=http://127.0.0.1:8000
+LINKMESH_API_KEY=replace-with-your-local-key
 ```
 
-## Integrate with your tools
+`LINKMESH_API_KEY` is read only by the Vite development server and proxy. Never
+rename it with a `VITE_` prefix: Vite exposes every `VITE_` variable to browser
+JavaScript.
 
-* [Set up project integrations](https://gitlab.com/brian_olson-group/linking-engine-frontend/-/settings/integrations)
+## Quality checks
 
-## Collaborate with your team
+```powershell
+npm.cmd run lint
+npm.cmd run test
+npm.cmd run build
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+The production build is written to `dist/`. Inter and EB Garamond are bundled by
+Fontsource, so the deployed dashboard does not contact Google Fonts.
 
-## Test and Deploy
+## Production container
 
-Use the built-in continuous integration in GitLab.
+Build the nginx image:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```powershell
+docker build -t linkmesh-dashboard:local .
+```
 
-***
+Run it against a backend on the Windows host:
 
-# Editing this README
+```powershell
+docker run --rm --name linkmesh-dashboard -p 8080:80 `
+  -e BACKEND_URL=http://host.docker.internal:8000 `
+  -e LINKMESH_API_KEY=replace-with-your-api-key `
+  linkmesh-dashboard:local
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Then open <http://127.0.0.1:8080>.
 
-## Suggestions for a good README
+For a Compose deployment, set `BACKEND_URL` to the backend service name, such as
+`http://api:8000`. The container deliberately exits before nginx starts when
+`LINKMESH_API_KEY` is missing or empty; this prevents an unresolved template
+variable or an unauthenticated proxy from presenting as a backend outage.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## Environment variables
 
-## Name
-Choose a self-explaining name for your project.
+| Variable | Used by | Default | Purpose |
+|---|---|---|---|
+| `VITE_API_BASE_URL` | Browser build | `/api` | Same-origin base path for API requests |
+| `BACKEND_URL` | Vite and nginx proxies | `http://127.0.0.1:8000` in development; `http://api:8000` in the image | Backend origin |
+| `LINKMESH_API_KEY` | Vite and nginx proxies | None | Server-side `X-API-Key` header; required by the production image |
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Do not commit `.env`; only `.env.example` belongs in Git.

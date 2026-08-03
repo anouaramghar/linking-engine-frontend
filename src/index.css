@@ -2,17 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Ship only the font weights used by the dashboard, without a runtime request
+   to Google Fonts. */
+@font-face {
+  font-family: "EB Garamond";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/eb-garamond/files/eb-garamond-latin-400-normal.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/inter/files/inter-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/inter/files/inter-latin-600-normal.woff2") format("woff2");
+}
+
 body {
   /* {colors.canvas} floor, {colors.body} running text. Headings opt into
      {colors.ink} rather than the other way round — that is the editorial
      hierarchy the system describes. */
   @apply bg-canvas font-sans text-body antialiased;
+  min-height: 100dvh;
 }
 
 /* One visible focus indicator for every control, so keyboard position is never
-   lost. Scoped to :focus-visible, so pointer users keep the clean look. */
+   lost. Scoped to :focus-visible, so pointer users keep the clean look.
+
+   The colour is a variable rather than a constant because the system defines
+   dark surfaces too: an ink ring on {colors.surface-dark} is ink on ink, and
+   the Undo button in a confirmation notice is exactly where a keyboard user
+   cannot afford to lose their place. Inverting surfaces set `--focus-ring`. */
 :focus-visible {
-  outline: 2px solid theme(colors.ink);
+  outline: 2px solid var(--focus-ring, theme(colors.ink));
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -42,13 +83,13 @@ input[type="number"] {
  * doesn't is composed from utilities at the call site.
  */
 @layer components {
-  /* {component.button-primary} / {component.button-outline} share a box: 40px
-     tall, 20px of horizontal room, pill. The outline's documented 9x19 padding
-     is its 1px border eating into the same outer box, so both carry a border. */
+  /* {component.button-primary} / {component.button-outline} share a box: 44px
+     on mobile and 40px from `sm` upward, with 20px of horizontal room and a
+     pill. The outline's border eats into the same outer box. */
   .btn {
-    @apply inline-flex h-10 flex-none items-center justify-center gap-2
+    @apply inline-flex h-11 flex-none items-center justify-center gap-2
       whitespace-nowrap rounded-pill border px-5 text-button
-      transition-colors disabled:cursor-not-allowed;
+      transition-colors disabled:cursor-not-allowed sm:h-10;
   }
 
   .btn-primary {
@@ -76,15 +117,24 @@ input[type="number"] {
       disabled:text-muted-soft;
   }
 
-  /* Row-level actions. Same pill, 32px tall, so a table row of them does not
-     out-weigh the row's own content. */
+  /* Row-level actions. Same pill: 44px on mobile, 32px in pointer-dense layouts.
+     `text-caption` only overrides the size; the 500 weight rides in from
+     {typography.button} on `.btn`. */
   .btn-sm {
-    @apply h-8 gap-1.5 px-4 text-[14px];
+    @apply h-11 gap-1.5 px-4 text-caption sm:h-8;
   }
 
-  /* {component.text-input} — 44px, {rounded.md}, hairline-strong at rest. */
+  /* Any surface that inverts to ink and needs its focus ring to survive. */
+  .focus-ring-inverse {
+    --focus-ring: theme(colors.on-primary);
+  }
+
+  /* {component.text-input} — 44px, {rounded.md}. The system draws this at
+     hairline-strong; the field sits on {colors.surface-card} over a near-white
+     page, so that border is the only thing saying "type here" and has to clear
+     3:1 to say it. `hairline-control` is that weight. */
   .field {
-    @apply h-11 w-full rounded-md border border-hairline-strong bg-surface-card
+    @apply h-11 w-full rounded-md border border-hairline-control bg-surface-card
       px-4 text-body-md text-ink placeholder:text-muted;
   }
 
@@ -137,6 +187,18 @@ input[type="number"] {
   animation-delay: 0.32s;
 }
 
+.mobile-app-header {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+@media (pointer: coarse) {
+  .btn,
+  .btn-sm,
+  .touch-target {
+    min-height: 44px;
+  }
+}
+
 @keyframes job-activity-thinking {
   0%,
   60%,
@@ -152,8 +214,19 @@ input[type="number"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .job-activity-dot {
+  .job-activity-dot,
+  .animate-pulse,
+  .animate-rowIn {
     animation: none;
+  }
+
+  .job-activity-dot {
     opacity: 0.75;
+  }
+
+  .animate-pulse,
+  .animate-rowIn {
+    opacity: 1;
+    transform: none;
   }
 }

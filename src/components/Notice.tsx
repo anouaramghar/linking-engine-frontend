@@ -12,10 +12,14 @@ export interface NoticeState {
 /**
  * A confirmation is the ink surface the system already uses for its dark
  * inversions; a failure is the one place {colors.semantic-error} earns a fill.
+ *
+ * Both invert, so both flip the focus ring with them — the app's ink ring is
+ * invisible on either, and Undo is the last control that should be hard to
+ * find with a keyboard.
  */
 const TONE: Record<NoticeTone, string> = {
-  info: "bg-surface-dark text-on-dark",
-  error: "bg-error text-on-dark",
+  info: "bg-surface-dark text-on-dark focus-ring-inverse",
+  error: "bg-error text-on-dark focus-ring-inverse",
 };
 
 /** Long enough to read and act on an undo; errors stay until dismissed. */
@@ -60,7 +64,7 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
           type="button"
           onClick={onUndo}
           disabled={undoPending}
-          className="rounded-pill border border-on-dark/40 px-3 py-1 text-caption font-medium hover:bg-on-dark/15 disabled:opacity-50"
+          className="touch-target inline-flex min-h-11 items-center rounded-pill border border-on-dark/40 px-3 text-caption font-medium hover:bg-on-dark/15 disabled:opacity-50 sm:min-h-8"
         >
           {undoPending ? "Undoing…" : "Undo"}
         </button>
@@ -69,7 +73,7 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
         type="button"
         aria-label="Dismiss message"
         onClick={onDismiss}
-        className="rounded-pill px-2 py-1 text-body-md leading-none text-on-dark-soft hover:bg-on-dark/15 hover:text-on-dark"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-body-md leading-none text-on-dark-soft hover:bg-on-dark/15 hover:text-on-dark"
       >
         &times;
       </button>

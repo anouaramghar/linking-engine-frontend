@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     isError: false,
     isFetching: false,
     refetch: vi.fn(),
+    dataUpdatedAt: 0,
   },
   activeJobs: {
     data: [] as unknown[],
@@ -32,6 +33,7 @@ beforeEach(() => {
     isPending: false,
     isError: false,
     isFetching: false,
+    dataUpdatedAt: 0,
   });
   mocks.activeJobs.data = [];
 });
@@ -54,6 +56,12 @@ describe("SitesPage scheduler copy", () => {
     expect(document.body.textContent).not.toContain("Generate anchors");
     expect(document.body.textContent).not.toContain("Crawl all");
     expect(document.body.textContent).not.toContain("Analyze all");
+  });
+
+  it("does not expose a manual refresh control", () => {
+    render(<SitesPage />);
+
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
   });
 });
 
@@ -113,7 +121,10 @@ describe("SitesPage load states", () => {
     expect(document.body.textContent).toContain("Int. links");
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
-    expect(document.body.textContent?.replace(/\s/g, "")).toContain("3914");
+    // Grouped, and grouped the same way everywhere: counts run through
+    // `formatCount`, which pins the separator rather than leaving it to
+    // whatever locale the browser happens to be in.
+    expect(document.body.textContent).toContain("3,914");
     expect(document.body.textContent).toContain("2 h ago");
     expect(document.body.textContent).not.toContain("Soon");
   });
@@ -154,5 +165,144 @@ describe("SitesPage job progress", () => {
 
     expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
     expect(document.body.textContent).not.toContain("Indexed");
+  });
+});
+
+describe("SitesPage crawled vs analysed", () => {
+  const crawled = {
+    id: 42,
+    name: "Docs",
+    base_url: "https://docs.example.com",
+    platform: "wordpress",
+    crawl_frequency: "daily",
+    created_at: "2026-07-28T08:00:00Z",
+    last_ingestion_status: "succeeded",
+    last_crawl_at: "2026-07-28T08:00:00Z",
+  };
+
+  it("calls a crawled but unanalysed site Indexed", () => {
+    mocks.sites.data = [crawled];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Indexed");
+    expect(document.body.textContent).not.toContain("Analyzed");
+  });
+
+  it("calls an analysed site Analyzed, not Indexed", () => {
+    mocks.sites.data = [
+      {
+        ...crawled,
+        last_analysis_status: "succeeded",
+        last_analysis_at: "2026-07-28T09:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Analyzed");
+    expect(document.body.textContent).not.toContain("Indexed");
+  });
+
+  it("drops back to Indexed when the crawl is newer than the analysis", () => {
+    mocks.sites.data = [
+      {
+        ...crawled,
+        last_crawl_at: "2026-07-28T10:00:00Z",
+        last_analysis_status: "succeeded",
+        last_analysis_at: "2026-07-28T09:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Indexed");
+    expect(document.body.textContent).not.toContain("Analyzed");
+  });
+
+  it("surfaces a failed analysis on an indexed site", () => {
+    mocks.sites.data = [
+      {
+        ...crawled,
+        last_analysis_status: "failed",
+        last_analysis_at: "2026-07-28T09:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Analysis failed");
+  });
+});
+
+describe("SitesPage Hybrid standard", () => {
+  const site = {
+    id: 42,
+    name: "Docs",
+    base_url: "https://docs.example.com",
+    platform: "wordpress",
+    crawl_frequency: "daily",
+    suggestion_mode: "experimental",
+    suggestion_mode_managed: true,
+    suggestion_comparison_enabled: false,
+    suggestion_slots_available: 3,
+    created_at: "2026-07-28T08:00:00Z",
+    last_ingestion_status: "succeeded",
+    article_count: 20,
+    internal_link_count: 10,
+    last_crawl_at: "2026-07-28T08:00:00Z",
+  };
+
+  it("shows Hybrid as the managed generation method", () => {
+    mocks.sites.data = [site];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Hybrid");
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Compare methods/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Suggestion method/ })).toBeNull();
+  });
+
+  it("explains a full Hybrid queue", () => {
+    mocks.sites.data = [{ ...site, suggestion_slots_available: 0 }];
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    const generate = screen.getByRole("menuitem", {
+      name: "Generate suggestions — queue full",
+    }) as HTMLButtonElement;
+    expect(generate.disabled).toBe(true);
+  });
+});
+
+describe("SitesPage source controls", () => {
+  it("filters connected sources without hiding the fleet total", () => {
+    mocks.sites.data = [
+      { id: 1, name: "Docs", base_url: "https://docs.example.com", platform: "wordpress" },
+      { id: 2, name: "News pool", base_url: "https://example.com/feed", platform: "pool" },
+    ];
+    render(<SitesPage />);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sources" }), {
+      target: { value: "pool" },
+    });
+
+    expect(document.body.textContent).toContain("2 connected sources");
+    expect(document.body.textContent).toContain("News pool");
+    expect(document.body.textContent).not.toContain("docs.example.com");
+  });
+
+  it("keeps pool actions read-only", () => {
+    mocks.sites.data = [{
+      id: 2,
+      name: "News pool",
+      base_url: "https://example.com/feed",
+      platform: "pool",
+      suggestion_slots_available: 0,
+    }];
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    expect(screen.queryByRole("menuitem", { name: /Generate suggestions/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Publish approved" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Delete site" })).not.toBeNull();
   });
 });

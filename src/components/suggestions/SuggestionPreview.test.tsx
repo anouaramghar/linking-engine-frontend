@@ -12,6 +12,8 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   site_id: 1,
   source_article: { id: 10, title: "Source", url: "https://example.com/source" },
   target_article: { id: 11, title: "Target", url: "https://example.com/target" },
+  target_origin: "internal",
+  target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.9,
   status,
@@ -32,16 +34,68 @@ const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
   );
 
 describe("SuggestionPreview publication state", () => {
-  it("keeps the live cosine score and marks unavailable v1 evidence as Soon", () => {
+  it("keeps the live cosine score without advertising unsupported future signals", () => {
     renderPreview("pending");
 
     expect(screen.getByText("90%")).not.toBeNull();
+    expect(screen.getByText("Internal link")).not.toBeNull();
     expect(screen.getByText("Placement context")).not.toBeNull();
-    expect(screen.getByText("Semantic relevance")).not.toBeNull();
-    expect(screen.getByText("Shared taxonomy")).not.toBeNull();
-    expect(screen.getByText("Target need")).not.toBeNull();
-    expect(screen.getByText("Direction fit")).not.toBeNull();
-    expect(screen.getAllByText("Soon")).toHaveLength(6);
+    expect(screen.getAllByText("Soon")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("GraphSAGE");
+    expect(document.body.textContent).not.toContain("Shared taxonomy");
+  });
+
+  it("labels Hybrid suggestions without calling the score BM25 confidence", () => {
+    const hybrid = { ...suggestion("pending"), method: "hybrid_bm25" };
+    render(
+      <SuggestionPreview
+        suggestion={hybrid}
+        siteName="Example site"
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Semantic similarity")).not.toBeNull();
+    expect(screen.queryByText("Cosine baseline")).toBeNull();
+  });
+
+  it("reports the BM25 selection score as its own raw number", () => {
+    // The percentage is similarity; BM25 is what chose the row. Showing BM25 as a
+    // second percentage would read as a confidence, which it is not.
+    const hybrid: Suggestion = {
+      ...suggestion("pending"),
+      method: "hybrid_bm25",
+      score_components: {
+        version: "hybrid_bm25_v1",
+        final_order: "bm25_512",
+        bm25_score: 12.47,
+        semantic: 0.9,
+      },
+    };
+    render(
+      <SuggestionPreview
+        suggestion={hybrid}
+        siteName="Example site"
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Selected by BM25 · score 12.5")).not.toBeNull();
+    expect(screen.getByText("90%")).not.toBeNull();
+    expect(screen.queryByText("12%")).toBeNull();
+  });
+
+  it("shows no selection score when the engine reported none", () => {
+    // A baseline row, or an engine that predates the components.
+    renderPreview("pending");
+
+    expect(screen.queryByText(/Selected by BM25/)).toBeNull();
   });
 
   it("identifies an approved suggestion as queued but not live", () => {
@@ -117,5 +171,71 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("shows the Hybrid method on a current card", () => {
+    render(
+      <SuggestionCard
+        suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("hybrid BM25")).not.toBeNull();
+  });
+
+  it("identifies a content-pool target as an external link", () => {
+    const external = {
+      ...suggestion("pending"),
+      target_origin: "content_pool" as const,
+      target_site_name: "Wikipedia",
+      target_article: {
+        id: 12,
+        title: "External target",
+        url: "https://en.wikipedia.org/wiki/External_target",
+      },
+    };
+    render(
+      <SuggestionPreview
+        suggestion={external}
+        siteName="Example site"
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("External link · Content pool")).not.toBeNull();
+    expect(screen.getByText("Wikipedia")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
+      "https://en.wikipedia.org/wiki/External_target",
+    );
+  });
+
+  it("shows the origin on a queue card", () => {
+    render(
+      <SuggestionCard
+        suggestion={{
+          ...suggestion("pending"),
+          target_origin: "content_pool",
+          target_site_name: "Wikipedia",
+        }}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("External link · Content pool")).not.toBeNull();
+    expect(screen.getByText("Wikipedia")).not.toBeNull();
   });
 });

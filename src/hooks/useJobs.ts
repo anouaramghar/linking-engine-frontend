@@ -44,6 +44,10 @@ export const useJob = (jobId: string | null) => {
   });
 };
 
+/** How often to look while something is running, and while nothing is. */
+const ACTIVE_POLL_MS = 1500;
+const IDLE_POLL_MS = 15_000;
+
 /** Restore scheduled/background jobs after refresh and keep their stage current. */
 export const useActiveJobs = () => {
   const qc = useQueryClient();
@@ -57,6 +61,12 @@ export const useActiveJobs = () => {
       previous.current = active;
       return active;
     },
-    refetchInterval: 1500,
+    // 1.5s is the cadence a running crawl's progress deserves; an idle fleet
+    // does not, and the Sites page stays open for hours. Backing off turns a
+    // permanent 40 req/min into 4 until there is something to watch. A job the
+    // user just queued is already tracked by its own `useJob` poll, so nothing
+    // waits on the idle interval to show progress.
+    refetchInterval: (query) =>
+      query.state.data?.length ? ACTIVE_POLL_MS : IDLE_POLL_MS,
   });
 };
