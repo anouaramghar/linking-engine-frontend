@@ -162,6 +162,64 @@ describe("filtered bulk review", () => {
   });
 });
 
+describe("discovery filters on the wire", () => {
+  it("sends each filter under the name the engine expects", async () => {
+    api.get.mockResolvedValue({ data: { items: [], total: null, limit: 50, next_cursor: null } });
+
+    await listSuggestionPage(
+      {
+        siteId: 3,
+        q: "hooks",
+        targetOrigin: "content_pool",
+        excludeReciprocal: true,
+        minPercent: 90,
+      },
+      null,
+    );
+
+    expect(api.get.mock.calls[0][1].params).toMatchObject({
+      site_id: 3,
+      q: "hooks",
+      target_origin: "content_pool",
+      exclude_reciprocal: true,
+      min_percent: 90,
+    });
+  });
+
+  it("omits a blank search rather than sending an empty term", async () => {
+    api.get.mockResolvedValue({ data: { items: [], total: null, limit: 50, next_cursor: null } });
+
+    await listSuggestionPage({ q: "" }, null);
+    await countSuggestions({ q: "", excludeReciprocal: false });
+
+    expect(api.get.mock.calls[0][1].params).not.toHaveProperty("q");
+    expect(api.get.mock.calls[1][1].params).not.toHaveProperty("q");
+    expect(api.get.mock.calls[1][1].params).not.toHaveProperty("exclude_reciprocal");
+  });
+
+  it("carries the queue's filters into the bulk rule", async () => {
+    api.post.mockResolvedValue({ data: { reviewed: 1, skipped: 0, reviewed_ids: [1], status: "approved" } });
+
+    await bulkReviewByFilter({
+      siteId: 3,
+      status: "approved",
+      thresholdPercent: 80,
+      q: "hooks",
+      targetOrigin: "content_pool",
+      excludeReciprocal: true,
+    });
+
+    expect(api.post.mock.calls[0][1]).toMatchObject({
+      site_id: 3,
+      status: "approved",
+      threshold_percent: 80,
+      q: "hooks",
+      target_origin: "content_pool",
+      exclude_reciprocal: true,
+    });
+  });
+});
+
 describe("current suggestion mutations", () => {
   it("uses the backend's review, generation, and comparison routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });

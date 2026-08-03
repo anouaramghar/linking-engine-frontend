@@ -12,6 +12,8 @@ import type {
 } from "../api/suggestions";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
+import QueueFilters from "../components/suggestions/QueueFilters";
+import { useQueueFilters } from "../hooks/useQueueFilters";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
@@ -110,9 +112,12 @@ const resolveCounts = (
 };
 
 export default function ValidationPage() {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
-  const [siteFilter, setSiteFilter] = useState(0);
-  const [threshold, setThreshold] = useState(80);
+  const { filters, setFilters, reset: clearFilters, isFiltered } = useQueueFilters();
+  const {
+    status: statusFilter,
+    siteId: siteFilter,
+    threshold,
+  } = filters;
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
   const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
     () => new Set(),
@@ -129,21 +134,64 @@ export default function ValidationPage() {
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
   const hasSites = Boolean(sites?.length);
+
+  /**
+   * Everything that narrows the queue except its score window and its status.
+   *
+   * The bulk rule is defined over exactly this set plus its own threshold, so
+   * anything added here is automatically carried into the rule as well — which
+   * is what keeps "accept the 412 shown" from drifting back into a promise the
+   * dashboard cannot keep.
+   */
   const scope = useMemo<SuggestionQueueFilters>(
-    () => (siteFilter === 0 ? {} : { siteId: siteFilter }),
-    [siteFilter],
+    () => ({
+      ...(siteFilter === 0 ? {} : { siteId: siteFilter }),
+      ...(filters.q.trim() === "" ? {} : { q: filters.q.trim() }),
+      ...(filters.targetOrigin === "" ? {} : { targetOrigin: filters.targetOrigin }),
+      ...(filters.hideReciprocal ? { excludeReciprocal: true } : {}),
+    }),
+    [siteFilter, filters.q, filters.targetOrigin, filters.hideReciprocal],
   );
+
+  /**
+   * The score window the list is actually showing.
+   *
+   * While a bulk rule is being confirmed, the queue switches to that rule's own
+   * window — the whole point of the confirmation is that the editor can look at
+   * the rows before agreeing to review them in one go. The browse filter comes
+   * back the moment the confirmation is cancelled.
+   */
+  const scoreWindow = useMemo<SuggestionQueueFilters>(() => {
+    if (confirmation) {
+      return confirmation.action === "approve"
+        ? { minPercent: confirmation.threshold }
+        : { maxPercent: confirmation.threshold };
+    }
+    return filters.minScore === 0 ? {} : { minPercent: filters.minScore };
+  }, [confirmation, filters.minScore]);
+
+  // A rule only ever matches pending rows, so previewing one has to look at
+  // pending rows regardless of which chip is selected.
+  const effectiveStatus: StatusFilter = confirmation ? "pending" : statusFilter;
+
   const queueFilters = useMemo<SuggestionQueueFilters>(
     () => ({
       ...scope,
-      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+      ...scoreWindow,
+      ...(effectiveStatus === "all" ? {} : { status: effectiveStatus }),
     }),
-    [scope, statusFilter],
+    [scope, scoreWindow, effectiveStatus],
   );
   const suggestionsQuery = useSuggestions(queueFilters, hasSites);
   const sourceSuggestions = suggestionsQuery.items;
   const fleetCountsQuery = useSuggestionCounts({}, hasSites);
-  const scopedCountsQuery = useSuggestionCounts(scope, hasSites);
+  // The chips label the list, so they count inside the same window it shows —
+  // otherwise "Pending review · 805" sits above a filtered queue of nine.
+  const scopedFilters = useMemo(
+    () => ({ ...scope, ...scoreWindow }),
+    [scope, scoreWindow],
+  );
+  const scopedCountsQuery = useSuggestionCounts(scopedFilters, hasSites);
   const acceptCountsQuery = useSuggestionCounts(
     { ...scope, minPercent: threshold },
     hasSites,
@@ -191,9 +239,9 @@ export default function ValidationPage() {
     () =>
       filterSuggestions(resolvedSuggestions, {
         siteId: siteFilter,
-        status: statusFilter,
+        status: effectiveStatus,
       }),
-    [resolvedSuggestions, siteFilter, statusFilter],
+    [resolvedSuggestions, siteFilter, effectiveStatus],
   );
 
   const suggestionGroups = useMemo(
@@ -216,7 +264,9 @@ export default function ValidationPage() {
     autoLoadPaused,
   } = useIncrementalList(
     suggestionGroups,
-    `${statusFilter}:${siteFilter}`,
+    // Every filter belongs in this key: a narrowed queue that kept the previous
+    // window would open already scrolled past rows the editor has not seen.
+    JSON.stringify([effectiveStatus, queueFilters]),
     SOURCE_GROUP_PAGE_SIZE,
     SOURCE_GROUP_AUTO_LOAD_LIMIT,
   );
@@ -265,8 +315,14 @@ export default function ValidationPage() {
     [fleetCountsQuery.data, sourceSuggestions, statusOverrides],
   );
   const scopedCounts = useMemo(
-    () => resolveCounts(scopedCountsQuery.data, sourceSuggestions, statusOverrides, scope),
-    [scopedCountsQuery.data, sourceSuggestions, statusOverrides, scope],
+    () =>
+      resolveCounts(
+        scopedCountsQuery.data,
+        sourceSuggestions,
+        statusOverrides,
+        scopedFilters,
+      ),
+    [scopedCountsQuery.data, sourceSuggestions, statusOverrides, scopedFilters],
   );
   const acceptCounts = useMemo(
     () =>
@@ -292,7 +348,7 @@ export default function ValidationPage() {
   const acceptCount = acceptCounts.pending;
   const rejectCount = rejectCounts.pending;
   const queueTotal =
-    statusFilter === "all" ? scopedCounts.total : scopedCounts[statusFilter];
+    effectiveStatus === "all" ? scopedCounts.total : scopedCounts[effectiveStatus];
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
     setStatusOverrides((current) => {
@@ -520,7 +576,11 @@ export default function ValidationPage() {
     setConfirmation(null);
     filteredReview.mutate(
       {
-        siteId: siteFilter === 0 ? undefined : siteFilter,
+        // Exactly the filters the queue was showing while this was confirmed.
+        siteId: scope.siteId,
+        q: scope.q,
+        targetOrigin: scope.targetOrigin,
+        excludeReciprocal: scope.excludeReciprocal,
         status,
         thresholdPercent: confirmation.threshold,
       },
@@ -666,17 +726,33 @@ export default function ValidationPage() {
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start">
+          {/* Any filter change invalidates a confirmation in flight: the rule it
+              describes was defined over the previous set of rows. */}
+          <div className="mb-4 flex flex-col gap-3">
+            <QueueFilters
+              filters={filters}
+              onChange={(patch) => {
+                setFilters(patch);
+                setConfirmation(null);
+              }}
+              sites={sites}
+              isFiltered={isFiltered}
+              onClear={() => {
+                clearFilters();
+                setConfirmation(null);
+              }}
+              scoreLockedBy={confirmation ? "bulk rule" : undefined}
+            />
             <BulkActions
               chips={chips}
               active={statusFilter}
               onSelect={(status) => {
-                setStatusFilter(status as StatusFilter);
+                setFilters({ status: status as StatusFilter });
                 setConfirmation(null);
               }}
               threshold={threshold}
               onThresholdChange={(value) => {
-                setThreshold(clampThreshold(value));
+                setFilters({ threshold: clampThreshold(value) });
                 setConfirmation(null);
               }}
               acceptCount={acceptCount}
@@ -687,22 +763,6 @@ export default function ValidationPage() {
               onConfirm={confirmBulk}
               onCancel={() => setConfirmation(null)}
             />
-            <select
-              aria-label="Site filter"
-              value={siteFilter}
-              onChange={(event) => {
-                setSiteFilter(Number(event.target.value));
-                setConfirmation(null);
-              }}
-              className="touch-target h-11 w-full cursor-pointer rounded-pill border border-hairline-control bg-surface-card px-3.5 text-caption text-ink sm:h-8 sm:w-auto"
-            >
-              <option value={0}>All sites</option>
-              {sites?.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
-                </option>
-              ))}
-            </select>
           </div>
 
           {/* The queue's fast path, said out loud. It was reachable but written
@@ -796,7 +856,12 @@ export default function ValidationPage() {
                     >
                       {suggestionsQuery.isFetchingNextPage ? "Loading more..." : "Show more"}
                     </button>
-                    <span className="text-caption text-muted">
+                    {/* Paging and filtering both change this line and nothing
+                        else on screen, so it has to announce itself. Bare
+                        aria-live rather than role="status": the notice above is
+                        the page's status region, and two of them would make
+                        "the status message" ambiguous to a screen reader. */}
+                    <span aria-live="polite" className="text-caption text-muted">
                       Showing {formatCount(shown)} of {formatCount(queueTotal)}
                       {queueAutoLoadPaused && (
                         <>
@@ -810,9 +875,23 @@ export default function ValidationPage() {
                 )}
                 {suggestions.length === 0 && (
                   <EmptyPanel>
-                    {hasSites
-                      ? "No suggestions match these filters. Generate suggestions from the Sites page, or try another status or site."
-                      : "No sites are connected yet. Connect a site on the Sites page, crawl it, then generate suggestions."}
+                    {!hasSites ? (
+                      "No sites are connected yet. Connect a site on the Sites page, crawl it, then generate suggestions."
+                    ) : isFiltered ? (
+                      <>
+                        No suggestions match these filters.{" "}
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+                        >
+                          Clear filters
+                        </button>{" "}
+                        to see the whole queue.
+                      </>
+                    ) : (
+                      "This queue is empty. Generate suggestions from the Sites page."
+                    )}
                   </EmptyPanel>
                 )}
               </>

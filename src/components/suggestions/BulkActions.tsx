@@ -102,7 +102,12 @@ export default function BulkActions({
         {chips.map((chip) => (
           <button
             key={chip.key}
+            type="button"
             onClick={() => onSelect(chip.key)}
+            // The active chip is otherwise signalled by fill alone, which is
+            // invisible to a screen reader and to anyone who cannot separate
+            // the two treatments by colour.
+            aria-pressed={active === chip.key}
             className={`btn btn-sm ${active === chip.key ? "btn-primary" : "btn-outline"}`}
           >
             {chip.label} &middot; {chip.count}

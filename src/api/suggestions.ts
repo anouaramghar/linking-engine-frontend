@@ -3,6 +3,7 @@ import type {
   ReviewStatus,
   Suggestion,
   SuggestionStatus,
+  SuggestionTargetOrigin,
 } from "../types/suggestion";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -27,11 +28,17 @@ export interface SuggestionPage {
   next_cursor: SuggestionCursor | null;
 }
 
+/** Must match MAX_SEARCH_TERM in app/schemas/suggestion.py, which 422s above it. */
+export const MAX_SEARCH_TERM = 200;
+
 export interface SuggestionQueueFilters {
   siteId?: number;
   status?: SuggestionStatus;
   minPercent?: number;
   maxPercent?: number;
+  q?: string;
+  targetOrigin?: SuggestionTargetOrigin;
+  excludeReciprocal?: boolean;
 }
 
 const queueParams = (filters: SuggestionQueueFilters) => ({
@@ -39,6 +46,11 @@ const queueParams = (filters: SuggestionQueueFilters) => ({
   ...(filters.status === undefined ? {} : { status: filters.status }),
   ...(filters.minPercent === undefined ? {} : { min_percent: filters.minPercent }),
   ...(filters.maxPercent === undefined ? {} : { max_percent: filters.maxPercent }),
+  // A blank term is not a filter. Sending it anyway would make every empty
+  // keystroke a fresh query key and refetch the whole queue for nothing.
+  ...(filters.q ? { q: filters.q } : {}),
+  ...(filters.targetOrigin === undefined ? {} : { target_origin: filters.targetOrigin }),
+  ...(filters.excludeReciprocal ? { exclude_reciprocal: true } : {}),
 });
 
 export const listSuggestionPage = (
@@ -98,6 +110,14 @@ export interface FilteredBulkReviewRule {
   siteId?: number;
   status: Exclude<ReviewStatus, "pending">;
   thresholdPercent: number;
+  /**
+   * The queue's own filters, carried into the rule so it acts on exactly the
+   * rows the editor was shown. Omitting any of these would widen the match past
+   * the confirmation's own description of it.
+   */
+  q?: string;
+  targetOrigin?: SuggestionTargetOrigin;
+  excludeReciprocal?: boolean;
 }
 
 export const bulkReviewByFilter = (rule: FilteredBulkReviewRule) =>
@@ -108,6 +128,11 @@ export const bulkReviewByFilter = (rule: FilteredBulkReviewRule) =>
       ...(rule.siteId === undefined
         ? { all_sites: true }
         : { site_id: rule.siteId }),
+      ...(rule.q ? { q: rule.q } : {}),
+      ...(rule.targetOrigin === undefined
+        ? {}
+        : { target_origin: rule.targetOrigin }),
+      ...(rule.excludeReciprocal ? { exclude_reciprocal: true } : {}),
     })
     .then((response) => response.data);
 
