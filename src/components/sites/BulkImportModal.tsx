@@ -4,6 +4,7 @@ import Modal from "../Modal";
 import { useBulkCreateSites } from "../../hooks/useSites";
 import { MAX_BULK_SITES, parseSiteCsv, type ParsedCsv } from "../../lib/csvImport";
 import { errorDetail } from "../../lib/errors";
+import { formatCount } from "../../lib/utils";
 
 const TEMPLATE = [
   "name,base_url,platform,wp_username,wp_app_password",
@@ -73,11 +74,11 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="Import sites from CSV" onClose={onClose} panelClassName="max-w-3xl">
-      <p className="-mt-3 mb-5 text-caption text-muted">
+      <p className="-mt-3 mb-5 flex-none text-caption text-muted">
         Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
         <code>platform</code> (<code>wordpress</code>, <code>html</code>, or <code>pool</code>),{" "}
         <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
-        {MAX_BULK_SITES.toLocaleString()} sites per file.{" "}
+        {formatCount(MAX_BULK_SITES)} sites per file.{" "}
         <a
           href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
           download="linkmesh-sites.csv"
@@ -88,11 +89,15 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
       </p>
 
       {!result && (
-        <label className="mb-4 cursor-pointer rounded-lg border border-dashed border-hairline-strong bg-surface-card px-4 py-6 text-center text-caption hover:border-ink">
+        // `sr-only`, never `hidden`: display:none takes the input out of the
+        // tab order and out of the accessibility tree entirely, which left the
+        // whole import unreachable without a mouse. Clipped, it still focuses,
+        // and `focus-within` moves its ring onto the drop zone the user sees.
+        <label className="mb-4 flex-none cursor-pointer rounded-lg border border-dashed border-hairline-control bg-surface-card px-4 py-6 text-center text-caption hover:border-ink focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
           <input
             type="file"
             accept=".csv,.tsv,.txt,text/csv"
-            className="hidden"
+            className="sr-only"
             onChange={(e) => readFile(e.target.files?.[0])}
           />
           {fileName ? (
@@ -100,17 +105,23 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           ) : (
             <span className="text-body">Choose a CSV file</span>
           )}
-          <span className="ml-2 text-muted">— click to browse</span>
+          <span className="ml-2 text-muted">— click or press Enter to browse</span>
         </label>
       )}
 
-      {readError && <div className="mb-3 text-caption text-error">{readError}</div>}
+      {readError && (
+        <div role="alert" className="mb-3 flex-none text-caption text-error-ink">
+          {readError}
+        </div>
+      )}
 
       {parsed && !result && (
         <>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="badge">{ready.length} ready</span>
-            {broken.length > 0 && <span className="badge">{broken.length} skipped</span>}
+          <div className="mb-3 flex flex-none flex-wrap items-center gap-2">
+            <span className="badge">{formatCount(ready.length)} ready</span>
+            {broken.length > 0 && (
+              <span className="badge">{formatCount(broken.length)} skipped</span>
+            )}
             {parsed.rows.some((row) => row.site?.wp_app_password) && (
               <span className="text-caption text-muted">
                 This file contains application passwords — delete it after importing.
@@ -119,19 +130,27 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {!!parsed.missingColumns.length && (
-            <div className="mb-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error">
+            <div
+              role="alert"
+              className="mb-3 flex-none rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+            >
               Missing required {parsed.missingColumns.length === 1 ? "column" : "columns"}:{" "}
               {parsed.missingColumns.join(", ")}
             </div>
           )}
           {tooMany && (
-            <div className="mb-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error">
-              {ready.length.toLocaleString()} rows exceeds the {MAX_BULK_SITES.toLocaleString()}
-              -site limit — split the file.
+            <div
+              role="alert"
+              className="mb-3 flex-none rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+            >
+              {formatCount(ready.length)} rows exceeds the {formatCount(MAX_BULK_SITES)}-site
+              limit — split the file.
             </div>
           )}
 
-          <div className="card min-h-0 flex-1 overflow-y-auto">
+          {/* Preview rows carry raw URLs, which do not wrap. The card scrolls
+              in both directions so a long one never pushes the panel wider. */}
+          <div className="card min-h-0 flex-1 overflow-auto">
             <table className="w-full text-left text-caption">
               <thead className="eyebrow sticky top-0 bg-surface-strong">
                 <tr>
@@ -152,7 +171,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                         <td className="px-3 py-2 text-body">{row.site.platform}</td>
                       </>
                     ) : (
-                      <td colSpan={3} className="px-3 py-2 text-error">
+                      <td colSpan={3} className="px-3 py-2 text-error-ink">
                         {row.error}
                       </td>
                     )}
@@ -169,17 +188,17 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           <div className="mb-3 flex flex-wrap gap-2">
             <span className="badge">
               <span className="dot bg-success" />
-              {result.created.length} imported
+              {formatCount(result.created.length)} imported
             </span>
             {result.skipped.length > 0 && (
-              <span className="badge">{result.skipped.length} already existed</span>
+              <span className="badge">{formatCount(result.skipped.length)} already existed</span>
             )}
             {broken.length > 0 && (
-              <span className="badge">{broken.length} invalid in file</span>
+              <span className="badge">{formatCount(broken.length)} invalid in file</span>
             )}
             {result.rejected.length > 0 && (
               <span className={`badge ${CHIP_ERROR}`}>
-                {result.rejected.length} rejected by API
+                {formatCount(result.rejected.length)} rejected by API
               </span>
             )}
           </div>
@@ -201,12 +220,12 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
       )}
 
       {bulk.isError && (
-        <div role="alert" className="mt-3 text-caption text-error">
+        <div role="alert" className="mt-3 flex-none text-caption text-error-ink">
           {errorDetail(bulk.error, "The import request failed.")}
         </div>
       )}
 
-      <div className="mt-6 flex gap-2">
+      <div className="mt-6 flex flex-none gap-2">
         {!result && (
           <button
             type="button"

@@ -11,6 +11,9 @@ export interface Site {
   suggestion_slots_available: number;
   created_at: string;
   last_ingestion_status: string | null;
+  // Last finished analysis job — "Indexed" and "Analyzed" are different states.
+  last_analysis_status?: string | null;
+  last_analysis_at?: string | null;
   article_count?: number;
   internal_link_count?: number;
   last_crawl_at?: string | null;

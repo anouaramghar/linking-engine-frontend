@@ -41,6 +41,8 @@ const suggestion: Suggestion = {
   site_id: 1,
   source_article: { id: 10, title: "Source", url: "https://example.com/source" },
   target_article: { id: 11, title: "Target", url: "https://example.com/target" },
+  target_origin: "internal",
+  target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.9,
   status: "pending",

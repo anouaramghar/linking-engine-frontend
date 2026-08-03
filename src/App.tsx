@@ -91,6 +91,15 @@ export default function App() {
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
+      {/* The rail repeats on every route, so without this a keyboard user pays
+          for it on every navigation before reaching the queue. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:inline-flex focus:h-11 focus:items-center focus:rounded-pill focus:bg-primary focus:px-5 focus:text-button focus:text-on-primary"
+      >
+        Skip to content
+      </a>
+
       <header className="mobile-app-header z-40 flex-none border-b border-hairline bg-canvas-soft lg:hidden">
         <div className="flex items-center justify-between gap-4 px-4 pb-3">
           <Brand />
@@ -143,7 +152,11 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <main
+        id="main"
+        tabIndex={-1}
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
+      >
         {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
         <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
         <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />

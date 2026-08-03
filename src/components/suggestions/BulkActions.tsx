@@ -1,6 +1,16 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { BulkReviewAction } from "../../lib/suggestionReview";
+
+/**
+ * How long the field waits before the typed threshold becomes the rule.
+ *
+ * Each committed value is a fresh query key for two count endpoints, so an
+ * uncommitted keystroke used to cost two requests. Long enough to absorb a
+ * two-digit number typed at speed, short enough that the counts still feel
+ * like they are answering you.
+ */
+const COMMIT_DELAY_MS = 250;
 
 interface Chip {
   key: string;
@@ -57,6 +67,29 @@ export default function BulkActions({
     if (Number(draft) !== threshold) setDraft(String(threshold));
   }
 
+  // The commit is debounced, never the field: `draft` paints every keystroke
+  // immediately, and only the settled number becomes the rule the counts and
+  // the confirmation are all computed from. Keeping one committed value means
+  // the button label, its count, and the review it performs can never disagree.
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const commit = useRef(onThresholdChange);
+  useEffect(() => {
+    commit.current = onThresholdChange;
+  });
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const scheduleCommit = (value: string) => {
+    clearTimeout(timer.current);
+    if (value === "") return;
+    timer.current = setTimeout(() => commit.current(Number(value)), COMMIT_DELAY_MS);
+  };
+
+  const commitNow = () => {
+    clearTimeout(timer.current);
+    if (draft !== "" && Number(draft) !== threshold) commit.current(Number(draft));
+    else setDraft(String(threshold));
+  };
+
   const comparison =
     confirmation?.action === "approve"
       ? `at least ${confirmation.threshold}%`
@@ -84,7 +117,7 @@ export default function BulkActions({
         <label className="flex items-center gap-2 text-caption text-muted">
           Score threshold
           {/* The ring lives on the pill so the inner input can stay borderless. */}
-          <span className="touch-target flex h-11 items-center rounded-pill border border-hairline-strong bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink sm:h-8">
+          <span className="touch-target flex h-11 items-center rounded-pill border border-hairline-control bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink sm:h-8">
             <input
               aria-label="Score threshold"
               type="number"
@@ -95,9 +128,11 @@ export default function BulkActions({
                 // Keep the raw text while editing so clearing the field doesn't
                 // snap to 0 and rewrite the rule under the user's cursor.
                 setDraft(event.target.value);
-                if (event.target.value !== "") onThresholdChange(Number(event.target.value));
+                scheduleCommit(event.target.value);
               }}
-              onBlur={() => setDraft(String(threshold))}
+              // Leaving the field settles it now rather than after the delay,
+              // so a click straight from the input to Accept uses what was typed.
+              onBlur={commitNow}
               style={{ width: `${Math.max(draft.length, 1)}ch` }}
               className="bg-transparent text-right text-caption font-medium text-ink outline-none"
             />

@@ -5,6 +5,7 @@ import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../../hooks/useMediaQuery"
 import {
   PUBLICATION_STATUS_MESSAGE,
   STATUS_META,
+  TARGET_ORIGIN_LABEL,
   isReversible,
   pct,
 } from "../../lib/utils";
@@ -80,7 +81,23 @@ export default function SuggestionPreview({
         <div className="text-body-sm font-medium leading-snug text-ink">
           {s.target_article.title}
         </div>
-        <div className="mt-1 text-caption text-muted">{slug}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="badge">{TARGET_ORIGIN_LABEL[s.target_origin]}</span>
+          {s.target_origin === "content_pool" && (
+            <span className="text-caption text-muted">{s.target_site_name}</span>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-muted">
+          <span>{slug}</span>
+          <a
+            href={s.target_article.url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-ink"
+          >
+            open target
+          </a>
+        </div>
         {s.anchor_text && (
           <div className="mt-2 text-caption text-muted">
             Suggested anchor: <span className="font-medium text-ink">{s.anchor_text}</span>

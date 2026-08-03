@@ -4,6 +4,8 @@ export interface ArticleBrief {
   url: string;
 }
 
+export type SuggestionTargetOrigin = "internal" | "content_pool";
+
 export type SuggestionStatus =
   | "pending"
   | "approved"
@@ -41,6 +43,8 @@ export interface Suggestion {
   site_id: number;
   source_article: ArticleBrief;
   target_article: ArticleBrief;
+  target_origin: SuggestionTargetOrigin;
+  target_site_name: string;
   method: string;
   /** Cosine semantic similarity, whichever method selected the row. */
   score: number;

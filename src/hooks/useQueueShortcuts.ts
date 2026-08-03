@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface QueueShortcutHandlers {
   onNext: () => void;
@@ -61,4 +61,42 @@ export const useQueueShortcuts = (handlers: QueueShortcutHandlers, enabled = tru
   }, [enabled]);
 };
 
-export const SHORTCUT_HINT = "j/k move - a accept - r reject - u undo - Esc close";
+export const SHORTCUT_HINT = "j/k move · a accept · r reject · u undo · Esc close";
+
+const STORAGE_KEY = "linkmesh.queue-shortcuts";
+
+/**
+ * The on/off switch WCAG 2.1.4 asks for.
+ *
+ * `a` and `r` are unmodified single characters bound to the window, which is
+ * the fast path this screen is built around — and also exactly the binding that
+ * fires by accident under speech input or an unsteady hand. `isTyping` keeps
+ * them out of fields, but a review is still one stray keystroke away, so the
+ * editor gets to turn them off and have that stick.
+ */
+export const useShortcutsEnabled = () => {
+  const [enabled, setEnabled] = useState(() => {
+    try {
+      return window.localStorage?.getItem(STORAGE_KEY) !== "off";
+    } catch {
+      // Storage can throw outright under a restrictive privacy setting.
+      return true;
+    }
+  });
+
+  const toggle = useCallback(
+    () =>
+      setEnabled((current) => {
+        const next = !current;
+        try {
+          window.localStorage?.setItem(STORAGE_KEY, next ? "on" : "off");
+        } catch {
+          // The preference still holds for this session.
+        }
+        return next;
+      }),
+    [],
+  );
+
+  return { enabled, toggle };
+};

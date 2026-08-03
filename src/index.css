@@ -46,9 +46,14 @@ body {
 }
 
 /* One visible focus indicator for every control, so keyboard position is never
-   lost. Scoped to :focus-visible, so pointer users keep the clean look. */
+   lost. Scoped to :focus-visible, so pointer users keep the clean look.
+
+   The colour is a variable rather than a constant because the system defines
+   dark surfaces too: an ink ring on {colors.surface-dark} is ink on ink, and
+   the Undo button in a confirmation notice is exactly where a keyboard user
+   cannot afford to lose their place. Inverting surfaces set `--focus-ring`. */
 :focus-visible {
-  outline: 2px solid theme(colors.ink);
+  outline: 2px solid var(--focus-ring, theme(colors.ink));
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -112,14 +117,24 @@ input[type="number"] {
       disabled:text-muted-soft;
   }
 
-  /* Row-level actions. Same pill: 44px on mobile, 32px in pointer-dense layouts. */
+  /* Row-level actions. Same pill: 44px on mobile, 32px in pointer-dense layouts.
+     `text-caption` only overrides the size; the 500 weight rides in from
+     {typography.button} on `.btn`. */
   .btn-sm {
-    @apply h-11 gap-1.5 px-4 text-[14px] sm:h-8;
+    @apply h-11 gap-1.5 px-4 text-caption sm:h-8;
   }
 
-  /* {component.text-input} — 44px, {rounded.md}, hairline-strong at rest. */
+  /* Any surface that inverts to ink and needs its focus ring to survive. */
+  .focus-ring-inverse {
+    --focus-ring: theme(colors.on-primary);
+  }
+
+  /* {component.text-input} — 44px, {rounded.md}. The system draws this at
+     hairline-strong; the field sits on {colors.surface-card} over a near-white
+     page, so that border is the only thing saying "type here" and has to clear
+     3:1 to say it. `hairline-control` is that weight. */
   .field {
-    @apply h-11 w-full rounded-md border border-hairline-strong bg-surface-card
+    @apply h-11 w-full rounded-md border border-hairline-control bg-surface-card
       px-4 text-body-md text-ink placeholder:text-muted;
   }
 

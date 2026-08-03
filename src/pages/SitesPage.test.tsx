@@ -115,7 +115,10 @@ describe("SitesPage load states", () => {
     expect(document.body.textContent).toContain("Int. links");
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
-    expect(document.body.textContent?.replace(/\s/g, "")).toContain("3914");
+    // Grouped, and grouped the same way everywhere: counts run through
+    // `formatCount`, which pins the separator rather than leaving it to
+    // whatever locale the browser happens to be in.
+    expect(document.body.textContent).toContain("3,914");
     expect(document.body.textContent).toContain("2 h ago");
     expect(document.body.textContent).not.toContain("Soon");
   });
@@ -156,6 +159,69 @@ describe("SitesPage job progress", () => {
 
     expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
     expect(document.body.textContent).not.toContain("Indexed");
+  });
+});
+
+describe("SitesPage crawled vs analysed", () => {
+  const crawled = {
+    id: 42,
+    name: "Docs",
+    base_url: "https://docs.example.com",
+    platform: "wordpress",
+    crawl_frequency: "daily",
+    created_at: "2026-07-28T08:00:00Z",
+    last_ingestion_status: "succeeded",
+    last_crawl_at: "2026-07-28T08:00:00Z",
+  };
+
+  it("calls a crawled but unanalysed site Indexed", () => {
+    mocks.sites.data = [crawled];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Indexed");
+    expect(document.body.textContent).not.toContain("Analyzed");
+  });
+
+  it("calls an analysed site Analyzed, not Indexed", () => {
+    mocks.sites.data = [
+      {
+        ...crawled,
+        last_analysis_status: "succeeded",
+        last_analysis_at: "2026-07-28T09:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Analyzed");
+    expect(document.body.textContent).not.toContain("Indexed");
+  });
+
+  it("drops back to Indexed when the crawl is newer than the analysis", () => {
+    mocks.sites.data = [
+      {
+        ...crawled,
+        last_crawl_at: "2026-07-28T10:00:00Z",
+        last_analysis_status: "succeeded",
+        last_analysis_at: "2026-07-28T09:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Indexed");
+    expect(document.body.textContent).not.toContain("Analyzed");
+  });
+
+  it("surfaces a failed analysis on an indexed site", () => {
+    mocks.sites.data = [
+      {
+        ...crawled,
+        last_analysis_status: "failed",
+        last_analysis_at: "2026-07-28T09:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Analysis failed");
   });
 });
 

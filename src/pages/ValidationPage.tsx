@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
@@ -18,7 +18,11 @@ import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { usePendingPublication, usePublishSites } from "../hooks/usePublish";
-import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
+import {
+  SHORTCUT_HINT,
+  useQueueShortcuts,
+  useShortcutsEnabled,
+} from "../hooks/useQueueShortcuts";
 import {
   useBulkReview,
   useFilteredBulkReview,
@@ -119,6 +123,8 @@ export default function ValidationPage() {
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
+
+  const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
 
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
@@ -240,31 +246,43 @@ export default function ValidationPage() {
     }
   };
 
-  const siteName = (id: number) =>
-    sites?.find((site) => site.id === id)?.name ?? `site ${id}`;
-  const fleetCounts = resolveCounts(
-    fleetCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    {},
+  // Names are looked up per rendered row, so the linear scan is hoisted into a
+  // map rather than repeated for every suggestion in the queue.
+  const siteNames = useMemo(
+    () => new Map(sites?.map((site) => [site.id, site.name])),
+    [sites],
   );
-  const scopedCounts = resolveCounts(
-    scopedCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    scope,
+  const siteName = useCallback(
+    (id: number) => siteNames.get(id) ?? `site ${id}`,
+    [siteNames],
   );
-  const acceptCounts = resolveCounts(
-    acceptCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    { ...scope, minPercent: threshold },
+
+  // Each of these walks the whole loaded queue. Unmemoised they ran four full
+  // passes on every render — including every cursor move — which is what made
+  // holding `j` down feel heavy once a few hundred rows were mounted.
+  const fleetCounts = useMemo(
+    () => resolveCounts(fleetCountsQuery.data, sourceSuggestions, statusOverrides, {}),
+    [fleetCountsQuery.data, sourceSuggestions, statusOverrides],
   );
-  const rejectCounts = resolveCounts(
-    rejectCountsQuery.data,
-    sourceSuggestions,
-    statusOverrides,
-    { ...scope, maxPercent: threshold },
+  const scopedCounts = useMemo(
+    () => resolveCounts(scopedCountsQuery.data, sourceSuggestions, statusOverrides, scope),
+    [scopedCountsQuery.data, sourceSuggestions, statusOverrides, scope],
+  );
+  const acceptCounts = useMemo(
+    () =>
+      resolveCounts(acceptCountsQuery.data, sourceSuggestions, statusOverrides, {
+        ...scope,
+        minPercent: threshold,
+      }),
+    [acceptCountsQuery.data, sourceSuggestions, statusOverrides, scope, threshold],
+  );
+  const rejectCounts = useMemo(
+    () =>
+      resolveCounts(rejectCountsQuery.data, sourceSuggestions, statusOverrides, {
+        ...scope,
+        maxPercent: threshold,
+      }),
+    [rejectCountsQuery.data, sourceSuggestions, statusOverrides, scope, threshold],
   );
   const chips = [
     ...CHIP_DEFS.map((chip) => ({ ...chip, count: scopedCounts[chip.key] })),
@@ -460,6 +478,25 @@ export default function ValidationPage() {
     );
   };
 
+  /**
+   * Row handlers that never change identity.
+   *
+   * `decide` and `undo` close over the cursor and the filtered list, so they
+   * are rebuilt on every render — handed to a memoised card that defeats the
+   * memo entirely. Latching them in a ref (the same trick `useQueueShortcuts`
+   * and `Notice` already use for their timers) gives every row one stable
+   * callback for the life of the page, so a cursor move re-renders the two
+   * rows whose selection actually changed instead of all of them.
+   */
+  const rowActions = useRef({ decide, undo });
+  useEffect(() => {
+    rowActions.current = { decide, undo };
+  });
+  const openRow = useCallback((id: number) => setSelectedId(id), []);
+  const acceptRow = useCallback((id: number) => rowActions.current.decide(id, "approved"), []);
+  const rejectRow = useCallback((id: number) => rowActions.current.decide(id, "rejected"), []);
+  const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
+
   const requestBulk = (action: BulkReviewAction) => {
     const count = action === "approve" ? acceptCount : rejectCount;
     setConfirmation({
@@ -578,20 +615,23 @@ export default function ValidationPage() {
     setSelectedId(nextSuggestion.id);
   };
 
-  useQueueShortcuts({
-    onNext: () => step(1),
-    onPrevious: () => step(-1),
-    onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
-    onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
-    onUndo: () => {
-      if (selected && isReversible(selected.status)) undo([selected.id]);
-      else if (notice?.undoIds?.length) undo(notice.undoIds);
+  useQueueShortcuts(
+    {
+      onNext: () => step(1),
+      onPrevious: () => step(-1),
+      onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
+      onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
+      onUndo: () => {
+        if (selected && isReversible(selected.status)) undo([selected.id]);
+        else if (notice?.undoIds?.length) undo(notice.undoIds);
+      },
+      onEscape: () => {
+        if (confirmation) setConfirmation(null);
+        else setSelectedId(null);
+      },
     },
-    onEscape: () => {
-      if (confirmation) setConfirmation(null);
-      else setSelectedId(null);
-    },
-  });
+    shortcutsEnabled,
+  );
 
   useEffect(() => {
     // Optional-called: not every environment implements scrollIntoView.
@@ -654,7 +694,7 @@ export default function ValidationPage() {
                 setSiteFilter(Number(event.target.value));
                 setConfirmation(null);
               }}
-              className="touch-target h-11 w-full cursor-pointer rounded-pill border border-hairline-strong bg-surface-card px-3.5 text-caption text-ink sm:h-8 sm:w-auto"
+              className="touch-target h-11 w-full cursor-pointer rounded-pill border border-hairline-control bg-surface-card px-3.5 text-caption text-ink sm:h-8 sm:w-auto"
             >
               <option value={0}>All sites</option>
               {sites?.map((site) => (
@@ -663,6 +703,27 @@ export default function ValidationPage() {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* The queue's fast path, said out loud. It was reachable but written
+              down nowhere, and a single unmodified key that files a review is
+              also one an editor has to be able to switch off. */}
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
+            {shortcutsEnabled ? (
+              <span>
+                Keyboard <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
+              </span>
+            ) : (
+              <span>Keyboard shortcuts are off.</span>
+            )}
+            <button
+              type="button"
+              onClick={toggleShortcuts}
+              aria-pressed={shortcutsEnabled}
+              className="rounded-pill px-2 py-0.5 text-caption font-medium text-ink underline underline-offset-2 hover:text-primary"
+            >
+              {shortcutsEnabled ? "Turn off" : "Turn on"}
+            </button>
           </div>
 
           <PublishBanner
@@ -716,10 +777,10 @@ export default function ValidationPage() {
                           containerRef={
                             suggestion.id === selectedId ? cursorRef : undefined
                           }
-                          onOpen={() => setSelectedId(suggestion.id)}
-                          onAccept={() => decide(suggestion.id, "approved")}
-                          onReject={() => decide(suggestion.id, "rejected")}
-                          onUndo={() => undo([suggestion.id])}
+                          onOpen={openRow}
+                          onAccept={acceptRow}
+                          onReject={rejectRow}
+                          onUndo={undoRow}
                         />
                       ))}
                     </SuggestionGroup>

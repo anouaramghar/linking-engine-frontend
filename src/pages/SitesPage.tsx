@@ -15,8 +15,15 @@ import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
-import { RQ_SCHEDULING_COPY, initials, orbPlateClass, timeAgo } from "../lib/utils";
+import {
+  RQ_SCHEDULING_COPY,
+  formatCount,
+  initials,
+  orbPlateClass,
+  timeAgo,
+} from "../lib/utils";
 import type { JobKind, JobRun } from "../types/job";
+import type { Site } from "../types/site";
 
 // Shared by the header and the rows so they cannot drift apart. The narrow
 // template buys the action column back from the three text columns: at 1024px
@@ -51,16 +58,15 @@ interface TrackedJob {
 }
 
 function CurrentSiteStatus({
-  siteId,
-  siteStatus,
+  site,
   activeJobs,
   trackedJobs,
 }: {
-  siteId: number;
-  siteStatus: string | null;
+  site: Site;
   activeJobs: JobRun[];
   trackedJobs: TrackedJob[];
 }) {
+  const siteId = site.id;
   const active = activeJobs.find((job) => job.site_id === siteId);
   if (active) {
     return (
@@ -81,14 +87,28 @@ function CurrentSiteStatus({
     return <JobStatusBadge jobId={tracked.jobId} kind={tracked.kind} />;
   }
 
-  return <SiteStatusBadge status={siteStatus} />;
+  return (
+    <SiteStatusBadge
+      status={site.last_ingestion_status}
+      lastCrawlAt={site.last_crawl_at}
+      analysisStatus={site.last_analysis_status}
+      lastAnalysisAt={site.last_analysis_at}
+    />
+  );
 }
 
+/**
+ * Hybrid is the managed standard for every non-pool source, so this states the
+ * site's configuration rather than reading any one row. The title says so out
+ * loud: a queue card reports how that particular suggestion was produced, which
+ * for an older row can still be the cosine baseline, and the two are not in
+ * disagreement when it happens.
+ */
 function SuggestionMethodBadge() {
   return (
     <span
       className="badge"
-      title="Hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
+      title="Generation method for new suggestions: hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
     >
       <span className="dot bg-primary" />
       Hybrid
@@ -173,7 +193,7 @@ export default function SitesPage() {
         sub={`${sites?.length ?? 0} connected ${
           (sites?.length ?? 0) === 1 ? "source" : "sources"
         } · ${
-          totalArticles === null ? "Soon" : totalArticles.toLocaleString()
+          totalArticles === null ? "Soon" : formatCount(totalArticles)
         } active articles normalized via ContentConnector`}
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
@@ -274,11 +294,17 @@ export default function SitesPage() {
               <div className="flex flex-col gap-0.5 xl:hidden">
                 <SiteDetail
                   label="Articles"
-                  value={site.article_count?.toLocaleString() ?? "Soon"}
+                  value={
+                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                  }
                 />
                 <SiteDetail
                   label="Int. links"
-                  value={site.internal_link_count?.toLocaleString() ?? "Soon"}
+                  value={
+                    site.internal_link_count === undefined
+                      ? "Soon"
+                      : formatCount(site.internal_link_count)
+                  }
                 />
                 <SiteDetail
                   label="Last crawl"
@@ -287,10 +313,20 @@ export default function SitesPage() {
                 />
               </div>
               <div className="hidden xl:block">
-                <SiteDetail value={site.article_count?.toLocaleString() ?? "Soon"} />
+                <SiteDetail
+                  value={
+                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                  }
+                />
               </div>
               <div className="hidden xl:block">
-                <SiteDetail value={site.internal_link_count?.toLocaleString() ?? "Soon"} />
+                <SiteDetail
+                  value={
+                    site.internal_link_count === undefined
+                      ? "Soon"
+                      : formatCount(site.internal_link_count)
+                  }
+                />
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
@@ -300,8 +336,7 @@ export default function SitesPage() {
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <CurrentSiteStatus
-                  siteId={site.id}
-                  siteStatus={site.last_ingestion_status}
+                  site={site}
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />

@@ -1,4 +1,4 @@
-import type { SuggestionStatus } from "../types/suggestion";
+import type { SuggestionStatus, SuggestionTargetOrigin } from "../types/suggestion";
 
 /**
  * The whole-percent score an editor sees. Threshold rules compare against this
@@ -29,6 +29,11 @@ export const timeAgo = (iso: string | null) => {
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
   hybrid_bm25: "hybrid BM25",
+};
+
+export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
+  internal: "Internal link",
+  content_pool: "External link · Content pool",
 };
 
 /**

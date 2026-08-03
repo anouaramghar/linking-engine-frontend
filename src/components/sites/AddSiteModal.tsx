@@ -1,22 +1,43 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import Modal from "../Modal";
 import { useCreateSite } from "../../hooks/useSites";
 import { errorDetail } from "../../lib/errors";
 import type { SiteCreate } from "../../types/site";
 
+/** Which control a validation failure belongs to, so it can say so and be reached. */
+type ErrorField = "base_url" | "credentials";
+
 export default function AddSiteModal({ onClose }: { onClose: () => void }) {
   const create = useCreateSite();
   const [form, setForm] = useState<SiteCreate>({ name: "", base_url: "", platform: "wordpress" });
-  const [clientError, setClientError] = useState<string | null>(null);
+  const [clientError, setClientError] = useState<{
+    field: ErrorField;
+    message: string;
+  } | null>(null);
   const nameId = useId();
   const urlId = useId();
   const platformId = useId();
   const usernameId = useId();
   const passwordId = useId();
   const credentialsHintId = useId();
+  const errorId = useId();
+  const urlInput = useRef<HTMLInputElement>(null);
+  const usernameInput = useRef<HTMLInputElement>(null);
 
   const set = (patch: Partial<SiteCreate>) => setForm((f) => ({ ...f, ...patch }));
+
+  // An alert that only announces itself leaves the user hunting for the field
+  // it is about. Naming the field, describing it from the message, and moving
+  // the cursor there is what turns the alert into a recovery.
+  const fail = (field: ErrorField, message: string) => {
+    setClientError({ field, message });
+    (field === "base_url" ? urlInput : usernameInput).current?.focus();
+  };
+
+  const invalid = (field: ErrorField) => clientError?.field === field;
+  const describedBy = (field: ErrorField, ...ids: string[]) =>
+    [...ids, invalid(field) ? errorId : null].filter(Boolean).join(" ") || undefined;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,14 +48,14 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
       if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
       baseUrl = parsed.toString().replace(/\/$/, "");
     } catch {
-      setClientError("Enter a complete URL starting with http:// or https://.");
+      fail("base_url", "Enter a complete URL starting with http:// or https://.");
       return;
     }
     if (
       form.platform === "wordpress" &&
       Boolean(form.wp_username) !== Boolean(form.wp_app_password)
     ) {
-      setClientError("Provide both WordPress credentials, or leave both blank.");
+      fail("credentials", "Provide both WordPress credentials, or leave both blank.");
       return;
     }
     create.mutate({ ...form, name: form.name.trim(), base_url: baseUrl }, { onSuccess: onClose });
@@ -64,12 +85,15 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
               Site URL <span className="font-normal text-muted">(required)</span>
             </label>
             <input
+              ref={urlInput}
               id={urlId}
               name="site-url"
-              className="field"
+              className={`field ${invalid("base_url") ? "border-error" : ""}`}
               placeholder="https://example.com"
               type="url"
               autoComplete="url"
+              aria-invalid={invalid("base_url") || undefined}
+              aria-describedby={describedBy("base_url")}
               value={form.base_url}
               onChange={(e) => set({ base_url: e.target.value })}
               required
@@ -119,11 +143,13 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
                   WordPress username <span className="font-normal text-muted">(optional)</span>
                 </label>
                 <input
+                  ref={usernameInput}
                   id={usernameId}
                   name="wp-username"
-                  className="field"
+                  className={`field ${invalid("credentials") ? "border-error" : ""}`}
                   autoComplete="username"
-                  aria-describedby={credentialsHintId}
+                  aria-invalid={invalid("credentials") || undefined}
+                  aria-describedby={describedBy("credentials", credentialsHintId)}
                   value={form.wp_username ?? ""}
                   onChange={(e) => set({ wp_username: e.target.value || undefined })}
                 />
@@ -138,10 +164,11 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
                 <input
                   id={passwordId}
                   name="wp-application-password"
-                  className="field"
+                  className={`field ${invalid("credentials") ? "border-error" : ""}`}
                   type="password"
                   autoComplete="current-password"
-                  aria-describedby={credentialsHintId}
+                  aria-invalid={invalid("credentials") || undefined}
+                  aria-describedby={describedBy("credentials", credentialsHintId)}
                   value={form.wp_app_password ?? ""}
                   onChange={(e) => set({ wp_app_password: e.target.value || undefined })}
                 />
@@ -150,8 +177,8 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
         {(clientError || create.isError) && (
-          <div role="alert" className="mt-3 text-caption text-error">
-            {clientError ?? errorDetail(create.error, "Could not create the site.")}
+          <div id={errorId} role="alert" className="mt-3 text-caption text-error-ink">
+            {clientError?.message ?? errorDetail(create.error, "Could not create the site.")}
           </div>
         )}
         <div className="mt-6 flex gap-2">

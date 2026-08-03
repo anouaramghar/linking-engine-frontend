@@ -13,6 +13,8 @@ const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion
   site_id: 1,
   source_article: { id: id * 10, title: `Source ${id}`, url: `/source-${id}` },
   target_article: { id: id * 10 + 1, title: `Target ${id}`, url: `/target-${id}` },
+  target_origin: "internal",
+  target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.8,
   status: "pending",

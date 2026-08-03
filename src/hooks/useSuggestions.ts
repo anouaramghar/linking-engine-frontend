@@ -45,6 +45,12 @@ export const useSuggestionCounts = (
   useQuery({
     queryKey: ["suggestions", "counts", filters],
     queryFn: () => countSuggestions(filters),
+    // The threshold rule is part of this key, so every change of it is a new
+    // query. Without a placeholder the counts blink to `undefined`, the page
+    // reads that as zero, and the bulk buttons those counts label disable
+    // themselves under the user's cursor. Holding the last answer keeps the
+    // control usable; it is at most one debounce interval stale.
+    placeholderData: keepPreviousData,
     enabled,
   });
 
