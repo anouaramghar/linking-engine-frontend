@@ -214,14 +214,6 @@ export default function SitesPage() {
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="btn btn-outline"
-            disabled={sitesQuery.isFetching}
-            onClick={() => void sitesQuery.refetch()}
-          >
-            {sitesQuery.isFetching ? "Refreshing…" : "Refresh"}
-          </button>
           {sitesQuery.dataUpdatedAt > 0 && (
             <span className="text-caption text-muted">
               Updated {timeAgo(new Date(sitesQuery.dataUpdatedAt).toISOString())}

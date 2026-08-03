@@ -57,6 +57,12 @@ describe("SitesPage scheduler copy", () => {
     expect(document.body.textContent).not.toContain("Crawl all");
     expect(document.body.textContent).not.toContain("Analyze all");
   });
+
+  it("does not expose a manual refresh control", () => {
+    render(<SitesPage />);
+
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+  });
 });
 
 describe("SitesPage load states", () => {
