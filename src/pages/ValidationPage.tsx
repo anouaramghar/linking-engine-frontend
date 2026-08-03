@@ -741,7 +741,6 @@ export default function ValidationPage() {
                 clearFilters();
                 setConfirmation(null);
               }}
-              scoreLockedBy={confirmation ? "bulk rule" : undefined}
             />
             <BulkActions
               chips={chips}

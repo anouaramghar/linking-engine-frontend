@@ -172,14 +172,12 @@ describe("queue filters", () => {
     expect(mocks.queueFilters?.minPercent).toBeUndefined();
   });
 
-  it("excludes reverse duplicates when asked", async () => {
-    const user = userEvent.setup();
+  it("keeps advanced filter controls out of the queue toolbar", () => {
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /More filters/ }));
-    await user.click(screen.getByLabelText("Hide reverse duplicates"));
-
-    await waitFor(() => expect(mocks.queueFilters?.excludeReciprocal).toBe(true));
+    expect(screen.queryByRole("button", { name: /More filters/ })).toBeNull();
+    expect(screen.queryByText("Minimum match score")).toBeNull();
+    expect(screen.queryByText("Hide reciprocal links")).toBeNull();
   });
 
   it("clears every filter at once", async () => {
@@ -239,24 +237,6 @@ describe("bulk rule preview", () => {
     await waitFor(() => expect(mocks.queueFilters?.minPercent).toBe(10));
   });
 
-  it("locks the browse score field while the rule owns the window", async () => {
-    const user = userEvent.setup();
-    renderQueue();
-
-    await user.click(screen.getByRole("button", { name: /More filters/ }));
-    expect(
-      (screen.getByLabelText("Minimum score") as HTMLInputElement).disabled,
-    ).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
-
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText("Minimum score") as HTMLInputElement).disabled,
-      ).toBe(true),
-    );
-  });
-
   it("sends the queue's filters with the rule, so it cannot reach past them", async () => {
     const user = userEvent.setup();
     renderQueue("/?q=hooks&origin=content_pool&unique=1");
@@ -283,9 +263,7 @@ describe("bulk rule preview", () => {
     await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     expect(screen.queryByRole("button", { name: "Confirm accept" })).not.toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /More filters/ }));
-
-    await user.click(screen.getByLabelText("Hide reverse duplicates"));
+    await user.selectOptions(screen.getByLabelText("Target filter"), "content_pool");
 
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Confirm accept" })).toBeNull(),
