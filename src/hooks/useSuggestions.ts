@@ -10,6 +10,7 @@ import {
   bulkReview,
   bulkReviewByFilter,
   countSuggestions,
+  getPlacement,
   listSuggestionPage,
   reviewSuggestion,
 } from "../api/suggestions";
@@ -52,6 +53,30 @@ export const useSuggestionCounts = (
     // control usable; it is at most one debounce interval stale.
     placeholderData: keepPreviousData,
     enabled,
+  });
+
+/**
+ * The placement for the open suggestion, fetched only while one is open.
+ *
+ * Deliberately outside the `["suggestions"]` key namespace: reviewing a row
+ * invalidates that whole tree, and a placement is unaffected by a decision —
+ * sharing the prefix would throw away a generated answer and pay to regenerate
+ * it every time the editor approved something.
+ *
+ * Never stale, because it is not: the engine stores the answer on the row, so a
+ * refetch can only return what is already in the cache.
+ */
+export const usePlacement = (suggestionId: number | null) =>
+  useQuery({
+    queryKey: ["placement", suggestionId],
+    queryFn: () => getPlacement(suggestionId as number),
+    enabled: suggestionId !== null,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    // A failed generation is worth one automatic retry — but not the default
+    // three, which would keep an editor waiting through three model timeouts
+    // before the card admits anything is wrong. Beyond that it is their call.
+    retry: 1,
   });
 
 const useInvalidateQueue = () => {

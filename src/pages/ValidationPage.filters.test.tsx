@@ -54,6 +54,14 @@ vi.mock("../hooks/useSuggestions", () => ({
       refetch: vi.fn(),
     };
   },
+  // Not what these tests are about; the filter assertions never open a row.
+  usePlacement: () => ({
+    data: undefined,
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   useSuggestionCounts: () => ({
     data: {
       pending: 1,

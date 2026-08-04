@@ -21,11 +21,28 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   created_at: "2026-07-16T10:00:00Z",
 });
 
+/** Placement is generated per suggestion by the page; these tests are about
+ *  everything else in the drawer, so they render it already resolved. */
+const placement = {
+  data: {
+    suggestion_id: 1,
+    found: true,
+    placement_context: "The long steep pulls fewer acids out of the grounds.",
+    anchor_text: "fewer acids",
+    llm_model: "google/gemma-4-31b-it",
+    generated_at: "2026-08-03T10:00:00Z",
+  },
+  isLoading: false,
+  error: null,
+  onRetry: vi.fn(),
+};
+
 const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
   render(
     <SuggestionPreview
       suggestion={suggestion(status)}
       siteName="Example site"
+      placement={placement}
       onClose={vi.fn()}
       onAccept={vi.fn()}
       onReject={vi.fn()}
@@ -40,7 +57,7 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getByText("90%")).not.toBeNull();
     expect(screen.getByText("Internal link")).not.toBeNull();
     expect(screen.getByText("Placement context")).not.toBeNull();
-    expect(screen.getAllByText("Soon")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Soon");
     expect(document.body.textContent).not.toContain("GraphSAGE");
     expect(document.body.textContent).not.toContain("Shared taxonomy");
   });
@@ -51,6 +68,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={hybrid}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -79,6 +97,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={hybrid}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -204,6 +223,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={external}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}

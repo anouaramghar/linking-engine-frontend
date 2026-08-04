@@ -10,10 +10,15 @@ import {
   pct,
 } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
+import PlacementContextCard from "./PlacementContextCard";
+import type { PlacementState } from "./PlacementContextCard";
 
 interface Props {
   suggestion: Suggestion;
   siteName: string;
+  /** Generated per suggestion, so it is fetched by the page that knows which
+   *  one is open rather than by this component. */
+  placement: PlacementState;
   onClose: () => void;
   onAccept: () => void;
   onReject: () => void;
@@ -23,6 +28,7 @@ interface Props {
 export default function SuggestionPreview({
   suggestion: s,
   siteName,
+  placement,
   onClose,
   onAccept,
   onReject,
@@ -71,10 +77,7 @@ export default function SuggestionPreview({
         </a>
       </div>
 
-      <div className="card px-5 py-4">
-        <div className="eyebrow">Placement context</div>
-        <div className="mt-2 text-body-sm font-medium text-ink">Soon</div>
-      </div>
+      <PlacementContextCard placement={placement} />
 
       <div className="eyebrow mb-2 mt-5">Links to &rarr;</div>
       <div className="rounded-xl bg-surface-strong p-4">

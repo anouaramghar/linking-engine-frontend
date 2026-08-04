@@ -28,6 +28,7 @@ import {
 import {
   useBulkReview,
   useFilteredBulkReview,
+  usePlacement,
   useReview,
   useSuggestionCounts,
   useSuggestions,
@@ -644,6 +645,10 @@ export default function ValidationPage() {
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
 
+  // Keyed to the open suggestion, so the queue itself never triggers one:
+  // generating a placement runs a model, and a page of rows would run one each.
+  const placementQuery = usePlacement(selected?.id ?? null);
+
   // The position the cursor last held. Tracked in an effect rather than during
   // render so a discarded concurrent render cannot record a place the editor
   // never saw.
@@ -909,6 +914,14 @@ export default function ValidationPage() {
           <SuggestionPreview
             suggestion={selected}
             siteName={siteName(selected.site_id)}
+            placement={{
+              data: placementQuery.data,
+              // `isFetching` too, so a retry replaces the error with progress
+              // instead of leaving the old message under a dead button.
+              isLoading: placementQuery.isPending || placementQuery.isFetching,
+              error: placementQuery.error,
+              onRetry: () => void placementQuery.refetch(),
+            }}
             onClose={() => setSelectedId(null)}
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}

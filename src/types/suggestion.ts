@@ -38,6 +38,27 @@ export interface SuggestionScoreComponents {
   semantic?: number;
 }
 
+/**
+ * Where in the source article the link would go.
+ *
+ * Not part of `Suggestion`: it costs a model call, so the engine generates it
+ * when a suggestion is opened rather than for every row of a queue page.
+ *
+ * `found: false` is an answer, not a failure — the model read the article and
+ * no passage suited the link. Render that; do not retry it.
+ */
+export interface Placement {
+  suggestion_id: number;
+  found: boolean;
+  /** A passage copied verbatim from the source article. Null when not found. */
+  placement_context: string | null;
+  /** Guaranteed to be a substring of `placement_context`, so it can be located
+   *  by searching rather than by trusting an offset. */
+  anchor_text: string | null;
+  llm_model: string | null;
+  generated_at: string;
+}
+
 export interface Suggestion {
   id: number;
   site_id: number;

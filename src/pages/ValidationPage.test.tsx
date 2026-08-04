@@ -68,6 +68,15 @@ vi.mock("../hooks/useSuggestions", () => ({
     isFetchingNextPage: false,
     ...mocks.suggestionsQuery,
   }),
+  // Placement is generated per open suggestion and is not what these tests are
+  // about; they assert on the queue and the keyboard, so it stays at rest.
+  usePlacement: () => ({
+    data: undefined,
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   useSuggestionCounts: (filters: {
     siteId?: number;
     minPercent?: number;

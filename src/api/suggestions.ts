@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type {
+  Placement,
   ReviewStatus,
   Suggestion,
   SuggestionStatus,
@@ -88,6 +89,17 @@ export const countSuggestions = (filters: SuggestionQueueFilters) =>
 
 export const reviewSuggestion = (id: number, status: ReviewStatus) =>
   api.put<Suggestion>(`/suggestions/${id}`, { status }).then((r) => r.data);
+
+/**
+ * The first call for a suggestion runs a model and can take several seconds;
+ * the engine stores the result, so every call after it is a plain read.
+ *
+ * Given the generous timeout this needs, the shared 30s client budget is the
+ * one to watch: leave this on the default rather than raising it, and let a
+ * genuinely stuck request fail so the drawer can offer a retry.
+ */
+export const getPlacement = (id: number) =>
+  api.get<Placement>(`/suggestions/${id}/placement`).then((r) => r.data);
 
 export interface BulkReviewResult {
   /** Rows that actually moved. */
