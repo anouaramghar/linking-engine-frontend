@@ -97,6 +97,13 @@ vi.mock("../hooks/useSites", () => ({
 
 vi.mock("../hooks/usePublish", () => ({
   usePublishSites: () => ({ mutate: vi.fn(), isPending: false }),
+  usePublicationDryRun: () => ({
+    data: undefined,
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   usePendingPublication: () => ({
     data: [],
     isPending: false,

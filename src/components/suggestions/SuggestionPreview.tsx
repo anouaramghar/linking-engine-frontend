@@ -156,6 +156,11 @@ export default function SuggestionPreview({
         <div aria-label="Publish status" className="card mt-3 px-4 py-3">
           <div className="eyebrow">Publish status</div>
           <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
+          {s.status === "failed" && s.publish_error && (
+            <div className="mt-2 break-words text-caption leading-normal text-error">
+              {s.publish_error}
+            </div>
+          )}
         </div>
       )}
 

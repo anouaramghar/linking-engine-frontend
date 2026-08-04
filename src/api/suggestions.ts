@@ -77,6 +77,7 @@ export interface SuggestionCounts {
   applying: number;
   applied: number;
   expired: number;
+  failed: number;
   total: number;
 }
 

@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { bulkCreateSites, listSites } from "./sites";
+import {
+  approvePoolSource,
+  bulkCreateSites,
+  listSites,
+  reactivatePoolSource,
+  revokePoolSourceApproval,
+} from "./sites";
 
 const get = vi.hoisted(() => vi.fn());
 const post = vi.hoisted(() => vi.fn());
+const del = vi.hoisted(() => vi.fn());
 
-vi.mock("./client", () => ({ api: { get, post } }));
+vi.mock("./client", () => ({ api: { get, post, delete: del } }));
 
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
+  del.mockReset();
 });
 describe("listSites", () => {
   it("loads every page instead of stopping at the API's default limit", async () => {
@@ -50,5 +58,35 @@ describe("bulkCreateSites", () => {
 
     await expect(bulkCreateSites(sites)).resolves.toEqual(result);
     expect(post).toHaveBeenCalledWith("/sites/bulk", { sites });
+  });
+});
+
+describe("content-pool controls", () => {
+  it("approves a pool source with the reviewer identity", async () => {
+    post.mockResolvedValue({ data: { id: 7 } });
+
+    await approvePoolSource(7, "editor");
+
+    expect(post).toHaveBeenCalledWith("/sites/7/pool-source/approval", {
+      approved_by: "editor",
+    });
+  });
+
+  it("revokes pool approval", async () => {
+    del.mockResolvedValue({ data: { id: 7 } });
+
+    await revokePoolSourceApproval(7);
+
+    expect(del).toHaveBeenCalledWith("/sites/7/pool-source/approval");
+  });
+
+  it("reactivates a quarantined pool source with the reviewer identity", async () => {
+    post.mockResolvedValue({ data: { id: 7 } });
+
+    await reactivatePoolSource(7, "editor");
+
+    expect(post).toHaveBeenCalledWith("/sites/7/pool-source/reactivate", {
+      reactivated_by: "editor",
+    });
   });
 });

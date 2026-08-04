@@ -12,7 +12,10 @@ export type SuggestionStatus =
   | "rejected"
   | "applying"
   | "applied"
-  | "expired";
+  | "expired"
+  /** Quarantined by the worker after repeated publication failures. Returned by
+   *  the default queue, so every status map here has to carry it. */
+  | "failed";
 /** Statuses an editor can set directly. 'pending' undoes an earlier decision. */
 export type ReviewStatus = "approved" | "rejected" | "pending";
 
@@ -72,5 +75,8 @@ export interface Suggestion {
   score_components?: SuggestionScoreComponents | null;
   status: SuggestionStatus;
   anchor_text: string | null;
+  publish_outcome?: "inserted" | "block" | "already_present" | null;
+  publish_attempts?: number;
+  publish_error?: string | null;
   created_at: string;
 }

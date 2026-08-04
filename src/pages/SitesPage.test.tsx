@@ -15,11 +15,19 @@ const mocks = vi.hoisted(() => ({
   activeJobs: {
     data: [] as unknown[],
   },
+  poolMutations: {
+    approve: { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null },
+    revoke: { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null },
+    reactivate: { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null },
+  },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
+  useApprovePoolSource: () => mocks.poolMutations.approve,
+  useRevokePoolSourceApproval: () => mocks.poolMutations.revoke,
+  useReactivatePoolSource: () => mocks.poolMutations.reactivate,
 }));
 
 vi.mock("../hooks/useJobs", () => ({
@@ -36,6 +44,12 @@ beforeEach(() => {
     dataUpdatedAt: 0,
   });
   mocks.activeJobs.data = [];
+  for (const mutation of Object.values(mocks.poolMutations)) {
+    mutation.mutate.mockReset();
+    mutation.reset?.mockReset();
+    mutation.isPending = false;
+    mutation.error = null;
+  }
 });
 
 afterEach(cleanup);
@@ -304,5 +318,99 @@ describe("SitesPage source controls", () => {
     expect(screen.queryByRole("menuitem", { name: /Generate suggestions/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Publish approved" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Delete site" })).not.toBeNull();
+  });
+
+  it("does not apply pool approval gates to regular sites", () => {
+    mocks.sites.data = [
+      {
+        id: 1,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows pending approval, blocks crawling, and submits the approval reviewer", () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "News pool",
+        base_url: "https://example.com/feed",
+        platform: "pool",
+        pool_source_approved: false,
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Pending approval");
+    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Approve source" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Approved by" }), {
+      target: { value: "editor" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Approve source" }));
+
+    expect(mocks.poolMutations.approve.mutate).toHaveBeenCalledWith(
+      { id: 2, approvedBy: "editor" },
+      expect.any(Object),
+    );
+  });
+
+  it("shows quarantine state and submits a reactivation reviewer", () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "News pool",
+        base_url: "https://example.com/feed",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_approved_by: "editor",
+        pool_source_quarantined: true,
+        pool_source_consecutive_failures: 3,
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(document.body.textContent).toContain("Quarantined");
+    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reactivate source" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Reactivated by" }), {
+      target: { value: "editor" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reactivate source" }));
+
+    expect(mocks.poolMutations.reactivate.mutate).toHaveBeenCalledWith(
+      { id: 2, reactivatedBy: "editor" },
+      expect.any(Object),
+    );
+  });
+
+  it("confirms before revoking an approved pool source", () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "News pool",
+        base_url: "https://example.com/feed",
+        platform: "pool",
+        pool_source_approved: true,
+      },
+    ];
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Revoke approval" }));
+    expect(screen.getByRole("heading", { name: "Revoke News pool?" })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke approval" }));
+
+    expect(mocks.poolMutations.revoke.mutate).toHaveBeenCalledWith(2, expect.any(Object));
   });
 });

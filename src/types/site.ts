@@ -17,6 +17,15 @@ export interface Site {
   article_count?: number;
   internal_link_count?: number;
   last_crawl_at?: string | null;
+  pool_source_approved?: boolean;
+  pool_source_approved_at?: string | null;
+  pool_source_approved_by?: string | null;
+  pool_source_consecutive_failures?: number;
+  pool_source_quarantined?: boolean;
+  pool_source_quarantined_at?: string | null;
+  pool_source_quarantine_reason?: string | null;
+  pool_source_last_reactivated_at?: string | null;
+  pool_source_last_reactivated_by?: string | null;
 }
 
 export interface SiteCreate {

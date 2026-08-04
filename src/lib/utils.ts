@@ -50,16 +50,22 @@ export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string 
   applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
   applied: { label: "Published live", dot: "bg-success" },
   expired: { label: "Expired", dot: "bg-muted-soft" },
+  failed: { label: "Publishing failed", dot: "bg-error" },
 };
 
-/** Once publishing starts the worker owns the row, so the decision is final. */
+/**
+ * Once publishing starts the worker owns the row, so the decision is final —
+ * except for a quarantined one, where sending it back to pending is the only
+ * way an editor has of retrying it.
+ */
 export const isReversible = (status: SuggestionStatus) =>
-  status === "approved" || status === "rejected";
+  status === "approved" || status === "rejected" || status === "failed";
 
 export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
   approved: "Queued for the next publish batch. Not live yet.",
   applying: "Publishing is in progress.",
   applied: "Published to the live article.",
+  failed: "Publishing failed repeatedly and stopped retrying. Undo to try again.",
 };
 
 export const RQ_SCHEDULING_COPY = "Scheduled re-crawls run through RQ.";

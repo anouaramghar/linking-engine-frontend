@@ -47,5 +47,18 @@ export const deleteSite = (id: number) => api.delete(`/sites/${id}`);
 export const ingestSite = (id: number) =>
   api.post<JobAccepted>(`/sites/${id}/ingest`).then((r) => r.data);
 
+export const approvePoolSource = (id: number, approvedBy: string) =>
+  api
+    .post<Site>(`/sites/${id}/pool-source/approval`, { approved_by: approvedBy })
+    .then((r) => r.data);
+
+export const revokePoolSourceApproval = (id: number) =>
+  api.delete<Site>(`/sites/${id}/pool-source/approval`).then((r) => r.data);
+
+export const reactivatePoolSource = (id: number, reactivatedBy: string) =>
+  api
+    .post<Site>(`/sites/${id}/pool-source/reactivate`, { reactivated_by: reactivatedBy })
+    .then((r) => r.data);
+
 export const publishSite = (id: number) =>
   api.post<JobAccepted>(`/publish/${id}`).then((r) => r.data);

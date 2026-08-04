@@ -3,6 +3,7 @@ interface Props {
   siteCount: number;
   publishing: boolean;
   onPublish: () => void;
+  onPreview?: () => void;
 }
 
 /**
@@ -14,6 +15,7 @@ export default function PublishBanner({
   siteCount,
   publishing,
   onPublish,
+  onPreview,
 }: Props) {
   if (approved === 0) return null;
 
@@ -33,14 +35,21 @@ export default function PublishBanner({
           Approved links are not live on the site until a publish job writes them back.
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onPublish}
-        disabled={publishing}
-        className="btn btn-primary btn-sm"
-      >
-        {publishing ? "Queueing…" : `Publish ${scope}`}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        {onPreview && (
+          <button type="button" onClick={onPreview} className="btn btn-outline btn-sm">
+            Preview edits
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onPublish}
+          disabled={publishing}
+          className="btn btn-primary btn-sm"
+        >
+          {publishing ? "Queueing…" : `Publish ${scope}`}
+        </button>
+      </div>
     </div>
   );
 }

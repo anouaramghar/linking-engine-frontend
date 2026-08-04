@@ -173,7 +173,9 @@ export default function BulkActions({
             onClick={() => onRequest("approve")}
             className="btn btn-primary btn-sm sm:min-w-[12rem]"
           >
-            Accept {acceptCount} high-confidence
+            {/* "match", not "confidence": the score is cosine similarity between
+                two articles, and it is not the number Hybrid ranked the row by. */}
+            Accept {acceptCount} matches
             <span className="text-caption opacity-75">&ge; {threshold}%</span>
           </button>
           <button
@@ -183,7 +185,7 @@ export default function BulkActions({
             onClick={() => onRequest("reject")}
             className="btn btn-outline btn-sm sm:min-w-[12rem]"
           >
-            Reject {rejectCount} low-confidence
+            Reject {rejectCount} matches
             <span className="text-caption text-muted">&lt; {threshold}%</span>
           </button>
         </div>

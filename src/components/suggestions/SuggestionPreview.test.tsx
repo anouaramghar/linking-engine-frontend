@@ -238,6 +238,53 @@ describe("SuggestionPreview publication state", () => {
     );
   });
 
+  it("renders a quarantined row and offers the only way back", () => {
+    // The worker returns 'failed' rows in the default queue. A status the
+    // client does not know about reads its metadata off undefined, which takes
+    // the whole queue down rather than one card, and leaves the editor no way
+    // to retry a suggestion the worker has stopped retrying.
+    const onUndo = vi.fn();
+    render(
+      <SuggestionCard
+        suggestion={suggestion("failed")}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={onUndo}
+      />,
+    );
+
+    expect(screen.getByText("Publishing failed")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(onUndo).toHaveBeenCalled();
+  });
+
+  it("explains a quarantined row in the drawer", () => {
+    const failed = {
+      ...suggestion("failed"),
+      publish_error: "HTTP 403: editor-bot needs permission to edit posts",
+    };
+    render(
+      <SuggestionPreview
+        suggestion={failed}
+        siteName="Example site"
+        placement={placement}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Publishing failed")).not.toBeNull();
+    expect(document.body.textContent).toContain("stopped retrying");
+    expect(document.body.textContent).toContain(
+      "HTTP 403: editor-bot needs permission to edit posts",
+    );
+  });
+
   it("shows the origin on a queue card", () => {
     render(
       <SuggestionCard

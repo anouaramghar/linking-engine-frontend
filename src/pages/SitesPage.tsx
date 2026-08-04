@@ -11,9 +11,19 @@ import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
+import PoolSourceReviewModal, {
+  type PoolSourceReviewAction,
+} from "../components/sites/PoolSourceReviewModal";
+import PoolSourceStatusBadge from "../components/sites/PoolSourceStatusBadge";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
-import { useDeleteSite, useSites } from "../hooks/useSites";
+import {
+  useApprovePoolSource,
+  useDeleteSite,
+  useReactivatePoolSource,
+  useRevokePoolSourceApproval,
+  useSites,
+} from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
 import {
   RQ_SCHEDULING_COPY,
@@ -116,6 +126,17 @@ function SuggestionMethodBadge() {
   );
 }
 
+function poolCrawlBlockedReason(site: Site) {
+  if (site.platform !== "pool") return undefined;
+  if (site.pool_source_quarantined) {
+    return site.pool_source_approved
+      ? "Reactivate this quarantined source before crawling."
+      : "Approve this source, then reactivate it before crawling.";
+  }
+  if (!site.pool_source_approved) return "Approve this source before crawling.";
+  return undefined;
+}
+
 export default function SitesPage() {
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
@@ -125,12 +146,20 @@ export default function SitesPage() {
       : null;
   const activeJobs = useActiveJobs().data ?? [];
   const deleteSite = useDeleteSite();
+  const approvePool = useApprovePoolSource();
+  const revokePool = useRevokePoolSourceApproval();
+  const reactivatePool = useReactivatePoolSource();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<TrackedJob[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<{ id: number; name: string } | null>(null);
+  const [poolReview, setPoolReview] = useState<{
+    action: PoolSourceReviewAction;
+    site: Pick<Site, "id" | "name" | "base_url">;
+  } | null>(null);
   const [search, setSearch] = useState("");
   const visibleSites = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -181,6 +210,46 @@ export default function SitesPage() {
       onError: (error) =>
         setNotice({
           message: errorDetail(error, `${name} could not be deleted. Please try again.`),
+          tone: "error",
+        }),
+    });
+  };
+
+  const openPoolReview = (action: PoolSourceReviewAction, site: Site) => {
+    if (action === "approve") approvePool.reset();
+    else reactivatePool.reset();
+    setNotice(null);
+    setPoolReview({ action, site: { id: site.id, name: site.name, base_url: site.base_url } });
+  };
+
+  const submitPoolReview = (reviewer: string) => {
+    if (!poolReview) return;
+    const { action, site } = poolReview;
+    const onSuccess = () => {
+      setPoolReview(null);
+      setNotice({
+        message: `${site.name} was ${action === "approve" ? "approved" : "reactivated"}.`,
+        tone: "info",
+      });
+    };
+
+    if (action === "approve") {
+      approvePool.mutate({ id: site.id, approvedBy: reviewer }, { onSuccess });
+    } else {
+      reactivatePool.mutate({ id: site.id, reactivatedBy: reviewer }, { onSuccess });
+    }
+  };
+
+  const revoke = () => {
+    if (!pendingRevoke) return;
+    const { id, name } = pendingRevoke;
+    setPendingRevoke(null);
+    setNotice(null);
+    revokePool.mutate(id, {
+      onSuccess: () => setNotice({ message: `${name} approval was revoked.`, tone: "info" }),
+      onError: (error) =>
+        setNotice({
+          message: errorDetail(error, `${name} approval could not be revoked. Please try again.`),
           tone: "error",
         }),
     });
@@ -253,7 +322,43 @@ export default function SitesPage() {
         )}
 
         <div className="flex flex-col gap-2.5">
-          {visibleSites?.map((site, index) => (
+          {visibleSites?.map((site, index) => {
+            const blockedReason = poolCrawlBlockedReason(site);
+            const crawlBusy = busy[busyKey(site.id, "Crawl")];
+            const poolActions =
+              site.platform === "pool"
+                ? [
+                    ...(!site.pool_source_approved
+                      ? [
+                          {
+                            label: "Approve source",
+                            disabled: approvePool.isPending,
+                            onSelect: () => openPoolReview("approve", site),
+                          },
+                        ]
+                      : []),
+                    ...(site.pool_source_quarantined
+                      ? [
+                          {
+                            label: "Reactivate source",
+                            disabled: !site.pool_source_approved || reactivatePool.isPending,
+                            onSelect: () => openPoolReview("reactivate", site),
+                          },
+                        ]
+                      : []),
+                    ...(site.pool_source_approved
+                      ? [
+                          {
+                            label: "Revoke approval",
+                            disabled: revokePool.isPending,
+                            onSelect: () => setPendingRevoke({ id: site.id, name: site.name }),
+                          },
+                        ]
+                      : []),
+                  ]
+                : [];
+
+            return (
             <div
               key={site.id}
               className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
@@ -332,20 +437,23 @@ export default function SitesPage() {
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
+                {site.platform === "pool" && <PoolSourceStatusBadge site={site} />}
                 {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
               <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
                   type="button"
                   onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
-                  disabled={busy[busyKey(site.id, "Crawl")]}
+                  disabled={crawlBusy || Boolean(blockedReason)}
+                  title={blockedReason}
                   className="btn btn-outline btn-sm"
                 >
-                  {busy[busyKey(site.id, "Crawl")] ? "Queueing…" : "Crawl"}
+                  {crawlBusy ? "Queueing…" : "Crawl"}
                 </button>
                 <ActionMenu
                   label="Actions"
                   items={[
+                    ...poolActions,
                     ...(site.platform === "pool"
                       ? []
                       : [
@@ -391,7 +499,8 @@ export default function SitesPage() {
                 />
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {!sitesQuery.isPending &&
@@ -420,6 +529,27 @@ export default function SitesPage() {
           pending={deleteSite.isPending}
           onConfirm={remove}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+      {pendingRevoke && (
+        <ConfirmDialog
+          title={`Revoke ${pendingRevoke.name}?`}
+          description="This stops manual and scheduled crawls for the content pool. Existing imported articles are not deleted by revoking approval."
+          confirmLabel="Revoke approval"
+          pending={revokePool.isPending}
+          onConfirm={revoke}
+          onCancel={() => setPendingRevoke(null)}
+        />
+      )}
+      {poolReview && (
+        <PoolSourceReviewModal
+          key={`${poolReview.site.id}:${poolReview.action}`}
+          site={poolReview.site}
+          action={poolReview.action}
+          pending={poolReview.action === "approve" ? approvePool.isPending : reactivatePool.isPending}
+          error={poolReview.action === "approve" ? approvePool.error : reactivatePool.error}
+          onSubmit={submitPoolReview}
+          onClose={() => setPoolReview(null)}
         />
       )}
     </>

@@ -18,8 +18,13 @@ import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
+import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
 import { useIncrementalList } from "../hooks/useIncrementalList";
-import { usePendingPublication, usePublishSites } from "../hooks/usePublish";
+import {
+  usePendingPublication,
+  usePublicationDryRun,
+  usePublishSites,
+} from "../hooks/usePublish";
 import {
   SHORTCUT_HINT,
   useQueueShortcuts,
@@ -62,6 +67,7 @@ const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "approved", label: "Queued for publish" },
   { key: "applying", label: "Publishing" },
   { key: "applied", label: "Published live" },
+  { key: "failed", label: "Publishing failed" },
   { key: "rejected", label: "Rejected" },
 ];
 
@@ -82,6 +88,7 @@ const EMPTY_COUNTS: SuggestionCounts = {
   applying: 0,
   applied: 0,
   expired: 0,
+  failed: 0,
   total: 0,
 };
 
@@ -126,6 +133,7 @@ export default function ValidationPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [previewSiteId, setPreviewSiteId] = useState<number | null>(null);
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
@@ -202,6 +210,7 @@ export default function ValidationPage() {
     hasSites,
   );
   const pendingPublicationQuery = usePendingPublication(hasSites);
+  const publicationPreview = usePublicationDryRun(previewSiteId);
   const review = useReview();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
@@ -802,6 +811,11 @@ export default function ValidationPage() {
             siteCount={awaitingPublish.length}
             publishing={publish.isPending}
             onPublish={startPublish}
+            onPreview={
+              awaitingPublish.length === 1
+                ? () => setPreviewSiteId(awaitingPublish[0])
+                : undefined
+            }
           />
 
           {notice && (
@@ -926,6 +940,38 @@ export default function ValidationPage() {
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}
             onUndo={() => undo([selected.id])}
+          />
+        )}
+
+        {previewSiteId !== null && (
+          <PublicationPreviewModal
+            siteName={siteName(previewSiteId)}
+            data={publicationPreview.data}
+            loading={publicationPreview.isPending || publicationPreview.isFetching}
+            error={publicationPreview.isError}
+            publishing={publish.isPending}
+            onRetry={() => void publicationPreview.refetch()}
+            onClose={() => setPreviewSiteId(null)}
+            onPublish={() => {
+              setNotice(null);
+              publish.mutate([previewSiteId], {
+                onSuccess: ({ queued, alreadyRunning, failed }) => {
+                  setPreviewSiteId(null);
+                  setNotice({
+                    message: [
+                      queued > 0 && "Publish queued for 1 site.",
+                      alreadyRunning > 0 && "This site is already publishing.",
+                      failed > 0 && "Publishing could not be queued.",
+                    ]
+                      .filter(Boolean)
+                      .join(" "),
+                    tone: failed > 0 ? "error" : "info",
+                  });
+                },
+                onError: () =>
+                  setNotice({ message: "Publishing could not be started.", tone: "error" }),
+              });
+            }}
           />
         )}
       </div>

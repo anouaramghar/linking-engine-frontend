@@ -53,8 +53,10 @@ const mocks = vi.hoisted(() => ({
     applying: number;
     applied: number;
     expired: number;
+    failed: number;
     total: number;
   } | null,
+  publicationPreview: {} as Record<string, unknown>,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
@@ -108,6 +110,7 @@ vi.mock("../hooks/useSuggestions", () => ({
         applying: count("applying"),
         applied: count("applied"),
         expired: 0,
+        failed: count("failed"),
         total: selected.length,
       },
       isPending: false,
@@ -136,6 +139,14 @@ vi.mock("../hooks/usePublish", () => ({
     isError: false,
     isFetching: false,
     refetch: vi.fn(),
+  }),
+  usePublicationDryRun: () => ({
+    data: undefined,
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+    ...mocks.publicationPreview,
   }),
 }));
 
@@ -181,6 +192,7 @@ beforeEach(() => {
   mocks.filteredBulkError = null;
   mocks.pendingPublication = [];
   mocks.countsOverride = null;
+  mocks.publicationPreview = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
@@ -251,6 +263,7 @@ describe("ValidationPage live review state", () => {
       rejected: 3,
       applying: 1,
       applied: 9,
+      failed: 0,
       expired: 2,
       total: 2420,
     };
@@ -568,6 +581,51 @@ describe("ValidationPage publish handoff", () => {
     await user.click(screen.getByRole("button", { name: "Publish 1 site" }));
 
     expect(mocks.publishMutate).toHaveBeenCalledWith([1], expect.anything());
+  });
+
+  it("shows the exact WordPress HTML before publishing", async () => {
+    const user = userEvent.setup();
+    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 1 }];
+    mocks.publicationPreview = {
+      data: {
+        site_id: 1,
+        approved: 1,
+        previewed: 1,
+        placements_missing: 0,
+        inserted: 1,
+        block: 0,
+        already_present: 0,
+        planned: [],
+        errors: [],
+        truncated: false,
+        articles: [
+          {
+            source_article_id: 10,
+            source_url: "https://example.com/source",
+            original_html: "<p>solar panel costs</p>",
+            updated_html: '<p><a href="/target">solar panel</a> costs</p>',
+            links: [
+              {
+                suggestion_id: 1,
+                source_article_id: 10,
+                source_url: "https://example.com/source",
+                target_url: "https://example.com/target",
+                outcome: "inserted",
+                anchor_text: "solar panel",
+              },
+            ],
+          },
+        ],
+      },
+    };
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Preview edits" }));
+
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect(document.body.textContent).toContain("Compare exact HTML");
+    expect(document.body.textContent).toContain("<p>solar panel costs</p>");
+    expect(document.body.textContent).toContain('<p><a href="/target">solar panel</a> costs</p>');
   });
 });
 
