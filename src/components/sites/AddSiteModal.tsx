@@ -8,9 +8,23 @@ import type { SiteCreate } from "../../types/site";
 /** Which control a validation failure belongs to, so it can say so and be reached. */
 type ErrorField = "base_url" | "credentials";
 
-export default function AddSiteModal({ onClose }: { onClose: () => void }) {
+export default function AddSiteModal({
+  onClose,
+  initialPlatform = "wordpress",
+  lockPlatform = false,
+  title = "Connect a site",
+}: {
+  onClose: () => void;
+  initialPlatform?: SiteCreate["platform"];
+  lockPlatform?: boolean;
+  title?: string;
+}) {
   const create = useCreateSite();
-  const [form, setForm] = useState<SiteCreate>({ name: "", base_url: "", platform: "wordpress" });
+  const [form, setForm] = useState<SiteCreate>({
+    name: "",
+    base_url: "",
+    platform: initialPlatform,
+  });
   const [clientError, setClientError] = useState<{
     field: ErrorField;
     message: string;
@@ -62,7 +76,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Connect a site" onClose={onClose} panelClassName="max-w-md">
+    <Modal title={title} onClose={onClose} panelClassName="max-w-md">
       <form onSubmit={submit}>
         <div className="flex flex-col gap-4">
           <div>
@@ -108,6 +122,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
               name="platform"
               className="field"
               value={form.platform}
+              disabled={lockPlatform}
               onChange={(e) => {
                 const platform = e.target.value as SiteCreate["platform"];
                 set({

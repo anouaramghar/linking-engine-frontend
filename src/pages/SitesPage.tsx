@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
@@ -11,8 +11,14 @@ import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
+import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
+import {
+  useCreatePipelineBatch,
+  usePipelineBatch,
+  useRetryPipelineSite,
+} from "../hooks/usePipeline";
 import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
 import {
@@ -32,6 +38,11 @@ import type { Site } from "../types/site";
 const GRID =
   "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
+
+const batchIdFromUrl = () => {
+  const value = Number(new URLSearchParams(window.location.search).get("batch"));
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
 
 function SiteDetail({
   label,
@@ -118,7 +129,10 @@ function SuggestionMethodBadge() {
 
 export default function SitesPage() {
   const sitesQuery = useSites();
-  const sites = sitesQuery.data;
+  const sites = useMemo(
+    () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
+    [sitesQuery.data],
+  );
   const totalArticles =
     sites?.every((site) => site.article_count !== undefined)
       ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
@@ -132,6 +146,17 @@ export default function SitesPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
+  const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
+  const createBatch = useCreatePipelineBatch();
+  const batchQuery = usePipelineBatch(batchId);
+  const retryPipelineSite = useRetryPipelineSite();
+
+  useEffect(() => {
+    const syncBatchFromUrl = () => setBatchId(batchIdFromUrl());
+    window.addEventListener("popstate", syncBatchFromUrl);
+    return () => window.removeEventListener("popstate", syncBatchFromUrl);
+  }, []);
   const visibleSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
@@ -141,6 +166,52 @@ export default function SitesPage() {
   }, [search, sites]);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
+
+  const toggleSelectedSite = (siteId: number) => {
+    setSelectedSiteIds((current) => {
+      const next = new Set(current);
+      if (next.has(siteId)) next.delete(siteId);
+      else next.add(siteId);
+      return next;
+    });
+  };
+
+  const showBatch = (nextBatchId: number) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("batch", String(nextBatchId));
+    window.history.pushState({}, "", url);
+    setBatchId(nextBatchId);
+  };
+
+  const launchBatch = async () => {
+    if (selectedSiteIds.size === 0 || createBatch.isPending) return;
+    setNotice(null);
+    try {
+      const batch = await createBatch.mutateAsync([...selectedSiteIds]);
+      showBatch(batch.id);
+      setSelectedSiteIds(new Set());
+      setNotice({ message: `Batch #${batch.id} started for ${batch.total} sites.`, tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The batch pipeline could not be started. Please try again."),
+        tone: "error",
+      });
+    }
+  };
+
+  const retryBatchSite = async (siteId: number) => {
+    if (batchId === null || retryPipelineSite.isPending) return;
+    setNotice(null);
+    try {
+      await retryPipelineSite.mutateAsync({ batchId, siteId });
+      setNotice({ message: "The failed stage was queued again.", tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The failed stage could not be retried."),
+        tone: "error",
+      });
+    }
+  };
 
   const run = async (
     siteId: number,
@@ -204,6 +275,16 @@ export default function SitesPage() {
           <button onClick={() => setShowAdd(true)} className="btn btn-outline">
             + Connect source
           </button>
+          <button
+            type="button"
+            onClick={() => void launchBatch()}
+            disabled={selectedSiteIds.size === 0 || createBatch.isPending}
+            className="btn btn-outline"
+          >
+            {createBatch.isPending
+              ? "Starting batch…"
+              : `Run batch${selectedSiteIds.size ? ` (${selectedSiteIds.size})` : ""}`}
+          </button>
           <label className="min-w-52 flex-1 sm:max-w-sm">
             <span className="sr-only">Search sources</span>
             <input
@@ -222,6 +303,28 @@ export default function SitesPage() {
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+
+        {batchQuery.data && (
+          <BatchPipelinePanel
+            batch={batchQuery.data}
+            sites={sites ?? []}
+            retryingSiteId={
+              retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
+            }
+            onRetry={(siteId) => void retryBatchSite(siteId)}
+          />
+        )}
+
+        {batchId !== null && batchQuery.isError && (
+          <div className="mb-4">
+            <ErrorPanel
+              title={`Batch #${batchId} could not be loaded`}
+              description="The engine could not return the latest pipeline progress."
+              onRetry={() => void batchQuery.refetch()}
+              retrying={batchQuery.isFetching}
+            />
+          </div>
+        )}
 
         <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
           <div>Site</div>
@@ -259,6 +362,15 @@ export default function SitesPage() {
               className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
             >
               <div className="flex items-center gap-3">
+                {site.platform !== "pool" && (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 flex-none accent-primary"
+                    aria-label={`Select ${site.name} for batch`}
+                    checked={selectedSiteIds.has(site.id)}
+                    onChange={() => toggleSelectedSite(site.id)}
+                  />
+                )}
                 {/* {component.voice-icon-circular}, wearing one of the five
                     atmospheric stops — the row's only colour. */}
                 <span

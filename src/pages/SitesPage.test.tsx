@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
@@ -15,6 +15,22 @@ const mocks = vi.hoisted(() => ({
   activeJobs: {
     data: [] as unknown[],
   },
+  batch: {
+    data: undefined as unknown,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+    requestedId: null as number | null,
+  },
+  createBatch: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  retryBatch: {
+    isPending: false,
+    variables: undefined as { siteId: number } | undefined,
+    mutateAsync: vi.fn(),
+  },
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -27,6 +43,15 @@ vi.mock("../hooks/useJobs", () => ({
   useJob: () => ({ data: undefined }),
 }));
 
+vi.mock("../hooks/usePipeline", () => ({
+  usePipelineBatch: (batchId: number | null) => {
+    mocks.batch.requestedId = batchId;
+    return mocks.batch;
+  },
+  useCreatePipelineBatch: () => mocks.createBatch,
+  useRetryPipelineSite: () => mocks.retryBatch,
+}));
+
 beforeEach(() => {
   Object.assign(mocks.sites, {
     data: [],
@@ -36,6 +61,17 @@ beforeEach(() => {
     dataUpdatedAt: 0,
   });
   mocks.activeJobs.data = [];
+  Object.assign(mocks.batch, {
+    data: undefined,
+    isError: false,
+    isFetching: false,
+    requestedId: null,
+  });
+  Object.assign(mocks.createBatch, { isPending: false });
+  mocks.createBatch.mutateAsync.mockReset();
+  Object.assign(mocks.retryBatch, { isPending: false, variables: undefined });
+  mocks.retryBatch.mutateAsync.mockReset();
+  window.history.replaceState({}, "", "/sites");
 });
 
 afterEach(cleanup);
@@ -62,6 +98,55 @@ describe("SitesPage scheduler copy", () => {
     render(<SitesPage />);
 
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+  });
+});
+
+describe("SitesPage batch pipeline", () => {
+  it("selects non-pool sites and starts one batch", async () => {
+    mocks.sites.data = [
+      {
+        id: 4,
+        name: "Nona",
+        base_url: "https://nona.example.com",
+        platform: "html",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 5,
+        name: "Shawn",
+        base_url: "https://shawn.example.com",
+        platform: "wordpress",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 6,
+        name: "Pool",
+        base_url: "https://pool.example.com",
+        platform: "pool",
+        crawl_frequency: "daily",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+    ];
+    mocks.createBatch.mutateAsync.mockResolvedValue({ id: 12, total: 2 });
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Nona for batch" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shawn for batch" }));
+    expect(screen.queryByRole("checkbox", { name: "Select Pool for batch" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run batch (2)" }));
+
+    await waitFor(() => expect(mocks.createBatch.mutateAsync).toHaveBeenCalledWith([4, 5]));
+    expect(window.location.search).toBe("?batch=12");
+  });
+
+  it("restores batch monitoring from the page URL", () => {
+    window.history.replaceState({}, "", "/sites?batch=27");
+
+    render(<SitesPage />);
+
+    expect(mocks.batch.requestedId).toBe(27);
   });
 });
 
@@ -274,23 +359,19 @@ describe("SitesPage Hybrid standard", () => {
 });
 
 describe("SitesPage source controls", () => {
-  it("filters connected sources without hiding the fleet total", () => {
+  it("keeps content-pool sources out of the owned-sites fleet", () => {
     mocks.sites.data = [
       { id: 1, name: "Docs", base_url: "https://docs.example.com", platform: "wordpress" },
       { id: 2, name: "News pool", base_url: "https://example.com/feed", platform: "pool" },
     ];
     render(<SitesPage />);
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search sources" }), {
-      target: { value: "pool" },
-    });
-
-    expect(document.body.textContent).toContain("2 connected sources");
-    expect(document.body.textContent).toContain("News pool");
-    expect(document.body.textContent).not.toContain("docs.example.com");
+    expect(document.body.textContent).toContain("1 connected source");
+    expect(document.body.textContent).toContain("docs.example.com");
+    expect(document.body.textContent).not.toContain("News pool");
   });
 
-  it("keeps pool actions read-only", () => {
+  it("shows no owned-site row when the account only has a pool source", () => {
     mocks.sites.data = [{
       id: 2,
       name: "News pool",
@@ -300,9 +381,7 @@ describe("SitesPage source controls", () => {
     }];
     render(<SitesPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    expect(screen.queryByRole("menuitem", { name: /Generate suggestions/ })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Publish approved" })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Delete site" })).not.toBeNull();
+    expect(document.body.textContent).toContain("No sites are connected yet");
+    expect(document.body.textContent).not.toContain("News pool");
   });
 });

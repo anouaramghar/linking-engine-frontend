@@ -3,6 +3,7 @@ import type {
   BulkImportResult,
   Site,
   SiteCreate,
+  PoolAuditEvent,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -49,3 +50,19 @@ export const ingestSite = (id: number) =>
 
 export const publishSite = (id: number) =>
   api.post<JobAccepted>(`/publish/${id}`).then((r) => r.data);
+
+export const approvePoolSource = (id: number) =>
+  api.post<Site>(`/sites/${id}/pool-source/approval`).then((r) => r.data);
+
+export const revokePoolSource = (id: number) =>
+  api.delete<Site>(`/sites/${id}/pool-source/approval`).then((r) => r.data);
+
+export const reactivatePoolSource = (id: number) =>
+  api.post<Site>(`/sites/${id}/pool-source/reactivate`).then((r) => r.data);
+
+export const listPoolAuditEvents = (id: number) =>
+  api
+    .get<PoolAuditEvent[]>(`/sites/${id}/pool-source/audit-events`, {
+      params: { limit: 50, offset: 0 },
+    })
+    .then((r) => r.data);
