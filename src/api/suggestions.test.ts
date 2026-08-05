@@ -8,6 +8,7 @@ import {
   listSuggestionPage,
   reviewSuggestion,
   triggerAnalysis,
+  triggerComparison,
 } from "./suggestions";
 
 const api = vi.hoisted(() => ({
@@ -46,14 +47,12 @@ describe("cursor queue reads", () => {
       listSuggestionPage(
         { siteId: 3, status: "pending" },
         null,
-        true,
       ),
     ).resolves.toEqual(first);
     await expect(
       listSuggestionPage(
         { siteId: 3, status: "pending" },
         first.next_cursor,
-        false,
       ),
     ).resolves.toEqual(second);
 
@@ -61,7 +60,6 @@ describe("cursor queue reads", () => {
       params: {
         site_id: 3,
         status: "pending",
-        include_total: true,
         limit: 1000,
       },
     });
@@ -71,7 +69,6 @@ describe("cursor queue reads", () => {
         status: "pending",
         after_score: 0.9,
         after_id: 10,
-        include_total: false,
         limit: 1000,
       },
     });
@@ -165,16 +162,76 @@ describe("filtered bulk review", () => {
   });
 });
 
+describe("discovery filters on the wire", () => {
+  it("sends each filter under the name the engine expects", async () => {
+    api.get.mockResolvedValue({ data: { items: [], total: null, limit: 50, next_cursor: null } });
+
+    await listSuggestionPage(
+      {
+        siteId: 3,
+        q: "hooks",
+        targetOrigin: "content_pool",
+        excludeReciprocal: true,
+        minPercent: 90,
+      },
+      null,
+    );
+
+    expect(api.get.mock.calls[0][1].params).toMatchObject({
+      site_id: 3,
+      q: "hooks",
+      target_origin: "content_pool",
+      exclude_reciprocal: true,
+      min_percent: 90,
+    });
+  });
+
+  it("omits a blank search rather than sending an empty term", async () => {
+    api.get.mockResolvedValue({ data: { items: [], total: null, limit: 50, next_cursor: null } });
+
+    await listSuggestionPage({ q: "" }, null);
+    await countSuggestions({ q: "", excludeReciprocal: false });
+
+    expect(api.get.mock.calls[0][1].params).not.toHaveProperty("q");
+    expect(api.get.mock.calls[1][1].params).not.toHaveProperty("q");
+    expect(api.get.mock.calls[1][1].params).not.toHaveProperty("exclude_reciprocal");
+  });
+
+  it("carries the queue's filters into the bulk rule", async () => {
+    api.post.mockResolvedValue({ data: { reviewed: 1, skipped: 0, reviewed_ids: [1], status: "approved" } });
+
+    await bulkReviewByFilter({
+      siteId: 3,
+      status: "approved",
+      thresholdPercent: 80,
+      q: "hooks",
+      targetOrigin: "content_pool",
+      excludeReciprocal: true,
+    });
+
+    expect(api.post.mock.calls[0][1]).toMatchObject({
+      site_id: 3,
+      status: "approved",
+      threshold_percent: 80,
+      q: "hooks",
+      target_origin: "content_pool",
+      exclude_reciprocal: true,
+    });
+  });
+});
+
 describe("current suggestion mutations", () => {
-  it("uses the backend's review and global Hybrid generation routes", async () => {
+  it("uses the backend's review, generation, and comparison routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post
       .mockResolvedValueOnce({ data: { reviewed: [8, 9], skipped: [], status: "rejected" } })
-      .mockResolvedValueOnce({ data: { job_id: "analysis-job" } });
+      .mockResolvedValueOnce({ data: { job_id: "analysis-job" } })
+      .mockResolvedValueOnce({ data: { job_id: "comparison-job" } });
 
     await reviewSuggestion(7, "approved");
     await bulkReview([8, 9], "rejected");
     await triggerAnalysis(3);
+    await triggerComparison(3);
 
     expect(api.put).toHaveBeenCalledWith("/suggestions/7", { status: "approved" });
     expect(api.post).toHaveBeenNthCalledWith(1, "/suggestions/bulk-review", {
@@ -182,6 +239,7 @@ describe("current suggestion mutations", () => {
       status: "rejected",
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
+    expect(api.post).toHaveBeenNthCalledWith(3, "/suggestions/3/compare");
   });
 });
 
@@ -212,6 +270,7 @@ describe("bulkReview", () => {
     ]);
     expect(result).toEqual({
       reviewed: ids.filter((id) => id !== 7 && id !== 2001),
+      reviewedCount: 2398,
       skipped: [7, 2001],
       status: "approved",
     });
@@ -224,6 +283,7 @@ describe("bulkReview", () => {
 
     await expect(bulkReview([1, 2], "approved")).resolves.toEqual({
       reviewed: [],
+      reviewedCount: 2,
       skipped: [],
       status: "approved",
     });
@@ -244,6 +304,7 @@ describe("bulkReview", () => {
     const partial = error as BulkReviewChunkError;
     expect(partial.completed).toEqual({
       reviewed: ids.slice(0, 1000),
+      reviewedCount: 1000,
       skipped: [],
       status: "rejected",
     });
@@ -257,6 +318,7 @@ describe("bulkReview", () => {
     // The engine rejects an empty batch as a client bug; never send one.
     await expect(bulkReview([], "approved")).resolves.toEqual({
       reviewed: [],
+      reviewedCount: 0,
       skipped: [],
       status: "approved",
     });

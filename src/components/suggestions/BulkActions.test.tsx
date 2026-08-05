@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import BulkActions from "./BulkActions";
@@ -30,17 +30,44 @@ describe("BulkActions", () => {
     expect(screen.queryByRole("button", { name: "GNN" })).toBeNull();
   });
 
-  it("reports threshold and bulk-action intents", () => {
+  it("reports bulk-action intents immediately", () => {
     const props = baseProps();
     render(<BulkActions {...props} />);
 
-    fireEvent.change(screen.getByLabelText("Score threshold"), {
-      target: { value: "75" },
-    });
     fireEvent.click(screen.getByRole("button", { name: /Accept/ }));
 
-    expect(props.onThresholdChange).toHaveBeenCalledWith(75);
     expect(props.onRequest).toHaveBeenCalledWith("approve");
+  });
+
+  /**
+   * Each committed threshold is a fresh query key for two count endpoints, so
+   * the field paints every keystroke but only reports the settled number. A
+   * two-digit entry has to cost one commit, not one per digit.
+   */
+  it("commits the threshold once the typing settles, not per keystroke", async () => {
+    const props = baseProps();
+    render(<BulkActions {...props} />);
+    const field = screen.getByLabelText("Score threshold");
+
+    fireEvent.change(field, { target: { value: "7" } });
+    fireEvent.change(field, { target: { value: "75" } });
+
+    expect(props.onThresholdChange).not.toHaveBeenCalled();
+    expect((field as HTMLInputElement).value).toBe("75");
+
+    await waitFor(() => expect(props.onThresholdChange).toHaveBeenCalledWith(75));
+    expect(props.onThresholdChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles the threshold at once when the field is left", () => {
+    const props = baseProps();
+    render(<BulkActions {...props} />);
+    const field = screen.getByLabelText("Score threshold");
+
+    fireEvent.change(field, { target: { value: "75" } });
+    fireEvent.blur(field);
+
+    expect(props.onThresholdChange).toHaveBeenCalledWith(75);
   });
 
   it("disables empty actions and renders confirmation details", () => {

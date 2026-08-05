@@ -32,9 +32,9 @@ export default function Modal({ title, onClose, children, panelClassName = "" }:
         aria-labelledby={titleId}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className={`flex max-h-[85vh] w-full flex-col rounded-xl border border-hairline bg-canvas-soft p-8 focus:outline-none ${panelClassName}`}
+        className={`flex max-h-[85vh] w-full flex-col rounded-xl border border-hairline bg-canvas-soft p-5 focus:outline-none sm:p-8 ${panelClassName}`}
       >
-        <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="mb-5 flex flex-none items-start justify-between gap-4">
           <h2 id={titleId} className="font-serif text-display-sm text-ink">
             {title}
           </h2>
@@ -43,12 +43,22 @@ export default function Modal({ title, onClose, children, panelClassName = "" }:
             aria-label="Close dialog"
             data-modal-dismiss=""
             onClick={onClose}
-            className="-mr-1 -mt-1 rounded-pill px-2 py-1 text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
+            className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
           >
             &times;
           </button>
         </div>
-        {children}
+        {/* The panel is capped at 85vh, so its body has to be the thing that
+            scrolls. Without this the tallest form (a WordPress site, with
+            credentials) measures ~634px and simply overflows the backdrop on
+            any viewport under ~746px tall — a 1366x768 laptop included — taking
+            its submit button off-screen with no way to reach it.
+
+            The negative margin buys back room for a 2px focus ring at 2px
+            offset, which an overflow container would otherwise shave. */}
+        <div className="-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto px-2">
+          {children}
+        </div>
       </div>
     </div>
   );

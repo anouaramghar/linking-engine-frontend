@@ -5,6 +5,7 @@ import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../../hooks/useMediaQuery"
 import {
   PUBLICATION_STATUS_MESSAGE,
   STATUS_META,
+  TARGET_ORIGIN_LABEL,
   isReversible,
   pct,
 } from "../../lib/utils";
@@ -29,12 +30,6 @@ export default function SuggestionPreview({
 }: Props) {
   const slug = s.target_article.url.replace(/^https?:\/\/[^/]+/, "") || s.target_article.url;
   const publicationMessage = PUBLICATION_STATUS_MESSAGE[s.status];
-  const scoringSignals = [
-    "Semantic relevance",
-    "Shared taxonomy",
-    "Target need",
-    "Direction fit",
-  ] as const;
   // Beside the list this is ordinary page content; over the list it is a dialog.
   // The trap follows the same switch, so Tab only stops escaping once there is
   // something behind the panel to escape into.
@@ -47,7 +42,7 @@ export default function SuggestionPreview({
   const onKeyDown = useFocusTrap(panel, onClose, overlaid);
 
   const panelClass =
-    "w-[410px] flex-none overflow-y-auto border-l border-hairline bg-canvas-soft p-8";
+    "w-full flex-none overflow-y-auto border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
 
   const body = (
     <>
@@ -56,7 +51,7 @@ export default function SuggestionPreview({
         <button
           aria-label="Close preview"
           onClick={onClose}
-          className="rounded-pill px-2 py-1 text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
+          className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
         >
           &times;
         </button>
@@ -86,7 +81,23 @@ export default function SuggestionPreview({
         <div className="text-body-sm font-medium leading-snug text-ink">
           {s.target_article.title}
         </div>
-        <div className="mt-1 text-caption text-muted">{slug}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="badge">{TARGET_ORIGIN_LABEL[s.target_origin]}</span>
+          {s.target_origin === "content_pool" && (
+            <span className="text-caption text-muted">{s.target_site_name}</span>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-muted">
+          <span>{slug}</span>
+          <a
+            href={s.target_article.url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-ink"
+          >
+            open target
+          </a>
+        </div>
         {s.anchor_text && (
           <div className="mt-2 text-caption text-muted">
             Suggested anchor: <span className="font-medium text-ink">{s.anchor_text}</span>
@@ -94,7 +105,7 @@ export default function SuggestionPreview({
         )}
       </div>
 
-      <div className="my-5 grid grid-cols-2 gap-2.5">
+      <div className="my-5">
         <div className="relative overflow-hidden rounded-xxl border border-hairline bg-canvas-soft p-4">
           <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[radial-gradient(circle,theme(colors.orb-sky/40%),transparent_70%)]" />
           <div className="eyebrow">
@@ -102,7 +113,7 @@ export default function SuggestionPreview({
           </div>
           <div className="mt-2 font-serif text-display-md text-ink">{pct(s.score)}</div>
           {/*
-            The percentage above is similarity for every method. On a Hybrid row it
+            The percentage above is similarity for every method. On a pilot row it
             is *not* what chose the suggestion, so the selection score is shown as
             its own raw number — never rescaled into a second percentage, which
             would read as a confidence it is not.
@@ -113,23 +124,10 @@ export default function SuggestionPreview({
             </div>
           )}
         </div>
-        <div className="rounded-xxl border border-hairline bg-surface-card p-4">
-          <div className="eyebrow">GraphSAGE</div>
-          <div className="mt-2 font-serif text-display-md text-muted">Soon</div>
-        </div>
-      </div>
-
-      <div className="mb-5 grid grid-cols-2 gap-2.5 text-caption">
-        {scoringSignals.map((label) => (
-          <div className="card px-4 py-3" key={label}>
-            <div className="text-muted">{label}</div>
-            <div className="mt-1 font-medium text-ink">Soon</div>
-          </div>
-        ))}
       </div>
 
       {s.status === "pending" ? (
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button onClick={onAccept} className="btn btn-primary flex-1">
             Accept & queue placement
           </button>
@@ -138,7 +136,7 @@ export default function SuggestionPreview({
           </button>
         </div>
       ) : (
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <div className="flex h-10 flex-1 items-center justify-center gap-2 rounded-pill bg-surface-strong px-4 text-caption-upper uppercase text-ink">
             <span className={`dot ${STATUS_META[s.status].dot}`} />
             {STATUS_META[s.status].label}
@@ -199,7 +197,7 @@ export default function SuggestionPreview({
         onKeyDown={onKeyDown}
         // A strip of the list stays visible so the panel reads as covering it
         // rather than as the page having navigated somewhere else.
-        className={`${panelClass} max-w-[calc(100%-2rem)] shadow-drawer focus:outline-none`}
+        className={`${panelClass} max-w-[calc(100%-1rem)] shadow-drawer focus:outline-none sm:max-w-[calc(100%-2rem)]`}
       >
         {body}
       </aside>

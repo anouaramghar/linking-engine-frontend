@@ -1,4 +1,4 @@
-import type { SuggestionStatus } from "../types/suggestion";
+import type { SuggestionStatus, SuggestionTargetOrigin } from "../types/suggestion";
 
 /**
  * The whole-percent score an editor sees. Threshold rules compare against this
@@ -7,6 +7,8 @@ import type { SuggestionStatus } from "../types/suggestion";
 export const scorePercent = (score: number) => Math.round(score * 100);
 
 export const pct = (n: number) => `${scorePercent(n)}%`;
+
+export const formatCount = (count: number) => new Intl.NumberFormat("en-US").format(count);
 
 export const initials = (name: string) =>
   name
@@ -29,6 +31,11 @@ export const METHOD_LABEL: Record<string, string> = {
   hybrid_bm25: "hybrid BM25",
 };
 
+export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
+  internal: "Internal link",
+  content_pool: "External link · Content pool",
+};
+
 /**
  * Status is carried by a dot beside its own text label, never by tinting the
  * label itself. The design system has exactly two chromatic semantics
@@ -42,6 +49,7 @@ export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string 
   rejected: { label: "Rejected", dot: "bg-error" },
   applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
   applied: { label: "Published live", dot: "bg-success" },
+  expired: { label: "Expired", dot: "bg-muted-soft" },
 };
 
 /** Once publishing starts the worker owns the row, so the decision is final. */

@@ -25,8 +25,7 @@ export const useSuggestions = (
 ) => {
   const query = useInfiniteQuery({
     queryKey: ["suggestions", "queue", filters],
-    queryFn: ({ pageParam }) =>
-      listSuggestionPage(filters, pageParam, pageParam === null),
+    queryFn: ({ pageParam }) => listSuggestionPage(filters, pageParam),
     initialPageParam: null as SuggestionCursor | null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     placeholderData: keepPreviousData,
@@ -36,8 +35,6 @@ export const useSuggestions = (
   return {
     ...query,
     items: query.data?.pages.flatMap((page) => page.items) ?? [],
-    // Only the first page asks the backend for this count.
-    total: query.data?.pages[0]?.total ?? 0,
   };
 };
 
@@ -48,6 +45,12 @@ export const useSuggestionCounts = (
   useQuery({
     queryKey: ["suggestions", "counts", filters],
     queryFn: () => countSuggestions(filters),
+    // The threshold rule is part of this key, so every change of it is a new
+    // query. Without a placeholder the counts blink to `undefined`, the page
+    // reads that as zero, and the bulk buttons those counts label disable
+    // themselves under the user's cursor. Holding the last answer keeps the
+    // control usable; it is at most one debounce interval stale.
+    placeholderData: keepPreviousData,
     enabled,
   });
 

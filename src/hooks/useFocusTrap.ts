@@ -34,6 +34,10 @@ export const useFocusTrap = (
     const target = items.find((item) => item.dataset.modalDismiss === undefined);
     (target ?? items[0] ?? panel.current)?.focus();
 
+    // Today's shell is `h-[100dvh] overflow-hidden` with every scroller an
+    // inner pane, so `body` does not scroll and this lock changes nothing. It
+    // stays because it is the guard that keeps that true: the day a layout
+    // change lets the page behind a dialog scroll, this is what stops it.
     const { overflow } = document.body.style;
     document.body.style.overflow = "hidden";
 

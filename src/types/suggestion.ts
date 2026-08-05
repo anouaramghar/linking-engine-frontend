@@ -4,12 +4,15 @@ export interface ArticleBrief {
   url: string;
 }
 
+export type SuggestionTargetOrigin = "internal" | "content_pool";
+
 export type SuggestionStatus =
   | "pending"
   | "approved"
   | "rejected"
   | "applying"
-  | "applied";
+  | "applied"
+  | "expired";
 /** Statuses an editor can set directly. 'pending' undoes an earlier decision. */
 export type ReviewStatus = "approved" | "rejected" | "pending";
 
@@ -22,7 +25,7 @@ export type ReviewStatus = "approved" | "rejected" | "pending";
  */
 export interface SuggestionScoreComponents {
   version?: string;
-  /** Which signal produced the delivered order. `bm25_512` for global Hybrid. */
+  /** Which signal produced the delivered order. `bm25_512` for the pilot. */
   final_order?: string;
   score_is?: string;
   recipe?: string;
@@ -40,6 +43,8 @@ export interface Suggestion {
   site_id: number;
   source_article: ArticleBrief;
   target_article: ArticleBrief;
+  target_origin: SuggestionTargetOrigin;
+  target_site_name: string;
   method: string;
   /** Cosine semantic similarity, whichever method selected the row. */
   score: number;

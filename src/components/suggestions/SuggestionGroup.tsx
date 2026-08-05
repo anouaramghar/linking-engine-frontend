@@ -34,31 +34,36 @@ export default function SuggestionGroup({
       aria-labelledby={headingId}
       className="overflow-hidden rounded-xxl border border-hairline bg-surface-card"
     >
-      <div className="flex items-center gap-4 border-b border-hairline bg-canvas-soft px-5 py-4">
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          aria-controls={listId}
-          aria-label={`${action} suggestions for ${sourceArticle.title} (${path})`}
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-        >
-          <span
-            aria-hidden
-            className="flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong bg-surface-card text-body-sm font-medium text-ink"
+      <div className="flex flex-col items-stretch gap-3 border-b border-hairline bg-canvas-soft px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+        {/* A real heading, so the queue has structure a screen reader can jump
+            through — the page's h1 is the PageHeader, each source article is an
+            h2. The APG accordion shape: heading wraps the disclosure button. */}
+        <h2 className="min-w-0 flex-1">
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-controls={listId}
+            aria-label={`${action} suggestions for ${sourceArticle.title} (${path})`}
+            onClick={onToggle}
+            className="flex w-full min-w-0 items-center gap-3 text-left"
           >
-            {collapsed ? "+" : "-"}
-          </span>
-          <span className="min-w-0">
-            <span id={headingId} className="block truncate text-body-md font-medium text-ink">
-              {sourceArticle.title}
+            <span
+              aria-hidden
+              className="flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong bg-surface-card text-body-sm font-medium text-ink"
+            >
+              {collapsed ? "+" : "-"}
             </span>
-            <span className="mt-1 block truncate text-caption text-muted">
-              {siteName} &middot; {path}
+            <span className="min-w-0">
+              <span id={headingId} className="block truncate text-body-md font-medium text-ink">
+                {sourceArticle.title}
+              </span>
+              <span className="mt-1 block truncate text-caption text-muted">
+                {siteName} &middot; {path}
+              </span>
             </span>
-          </span>
-        </button>
-        <span className="badge flex-none">
+          </button>
+        </h2>
+        <span className="badge flex-none self-start">
           {count} {count === 1 ? "suggestion" : "suggestions"}
         </span>
       </div>

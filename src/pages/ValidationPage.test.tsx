@@ -1,10 +1,23 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BulkReviewChunkError } from "../api/suggestions";
 import type { Suggestion } from "../types/suggestion";
 import ValidationPage from "./ValidationPage";
+
+/**
+ * The queue keeps its filters in the URL so they can be linked to, which means
+ * it needs a router even when a test never navigates. Entries let a test start
+ * from a filtered queue the way a shared link would.
+ */
+const renderQueue = (initialEntry = "/") =>
+  render(<ValidationPage />, {
+    wrapper: ({ children }) => (
+      <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>
+    ),
+  });
 
 const SITE = {
   id: 1,
@@ -130,6 +143,8 @@ const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion
   site_id: 1,
   source_article: { id: id * 10, title: `Source ${id}`, url: `/source-${id}` },
   target_article: { id: id * 10 + 1, title: `Target ${id}`, url: `/target-${id}` },
+  target_origin: "internal",
+  target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.8,
   status: "pending",
@@ -230,7 +245,7 @@ describe("ValidationPage live review state", () => {
       expired: 2,
       total: 2420,
     };
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(screen.getByRole("button", { name: /Pending review.*2400/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /All.*2420/ })).not.toBeNull();
@@ -266,7 +281,7 @@ describe("ValidationPage live review state", () => {
       }),
     );
 
-    render(<ValidationPage />);
+    renderQueue();
 
     const groups = screen.getAllByRole("region", { name: "Hello world!" });
     expect(groups).toHaveLength(2);
@@ -306,7 +321,7 @@ describe("ValidationPage live review state", () => {
         status: "pending",
       }),
     );
-    render(<ValidationPage />);
+    renderQueue();
 
     const group = screen.getByRole("region", { name: "Shared source" });
     const collapse = within(group).getByRole("button", {
@@ -332,7 +347,7 @@ describe("ValidationPage live review state", () => {
 
   it("saves a confirmed bulk action through the backend mutation", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
     expect(screen.getByRole("alertdialog").textContent).toContain("1 pending suggestion");
@@ -349,7 +364,7 @@ describe("ValidationPage live review state", () => {
 
   it("saves an individual decision through the backend mutation", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
 
@@ -363,7 +378,7 @@ describe("ValidationPage live review state", () => {
 
   it("cancels a bulk action without sending or changing decisions", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -376,7 +391,7 @@ describe("ValidationPage live review state", () => {
 
   it("walks a bulk decision back through the undo action", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
@@ -395,7 +410,7 @@ describe("ValidationPage live review state", () => {
   it("keeps the rows a publish already claimed out of the local override", async () => {
     const user = userEvent.setup();
     mocks.suggestions.push(suggestion(4, { score: 0.85 }));
-    render(<ValidationPage />);
+    renderQueue();
 
     // The worker claims suggestion 1 between the decision and this batch.
     mocks.bulkSkipped = [1];
@@ -418,7 +433,7 @@ describe("ValidationPage live review state", () => {
     // Suggestion 1 was requested but no longer exists, so it is neither
     // reviewed nor skipped by the engine.
     mocks.filteredReviewedIds = [4];
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
@@ -442,12 +457,12 @@ describe("ValidationPage live review state", () => {
       suggestion(4, { score: 0.85 }),
       suggestion(5, { score: 0.9 }),
     );
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*3/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
     mocks.bulkError = new BulkReviewChunkError(
-      { reviewed: [1], skipped: [], status: "pending" },
+      { reviewed: [1], reviewedCount: 1, skipped: [], status: "pending" },
       [4],
       [5],
     );
@@ -465,7 +480,7 @@ describe("ValidationPage live review state", () => {
 
   it("says so plainly when a batch changed nothing at all", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     mocks.bulkSkipped = [1];
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
@@ -489,7 +504,7 @@ describe("ValidationPage live review state", () => {
     );
     mocks.filteredReviewedIds = null;
     mocks.filteredReviewedCount = 1001;
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*1001/ }));
     expect(screen.getByRole("alertdialog").textContent).toContain(
@@ -505,7 +520,7 @@ describe("ValidationPage live review state", () => {
 
   it("never targets suggestions hidden by the active status filter", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Published live.*1/ }));
 
@@ -515,13 +530,14 @@ describe("ValidationPage live review state", () => {
     expect(
       (screen.getByRole("button", { name: /^Accept ≥/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(document.body.textContent).toContain("Bulk rules act on pending suggestions");
+    expect(document.body.textContent).toContain("Switch to Pending review or All to use bulk review");
   });
 
-  it("marks the future suggestion method as Soon", () => {
-    render(<ValidationPage />);
+  it("shows the real scoring signal without advertising unsupported future methods", () => {
+    renderQueue();
 
-    expect(document.body.textContent).toContain("GraphSAGE Soon");
+    expect(document.body.textContent).toContain("Semantic match");
+    expect(document.body.textContent).not.toContain("GraphSAGE");
     expect(document.body.textContent).not.toContain("External links");
     expect(document.body.textContent).not.toContain("Generate anchors");
   });
@@ -529,7 +545,7 @@ describe("ValidationPage live review state", () => {
 
 describe("ValidationPage publish handoff", () => {
   it("stays quiet while nothing is approved", () => {
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(document.body.textContent).not.toContain("waiting to be published");
   });
@@ -537,7 +553,7 @@ describe("ValidationPage publish handoff", () => {
   it("surfaces an approved backlog and publishes the sites holding it", async () => {
     const user = userEvent.setup();
     mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 24 }];
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(document.body.textContent).toContain("waiting to be published");
     await user.click(screen.getByRole("button", { name: "Publish 1 site" }));
@@ -549,7 +565,7 @@ describe("ValidationPage publish handoff", () => {
 describe("ValidationPage keyboard review", () => {
   it("moves a cursor through the queue and decides without the mouse", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
 
@@ -568,7 +584,7 @@ describe("ValidationPage keyboard review", () => {
 
   it("hands the cursor to the next row after a decision", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
 
@@ -592,7 +608,7 @@ describe("ValidationPage keyboard review", () => {
     // Pending order is [1 @80%, 2 @79%, 4 @50%, 5 @95%]; a "below 80%" rule
     // takes 2 and 4, so the cursor row goes but the row after it survives.
     mocks.suggestions.push(suggestion(4, { score: 0.5 }), suggestion(5, { score: 0.95 }));
-    render(<ValidationPage />);
+    renderQueue();
 
     const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
 
@@ -618,7 +634,7 @@ describe("ValidationPage keyboard review", () => {
       suggestion(5, { score: 0.95 }),
       suggestion(6, { score: 0.9 }),
     );
-    render(<ValidationPage />);
+    renderQueue();
 
     const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
 
@@ -634,7 +650,7 @@ describe("ValidationPage keyboard review", () => {
 
   it("closes the preview on Escape", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.keyboard("j");
     expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
@@ -645,7 +661,7 @@ describe("ValidationPage keyboard review", () => {
 
   it("ignores shortcuts while a field has focus", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByLabelText("Score threshold"));
     await user.keyboard("r");
@@ -655,7 +671,7 @@ describe("ValidationPage keyboard review", () => {
 
   it("opens a suggestion from the keyboard", async () => {
     const user = userEvent.setup();
-    render(<ValidationPage />);
+    renderQueue();
 
     const open = screen.getAllByRole("button", { name: /^Open suggestion:/ })[0];
     open.focus();
@@ -668,7 +684,7 @@ describe("ValidationPage keyboard review", () => {
 describe("ValidationPage load states", () => {
   it("shows a placeholder rather than an empty queue while sites load", () => {
     mocks.sitesQuery = query({ isPending: true });
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(screen.getByLabelText("Loading suggestions")).not.toBeNull();
     expect(document.body.textContent).not.toContain("No suggestions match these filters");
@@ -676,7 +692,7 @@ describe("ValidationPage load states", () => {
 
   it("never reports a failed load as an empty queue", () => {
     mocks.suggestionsQuery = query({ isError: true });
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(screen.getByRole("alert").textContent).toContain(
       "The review queue could not be loaded",
@@ -687,7 +703,7 @@ describe("ValidationPage load states", () => {
   it("points a brand-new account at the Sites page", () => {
     mocks.suggestions.length = 0;
     mocks.sitesQuery = query({ data: [] });
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(document.body.textContent).toContain("No sites are connected yet");
   });
@@ -695,9 +711,8 @@ describe("ValidationPage load states", () => {
 
 describe("ValidationPage mixed-method queue", () => {
   /**
-   * A pilot site's queue holds both methods at once: rows written before
-   * enrollment and rows written after it. Neither may be hidden, miscounted, or
-   * made harder to act on than the other.
+   * A queue can retain historical cosine rows beside current Hybrid rows.
+   * Neither may be hidden, miscounted, or made harder to act on than the other.
    */
   const hybrid = (id: number, overrides: Partial<Suggestion> = {}) =>
     suggestion(id, {
@@ -718,7 +733,7 @@ describe("ValidationPage mixed-method queue", () => {
       suggestion(1),
       hybrid(2),
     );
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByText("Source 2")).not.toBeNull();
@@ -734,7 +749,7 @@ describe("ValidationPage mixed-method queue", () => {
       hybrid(2),
       hybrid(3, { status: "approved" }),
     );
-    render(<ValidationPage />);
+    renderQueue();
 
     expect(screen.getByRole("button", { name: /Pending.*2/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
@@ -743,7 +758,7 @@ describe("ValidationPage mixed-method queue", () => {
   it("reviews a hybrid row through the same mutation as a baseline row", async () => {
     const user = userEvent.setup();
     mocks.suggestions.splice(0, mocks.suggestions.length, hybrid(2));
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
 
@@ -761,7 +776,7 @@ describe("ValidationPage mixed-method queue", () => {
       suggestion(1, { score: 0.9 }),
       hybrid(2, { score: 0.85 }),
     );
-    render(<ValidationPage />);
+    renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
     expect(screen.getByRole("alertdialog").textContent).toContain("2 pending suggestion");
