@@ -1,4 +1,4 @@
-import type { PublicationDryRun } from "../../api/publish";
+import { DRY_RUN_MAX_ARTICLES, type PublicationDryRun } from "../../api/publish";
 import Modal from "../Modal";
 
 interface Props {
@@ -67,7 +67,9 @@ export default function PublicationPreviewModal({
                 </p>
               )}
               {data.truncated && (
-                <p className="mt-1">Only the first 10 source articles are shown in this preview.</p>
+                <p className="mt-1">
+                  Only the first {DRY_RUN_MAX_ARTICLES} source articles are shown in this preview.
+                </p>
               )}
               {data.errors.length > 0 && (
                 <div className="mt-2" role="alert">

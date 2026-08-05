@@ -49,7 +49,14 @@ export const listPendingPublication = () =>
     .get<PendingPublicationSite[]>("/publish/pending")
     .then((response) => response.data);
 
-export const getPublicationDryRun = (siteId: number, maxArticles = 10) =>
+/**
+ * How many source articles a preview covers. Exported because the modal has to
+ * say so when the run is larger than this, and a number repeated in the copy is
+ * a number that goes stale the first time this one is tuned.
+ */
+export const DRY_RUN_MAX_ARTICLES = 10;
+
+export const getPublicationDryRun = (siteId: number, maxArticles = DRY_RUN_MAX_ARTICLES) =>
   api
     .get<PublicationDryRun>(`/publish/${siteId}/dry-run`, {
       params: { max_articles: maxArticles },
