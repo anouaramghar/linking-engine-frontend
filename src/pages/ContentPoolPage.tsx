@@ -259,6 +259,8 @@ export default function ContentPoolPage() {
           title={`Delete ${deleteSite.name}?`}
           description="This removes the source and its imported articles. Its immutable audit history is retained."
           confirmLabel="Delete source"
+          confirmPhrase={deleteSite.name}
+          confirmPhraseLabel="Type the source name to confirm:"
           danger
           pending={remove.isPending}
           onConfirm={confirmDelete}

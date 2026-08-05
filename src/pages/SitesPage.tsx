@@ -531,6 +531,7 @@ export default function SitesPage() {
           title={`Delete ${pendingDelete.name}?`}
           description="This removes the site along with its articles, embeddings and suggestions. Links already published to the live site are not removed."
           confirmLabel="Delete site"
+          confirmPhrase={pendingDelete.name}
           danger
           pending={deleteSite.isPending}
           onConfirm={remove}
