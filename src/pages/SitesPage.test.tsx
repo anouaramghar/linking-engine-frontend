@@ -132,6 +132,7 @@ describe("SitesPage batch pipeline", () => {
     mocks.createBatch.mutateAsync.mockResolvedValue({ id: 12, total: 2 });
     render(<SitesPage />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Nona for batch" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Shawn for batch" }));
     expect(screen.queryByRole("checkbox", { name: "Select Pool for batch" })).toBeNull();
@@ -139,6 +140,51 @@ describe("SitesPage batch pipeline", () => {
 
     await waitFor(() => expect(mocks.createBatch.mutateAsync).toHaveBeenCalledWith([4, 5]));
     expect(window.location.search).toBe("?batch=12");
+  });
+
+  it("selects all visible sites and exposes a clear selection tray", () => {
+    mocks.sites.data = [
+      {
+        id: 4,
+        name: "Nona",
+        base_url: "https://nona.example.com",
+        platform: "html",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 5,
+        name: "Shawn",
+        base_url: "https://shawn.example.com",
+        platform: "wordpress",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(screen.queryByRole("checkbox", { name: "Select Nona for batch" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Shawn for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
+      "2 sites selected",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    expect(screen.queryByRole("region", { name: "Batch selection" })).toBeNull();
   });
 
   it("restores batch monitoring from the page URL", () => {

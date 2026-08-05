@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Ref } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
@@ -127,6 +128,79 @@ function SuggestionMethodBadge() {
   );
 }
 
+function SelectionControl({
+  label,
+  checked,
+  indeterminate = false,
+  disabled = false,
+  inputRef,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  inputRef?: Ref<HTMLInputElement>;
+  onChange: () => void;
+}) {
+  const active = checked || indeterminate;
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="checkbox"
+        className="peer sr-only"
+        aria-label={label}
+        aria-checked={indeterminate ? "mixed" : checked}
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none flex h-5 w-5 flex-none items-center justify-center rounded-md border transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-disabled:opacity-50 ${
+          active
+            ? "border-primary bg-primary text-on-primary"
+            : "border-hairline-control bg-surface-card"
+        }`}
+      >
+        {indeterminate ? (
+          <span className="h-0.5 w-2.5 rounded-pill bg-on-primary" />
+        ) : checked ? (
+          <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+            <path
+              d="m3 8 3 3 7-7"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ) : null}
+      </span>
+    </>
+  );
+}
+
+function SiteIdentity({ site, index }: { site: Site; index: number }) {
+  return (
+    <>
+      <span
+        className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
+      >
+        {initials(site.name)}
+      </span>
+      <div className="min-w-0">
+        <div className="truncate font-medium text-ink">{site.name}</div>
+        <div className="truncate text-caption text-muted">
+          {site.base_url.replace(/^https?:\/\//, "")}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function SitesPage() {
   const sitesQuery = useSites();
   const sites = useMemo(
@@ -146,7 +220,10 @@ export default function SitesPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
+  const selectVisibleRef = useRef<HTMLInputElement>(null);
+  const selectVisibleMobileRef = useRef<HTMLInputElement>(null);
   const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
   const createBatch = useCreatePipelineBatch();
   const batchQuery = usePipelineBatch(batchId);
@@ -165,6 +242,20 @@ export default function SitesPage() {
     );
   }, [search, sites]);
 
+  const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
+  const selectedVisibleCount = visibleSiteIds.filter((id) => selectedSiteIds.has(id)).length;
+  const allVisibleSelected =
+    visibleSiteIds.length > 0 && selectedVisibleCount === visibleSiteIds.length;
+  const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+  const selectedOutsideSearchCount = selectedSiteIds.size - selectedVisibleCount;
+
+  useEffect(() => {
+    if (selectVisibleRef.current) selectVisibleRef.current.indeterminate = someVisibleSelected;
+    if (selectVisibleMobileRef.current) {
+      selectVisibleMobileRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
 
   const toggleSelectedSite = (siteId: number) => {
@@ -174,6 +265,20 @@ export default function SitesPage() {
       else next.add(siteId);
       return next;
     });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedSiteIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) visibleSiteIds.forEach((id) => next.delete(id));
+      else visibleSiteIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedSiteIds(new Set());
   };
 
   const showBatch = (nextBatchId: number) => {
@@ -189,6 +294,7 @@ export default function SitesPage() {
     try {
       const batch = await createBatch.mutateAsync([...selectedSiteIds]);
       showBatch(batch.id);
+      setSelectionMode(false);
       setSelectedSiteIds(new Set());
       setNotice({ message: `Batch #${batch.id} started for ${batch.total} sites.`, tone: "info" });
     } catch (error) {
@@ -280,13 +386,11 @@ export default function SitesPage() {
           </button>
           <button
             type="button"
-            onClick={() => void launchBatch()}
-            disabled={selectedSiteIds.size === 0 || createBatch.isPending}
+            onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
+            aria-pressed={selectionMode}
             className="btn btn-outline"
           >
-            {createBatch.isPending
-              ? "Starting batch…"
-              : `Run batch${selectedSiteIds.size ? ` (${selectedSiteIds.size})` : ""}`}
+            {selectionMode ? "Cancel selection" : "Select sites"}
           </button>
           <label className="min-w-52 flex-1 sm:max-w-sm">
             <span className="sr-only">Search sources</span>
@@ -304,6 +408,25 @@ export default function SitesPage() {
             </span>
           )}
         </div>
+
+        {selectionMode && (
+          <div className="card mb-4 flex items-center justify-between gap-3 px-3 py-2.5 lg:hidden">
+            <label className="flex min-h-11 cursor-pointer items-center gap-3">
+              <SelectionControl
+                inputRef={selectVisibleMobileRef}
+                label="Select all visible sites"
+                checked={allVisibleSelected}
+                indeterminate={someVisibleSelected}
+                disabled={visibleSiteIds.length === 0}
+                onChange={toggleAllVisible}
+              />
+              <span className="text-caption font-medium text-ink">Select visible sites</span>
+            </label>
+            <span className="text-caption text-muted">
+              {visibleSiteIds.length} visible
+            </span>
+          </div>
+        )}
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
@@ -330,7 +453,21 @@ export default function SitesPage() {
         )}
 
         <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
-          <div>Site</div>
+          <div className="flex items-center gap-3">
+            {selectionMode && (
+              <label className="touch-target inline-flex cursor-pointer items-center justify-center">
+                <SelectionControl
+                  inputRef={selectVisibleRef}
+                  label="Select all visible sites"
+                  checked={allVisibleSelected}
+                  indeterminate={someVisibleSelected}
+                  disabled={visibleSiteIds.length === 0}
+                  onChange={toggleAllVisible}
+                />
+              </label>
+            )}
+            <span>Site</span>
+          </div>
           <div>Connector</div>
           <div className="xl:hidden">Details</div>
           <div className="hidden xl:block">Articles</div>
@@ -362,31 +499,23 @@ export default function SitesPage() {
           {visibleSites?.map((site, index) => (
             <div
               key={site.id}
-              className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
+              className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5 ${
+                selectedSiteIds.has(site.id) ? "border-ink bg-surface-strong" : ""
+              }`}
             >
-              <div className="flex items-center gap-3">
-                {site.platform !== "pool" && (
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 flex-none accent-primary"
-                    aria-label={`Select ${site.name} for batch`}
-                    checked={selectedSiteIds.has(site.id)}
-                    onChange={() => toggleSelectedSite(site.id)}
-                  />
+              <div className="flex min-w-0 items-center gap-3">
+                {selectionMode ? (
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                    <SelectionControl
+                      label={`Select ${site.name} for batch`}
+                      checked={selectedSiteIds.has(site.id)}
+                      onChange={() => toggleSelectedSite(site.id)}
+                    />
+                    <SiteIdentity site={site} index={index} />
+                  </label>
+                ) : (
+                  <SiteIdentity site={site} index={index} />
                 )}
-                {/* {component.voice-icon-circular}, wearing one of the five
-                    atmospheric stops — the row's only colour. */}
-                <span
-                  className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
-                >
-                  {initials(site.name)}
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-ink">{site.name}</div>
-                  <div className="truncate text-caption text-muted">
-                    {site.base_url.replace(/^https?:\/\//, "")}
-                  </div>
-                </div>
               </div>
               <div className="text-caption text-muted lg:text-body">
                 <span className="lg:hidden">Connector: </span>
@@ -523,6 +652,40 @@ export default function SitesPage() {
           </span>{" "}
           object before suggestion analysis. {RQ_SCHEDULING_COPY}
         </div>
+
+        {selectionMode && selectedSiteIds.size > 0 && (
+          <div
+            role="region"
+            aria-label="Batch selection"
+            className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-body-sm font-medium text-ink" aria-live="polite">
+                {selectedSiteIds.size} site{selectedSiteIds.size === 1 ? "" : "s"} selected
+              </div>
+              <div className="mt-1 text-caption text-muted">
+                {selectedOutsideSearchCount > 0
+                  ? `${selectedOutsideSearchCount} selected outside this search.`
+                  : "Ready to run together."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedSiteIds(new Set())}
+              className="btn btn-outline btn-sm"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => void launchBatch()}
+              disabled={createBatch.isPending}
+              className="btn btn-primary btn-sm sm:min-w-[10rem]"
+            >
+              {createBatch.isPending ? "Starting batch…" : `Run batch (${selectedSiteIds.size})`}
+            </button>
+          </div>
+        )}
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}

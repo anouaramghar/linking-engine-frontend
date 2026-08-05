@@ -91,7 +91,7 @@ export default function SuggestionPreview({
           )}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-muted">
-          <span>{slug}</span>
+          <span className="min-w-0 max-w-full break-all">{slug}</span>
           <a
             href={s.target_article.url}
             target="_blank"

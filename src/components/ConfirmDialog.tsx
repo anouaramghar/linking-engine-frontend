@@ -45,7 +45,7 @@ export default function ConfirmDialog({
         <div className="mt-4">
           <label htmlFor={inputId} className="block text-body-sm text-body">
             {confirmPhraseLabel ?? "Type the name to confirm:"}{" "}
-            <span className="font-medium text-heading">{confirmPhrase}</span>
+            <span className="font-medium text-ink">{confirmPhrase}</span>
           </label>
           <input
             id={inputId}
@@ -54,7 +54,7 @@ export default function ConfirmDialog({
             onChange={(event) => setTyped(event.target.value)}
             autoComplete="off"
             autoFocus
-            className="input mt-2 w-full"
+            className="field mt-2"
           />
         </div>
       )}

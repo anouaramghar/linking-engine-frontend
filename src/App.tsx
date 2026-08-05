@@ -1,12 +1,13 @@
+import { lazy, Suspense } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import { useHealth } from "./hooks/useHealth";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
-import EvaluationPage from "./pages/EvaluationPage";
-import ContentPoolPage from "./pages/ContentPoolPage";
-import SitesPage from "./pages/SitesPage";
-import ValidationPage from "./pages/ValidationPage";
+const EvaluationPage = lazy(() => import("./pages/EvaluationPage"));
+const ContentPoolPage = lazy(() => import("./pages/ContentPoolPage"));
+const SitesPage = lazy(() => import("./pages/SitesPage"));
+const ValidationPage = lazy(() => import("./pages/ValidationPage"));
 
 const NAV = [
   { to: "/queue", label: "Review queue" },
@@ -169,14 +170,26 @@ export default function App() {
         {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
         <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
         <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
-        <Routes>
-          <Route path="/" element={<Navigate to="/queue" replace />} />
-          <Route path="/queue" element={<ValidationPage />} />
-          <Route path="/sites" element={<SitesPage />} />
-          <Route path="/content-pool" element={<ContentPoolPage />} />
-          <Route path="/evaluation" element={<EvaluationPage />} />
-          <Route path="*" element={<Navigate to="/queue" replace />} />
-        </Routes>
+        <Suspense
+          fallback={
+            <div
+              role="progressbar"
+              aria-label="Loading page"
+              className="flex min-h-0 flex-1 items-center justify-center p-8 text-body-sm text-muted"
+            >
+              Loading page…
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/" element={<Navigate to="/queue" replace />} />
+            <Route path="/queue" element={<ValidationPage />} />
+            <Route path="/sites" element={<SitesPage />} />
+            <Route path="/content-pool" element={<ContentPoolPage />} />
+            <Route path="/evaluation" element={<EvaluationPage />} />
+            <Route path="*" element={<Navigate to="/queue" replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );

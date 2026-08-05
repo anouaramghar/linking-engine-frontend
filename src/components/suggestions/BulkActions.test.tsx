@@ -89,8 +89,9 @@ describe("BulkActions", () => {
     expect(
       (screen.getByRole("button", { name: /Accept/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(screen.getByRole("alertdialog").textContent).toContain("3 pending suggestions");
-    expect(screen.getByRole("alertdialog").textContent).toContain("Example site");
+    const confirmation = screen.getByRole("region", { name: /3 pending suggestions/ });
+    expect(confirmation.textContent).toContain("Example site");
+    expect(confirmation.getAttribute("aria-live")).toBe("polite");
   });
 
   it("warns before confirming a rule too large for exact undo", () => {
@@ -108,7 +109,7 @@ describe("BulkActions", () => {
       />,
     );
 
-    expect(screen.getByRole("alertdialog").textContent).toContain(
+    expect(screen.getByRole("region", { name: /1001 pending suggestions/ }).textContent).toContain(
       "too large to undo in one step",
     );
   });

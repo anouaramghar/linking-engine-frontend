@@ -9,14 +9,14 @@ export interface QueueShortcutHandlers {
   onEscape: () => void;
 }
 
-/** Typing in a field, or working inside a dialog, must never trigger a review. */
+/** Typing in a field, or working inside a dialog/confirmation, must never trigger a review. */
 const isTyping = (target: EventTarget | null) => {
   const el = target as HTMLElement | null;
   if (!el?.tagName) return false;
   return (
     ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) ||
     el.isContentEditable ||
-    !!el.closest?.("[role='dialog']")
+    !!el.closest?.("[role='dialog'], [role='alertdialog'], [data-queue-confirmation]")
   );
 };
 

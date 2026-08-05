@@ -97,22 +97,21 @@ export default {
         serif: ["'EB Garamond'", "Georgia", "serif"],
       },
       /**
-       * Weight travels with the token only where it is structural — display
-       * always 300, titles/buttons/nav always 500, eyebrows always 600. The
+       * Weight travels with the token only where it is structural — the shipped
+       * display fallback is 400, titles/buttons/nav always 500, eyebrows always 600. The
        * body sizes stay weightless so `font-medium` can compose on top, which
        * is how `{typography.body-strong}` is built.
        *
-       * Display carries fontWeight 300 as the system specifies. EB Garamond's
-       * lightest cut is 400, so it renders at 400 until a licensed Waldenburg
-       * is dropped in; browsers do not synthesise weights lighter than the
-       * available cut, so this is a no-op rather than a faux-light.
+       * EB Garamond ships a 400 cut in this bundle. Keeping the token at 400
+       * makes the rendered fallback truthful; licensed Waldenburg can return
+       * the display role to 300 without changing component classes.
        */
       fontSize: {
-        "display-mega": ["64px", { lineHeight: "1.05", letterSpacing: "-1.92px", fontWeight: "300" }],
-        "display-xl": ["48px", { lineHeight: "1.08", letterSpacing: "-0.96px", fontWeight: "300" }],
-        "display-lg": ["36px", { lineHeight: "1.17", letterSpacing: "-0.36px", fontWeight: "300" }],
-        "display-md": ["32px", { lineHeight: "1.13", letterSpacing: "-0.32px", fontWeight: "300" }],
-        "display-sm": ["24px", { lineHeight: "1.2", letterSpacing: "0", fontWeight: "300" }],
+        "display-mega": ["64px", { lineHeight: "1.05", letterSpacing: "-1.92px", fontWeight: "400" }],
+        "display-xl": ["48px", { lineHeight: "1.08", letterSpacing: "-0.96px", fontWeight: "400" }],
+        "display-lg": ["36px", { lineHeight: "1.17", letterSpacing: "-0.36px", fontWeight: "400" }],
+        "display-md": ["32px", { lineHeight: "1.13", letterSpacing: "-0.32px", fontWeight: "400" }],
+        "display-sm": ["24px", { lineHeight: "1.2", letterSpacing: "0", fontWeight: "400" }],
         "title-md": ["20px", { lineHeight: "1.35", letterSpacing: "0", fontWeight: "500" }],
         "title-sm": ["18px", { lineHeight: "1.44", letterSpacing: "0.18px", fontWeight: "500" }],
         "body-md": ["16px", { lineHeight: "1.5", letterSpacing: "0.16px" }],

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { BulkReviewAction } from "../../lib/suggestionReview";
 
@@ -56,6 +56,9 @@ export default function BulkActions({
   onConfirm,
   onCancel,
 }: Props) {
+  const confirmationTitleId = useId();
+  const confirmationDescriptionId = useId();
+
   // Mirrors the committed threshold, but tolerates the transient empty string
   // and any leading zeros while the field is being edited. Resynced during
   // render when the parent clamps the value, so the input never paints a
@@ -109,7 +112,7 @@ export default function BulkActions({
               // invisible to a screen reader and to anyone who cannot separate
               // the two treatments by colour.
               aria-pressed={active === chip.key}
-              className={`min-h-10 rounded-md px-3 text-caption font-medium transition-colors ${
+              className={`touch-target min-h-11 rounded-md px-3 text-caption font-medium transition-colors sm:min-h-10 ${
                 active === chip.key
                   ? "bg-primary text-on-primary"
                   : "text-muted hover:bg-surface-strong hover:text-ink"
@@ -193,19 +196,24 @@ export default function BulkActions({
 
       {confirmation && (
         <div
-          role="alertdialog"
-          aria-label="Confirm bulk review"
+          role="region"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-labelledby={confirmationTitleId}
+          aria-describedby={confirmationDescriptionId}
+          data-queue-confirmation=""
           // The system has no warning colour and asks for none: an interrupt
           // reads as a raised band on {colors.surface-strong} rather than a
-          // saturated fill.
+          // saturated fill. It stays inline, so it is a live region rather than
+          // a modal dialog that would need to take and trap focus.
           className="flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-strong px-4 py-3"
         >
           <div className="min-w-0 flex-1">
-            <div className="text-body-sm font-medium text-ink">
+            <div id={confirmationTitleId} className="text-body-sm font-medium text-ink">
               {verb} {confirmation.count} pending suggestion
               {confirmation.count === 1 ? "" : "s"}?
             </div>
-            <div className="mt-1 text-caption text-body">
+            <div id={confirmationDescriptionId} className="mt-1 text-caption text-body">
               {confirmation.siteLabel} &middot; score {comparison}. Only pending
               suggestions matching this rule are affected. {" "}
               {confirmation.undoAvailable

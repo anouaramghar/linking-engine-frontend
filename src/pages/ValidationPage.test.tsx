@@ -372,7 +372,9 @@ describe("ValidationPage live review state", () => {
     renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
-    expect(screen.getByRole("alertdialog").textContent).toContain("1 pending suggestion");
+    expect(screen.getByRole("region", { name: /1 pending suggestion/ }).textContent).toContain(
+      "1 pending suggestion",
+    );
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     expect(mocks.filteredBulkMutate).toHaveBeenCalledWith(
@@ -405,7 +407,7 @@ describe("ValidationPage live review state", () => {
     await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("region", { name: /pending suggestion/ })).toBeNull();
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Queued for publish.*0/ })).not.toBeNull();
     expect(mocks.filteredBulkMutate).not.toHaveBeenCalled();
@@ -529,7 +531,7 @@ describe("ValidationPage live review state", () => {
     renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*1001/ }));
-    expect(screen.getByRole("alertdialog").textContent).toContain(
+    expect(screen.getByRole("region", { name: /1001 pending suggestions/ }).textContent).toContain(
       "too large to undo in one step",
     );
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
@@ -846,7 +848,9 @@ describe("ValidationPage mixed-method queue", () => {
     renderQueue();
 
     await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
-    expect(screen.getByRole("alertdialog").textContent).toContain("2 pending suggestion");
+    expect(screen.getByRole("region", { name: /2 pending suggestions/ }).textContent).toContain(
+      "2 pending suggestions",
+    );
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     // The rule carries no method, so it reaches the hybrid row too.
