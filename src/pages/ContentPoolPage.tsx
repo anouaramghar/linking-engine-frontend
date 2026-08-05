@@ -96,7 +96,9 @@ export default function ContentPoolPage() {
     if (!deleteSite) return;
     const target = deleteSite;
     setDeleteSite(null);
-    void runAction("Source deletion", () => remove.mutateAsync(target.id));
+    void runAction("Source deletion", () =>
+      remove.mutateAsync({ id: target.id, confirmName: target.name }),
+    );
   };
 
   return (

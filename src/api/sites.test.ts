@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approvePoolSource,
   bulkCreateSites,
+  deleteSite,
   listPoolAuditEvents,
   listSites,
   reactivatePoolSource,
@@ -59,6 +60,18 @@ describe("bulkCreateSites", () => {
 
     await expect(bulkCreateSites(sites)).resolves.toEqual(result);
     expect(post).toHaveBeenCalledWith("/sites/bulk", { sites });
+  });
+});
+
+describe("deleteSite", () => {
+  it("sends the site name so the backend can refuse accidental deletes", async () => {
+    del.mockResolvedValue({ data: undefined });
+
+    await deleteSite(9, "Acme Blog");
+
+    expect(del).toHaveBeenCalledWith("/sites/9", {
+      params: { confirm_name: "Acme Blog" },
+    });
   });
 });
 

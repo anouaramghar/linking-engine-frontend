@@ -43,7 +43,8 @@ export const createSite = (payload: SiteCreate) =>
 export const bulkCreateSites = (sites: SiteCreate[]) =>
   api.post<BulkImportResult>("/sites/bulk", { sites }).then((r) => r.data);
 
-export const deleteSite = (id: number) => api.delete(`/sites/${id}`);
+export const deleteSite = (id: number, confirmName: string) =>
+  api.delete(`/sites/${id}`, { params: { confirm_name: confirmName } });
 
 export const ingestSite = (id: number) =>
   api.post<JobAccepted>(`/sites/${id}/ingest`).then((r) => r.data);

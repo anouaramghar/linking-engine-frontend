@@ -32,7 +32,8 @@ export const useBulkCreateSites = () => {
 export const useDeleteSite = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: deleteSite,
+    mutationFn: ({ id, confirmName }: { id: number; confirmName: string }) =>
+      deleteSite(id, confirmName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
   });
 };

@@ -247,14 +247,17 @@ export default function SitesPage() {
     const { id, name } = pendingDelete;
     setPendingDelete(null);
     setNotice(null);
-    deleteSite.mutate(id, {
-      onSuccess: () => setNotice({ message: `${name} was deleted.`, tone: "info" }),
-      onError: (error) =>
-        setNotice({
-          message: errorDetail(error, `${name} could not be deleted. Please try again.`),
-          tone: "error",
-        }),
-    });
+    deleteSite.mutate(
+      { id, confirmName: name },
+      {
+        onSuccess: () => setNotice({ message: `${name} was deleted.`, tone: "info" }),
+        onError: (error) =>
+          setNotice({
+            message: errorDetail(error, `${name} could not be deleted. Please try again.`),
+            tone: "error",
+          }),
+      },
+    );
   };
 
   return (
