@@ -28,6 +28,17 @@ export interface Site {
   pool_source_last_reactivated_by?: string | null;
 }
 
+export interface PoolAuditEvent {
+  id: number;
+  site_id: number;
+  site_name: string;
+  site_base_url: string;
+  action: "approved" | "revoked" | "quarantined" | "reactivated";
+  operator_id: string;
+  reason: string | null;
+  created_at: string;
+}
+
 export interface SiteCreate {
   name: string;
   base_url: string;

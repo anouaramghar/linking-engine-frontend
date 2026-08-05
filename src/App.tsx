@@ -4,12 +4,14 @@ import { useHealth } from "./hooks/useHealth";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
 import EvaluationPage from "./pages/EvaluationPage";
+import ContentPoolPage from "./pages/ContentPoolPage";
 import SitesPage from "./pages/SitesPage";
 import ValidationPage from "./pages/ValidationPage";
 
 const NAV = [
   { to: "/queue", label: "Review queue" },
   { to: "/sites", label: "Sites" },
+  { to: "/content-pool", label: "Content Pool" },
   { to: "/evaluation", label: "Evaluation" },
 ];
 
@@ -40,7 +42,7 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
   return (
     <nav
       aria-label={mobile ? "Mobile navigation" : "Primary navigation"}
-      className={mobile ? "grid grid-cols-3 gap-1 px-2 pb-2" : "flex flex-col gap-1"}
+      className={mobile ? "grid grid-cols-4 gap-1 px-2 pb-2" : "flex flex-col gap-1"}
     >
       {NAV.map((item) => (
         <NavLink
@@ -58,7 +60,13 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
         >
           {({ isActive }) => (
             <>
-              <span>{mobile && item.to === "/queue" ? "Queue" : item.label}</span>
+              <span>
+                {mobile && item.to === "/queue"
+                  ? "Queue"
+                  : mobile && item.to === "/content-pool"
+                    ? "Pool"
+                    : item.label}
+              </span>
               {item.to === "/queue" && pending > 0 && (
                 <span
                   className={`rounded-pill px-2 py-0.5 text-caption-upper ${
@@ -80,6 +88,7 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
 
 export default function App() {
   const { data: sites } = useSites();
+  const ownedSiteCount = sites?.filter((site) => site.platform !== "pool").length ?? 0;
   const { data: counts } = useSuggestionCounts({}, Boolean(sites?.length));
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   const pending = counts?.pending ?? 0;
@@ -146,7 +155,7 @@ export default function App() {
             />
             <span className="font-medium text-ink">{healthLabel}</span>
           </div>
-          <div>{sites?.length ?? 0} sites connected</div>
+          <div>{ownedSiteCount} sites connected</div>
           <div>Last batch: <span className="font-medium text-ink">Soon</span></div>
           <div>Vectors: <span className="font-medium text-ink">Soon</span> &middot; pgvector</div>
         </div>
@@ -164,6 +173,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/queue" replace />} />
           <Route path="/queue" element={<ValidationPage />} />
           <Route path="/sites" element={<SitesPage />} />
+          <Route path="/content-pool" element={<ContentPoolPage />} />
           <Route path="/evaluation" element={<EvaluationPage />} />
           <Route path="*" element={<Navigate to="/queue" replace />} />
         </Routes>

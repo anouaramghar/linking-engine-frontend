@@ -5,9 +5,10 @@ import {
   bulkCreateSites,
   createSite,
   deleteSite,
+  listPoolAuditEvents,
   listSites,
   reactivatePoolSource,
-  revokePoolSourceApproval,
+  revokePoolSource,
 } from "../api/sites";
 
 export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
@@ -36,28 +37,21 @@ export const useDeleteSite = () => {
   });
 };
 
-export const useApprovePoolSource = () => {
+const usePoolMutation = (mutationFn: (id: number) => Promise<unknown>) => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, approvedBy }: { id: number; approvedBy: string }) =>
-      approvePoolSource(id, approvedBy),
+    mutationFn,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
   });
 };
 
-export const useRevokePoolSourceApproval = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: revokePoolSourceApproval,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
-  });
-};
+export const useApprovePoolSource = () => usePoolMutation(approvePoolSource);
+export const useRevokePoolSource = () => usePoolMutation(revokePoolSource);
+export const useReactivatePoolSource = () => usePoolMutation(reactivatePoolSource);
 
-export const useReactivatePoolSource = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, reactivatedBy }: { id: number; reactivatedBy: string }) =>
-      reactivatePoolSource(id, reactivatedBy),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+export const usePoolAuditEvents = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["pool-audit", siteId],
+    queryFn: () => listPoolAuditEvents(siteId!),
+    enabled: siteId !== null,
   });
-};

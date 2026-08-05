@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
@@ -15,24 +15,41 @@ const mocks = vi.hoisted(() => ({
   activeJobs: {
     data: [] as unknown[],
   },
-  poolMutations: {
-    approve: { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null },
-    revoke: { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null },
-    reactivate: { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null },
+  batch: {
+    data: undefined as unknown,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+    requestedId: null as number | null,
+  },
+  createBatch: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  retryBatch: {
+    isPending: false,
+    variables: undefined as { siteId: number } | undefined,
+    mutateAsync: vi.fn(),
   },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
-  useApprovePoolSource: () => mocks.poolMutations.approve,
-  useRevokePoolSourceApproval: () => mocks.poolMutations.revoke,
-  useReactivatePoolSource: () => mocks.poolMutations.reactivate,
 }));
 
 vi.mock("../hooks/useJobs", () => ({
   useActiveJobs: () => mocks.activeJobs,
   useJob: () => ({ data: undefined }),
+}));
+
+vi.mock("../hooks/usePipeline", () => ({
+  usePipelineBatch: (batchId: number | null) => {
+    mocks.batch.requestedId = batchId;
+    return mocks.batch;
+  },
+  useCreatePipelineBatch: () => mocks.createBatch,
+  useRetryPipelineSite: () => mocks.retryBatch,
 }));
 
 beforeEach(() => {
@@ -44,12 +61,17 @@ beforeEach(() => {
     dataUpdatedAt: 0,
   });
   mocks.activeJobs.data = [];
-  for (const mutation of Object.values(mocks.poolMutations)) {
-    mutation.mutate.mockReset();
-    mutation.reset?.mockReset();
-    mutation.isPending = false;
-    mutation.error = null;
-  }
+  Object.assign(mocks.batch, {
+    data: undefined,
+    isError: false,
+    isFetching: false,
+    requestedId: null,
+  });
+  Object.assign(mocks.createBatch, { isPending: false });
+  mocks.createBatch.mutateAsync.mockReset();
+  Object.assign(mocks.retryBatch, { isPending: false, variables: undefined });
+  mocks.retryBatch.mutateAsync.mockReset();
+  window.history.replaceState({}, "", "/sites");
 });
 
 afterEach(cleanup);
@@ -76,6 +98,55 @@ describe("SitesPage scheduler copy", () => {
     render(<SitesPage />);
 
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+  });
+});
+
+describe("SitesPage batch pipeline", () => {
+  it("selects non-pool sites and starts one batch", async () => {
+    mocks.sites.data = [
+      {
+        id: 4,
+        name: "Nona",
+        base_url: "https://nona.example.com",
+        platform: "html",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 5,
+        name: "Shawn",
+        base_url: "https://shawn.example.com",
+        platform: "wordpress",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 6,
+        name: "Pool",
+        base_url: "https://pool.example.com",
+        platform: "pool",
+        crawl_frequency: "daily",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+    ];
+    mocks.createBatch.mutateAsync.mockResolvedValue({ id: 12, total: 2 });
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Nona for batch" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shawn for batch" }));
+    expect(screen.queryByRole("checkbox", { name: "Select Pool for batch" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run batch (2)" }));
+
+    await waitFor(() => expect(mocks.createBatch.mutateAsync).toHaveBeenCalledWith([4, 5]));
+    expect(window.location.search).toBe("?batch=12");
+  });
+
+  it("restores batch monitoring from the page URL", () => {
+    window.history.replaceState({}, "", "/sites?batch=27");
+
+    render(<SitesPage />);
+
+    expect(mocks.batch.requestedId).toBe(27);
   });
 });
 
@@ -288,23 +359,19 @@ describe("SitesPage Hybrid standard", () => {
 });
 
 describe("SitesPage source controls", () => {
-  it("filters connected sources without hiding the fleet total", () => {
+  it("keeps content-pool sources out of the owned-sites fleet", () => {
     mocks.sites.data = [
       { id: 1, name: "Docs", base_url: "https://docs.example.com", platform: "wordpress" },
       { id: 2, name: "News pool", base_url: "https://example.com/feed", platform: "pool" },
     ];
     render(<SitesPage />);
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search sources" }), {
-      target: { value: "pool" },
-    });
-
-    expect(document.body.textContent).toContain("2 connected sources");
-    expect(document.body.textContent).toContain("News pool");
-    expect(document.body.textContent).not.toContain("docs.example.com");
+    expect(document.body.textContent).toContain("1 connected source");
+    expect(document.body.textContent).toContain("docs.example.com");
+    expect(document.body.textContent).not.toContain("News pool");
   });
 
-  it("keeps pool actions read-only", () => {
+  it("shows no owned-site row when the account only has a pool source", () => {
     mocks.sites.data = [{
       id: 2,
       name: "News pool",
@@ -314,13 +381,14 @@ describe("SitesPage source controls", () => {
     }];
     render(<SitesPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    expect(screen.queryByRole("menuitem", { name: /Generate suggestions/ })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Publish approved" })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Delete site" })).not.toBeNull();
+    expect(document.body.textContent).toContain("No sites are connected yet");
+    expect(document.body.textContent).not.toContain("News pool");
   });
 
-  it("does not apply pool approval gates to regular sites", () => {
+  // Pool approval moved to ContentPoolPage, which owns its own tests. What is
+  // still worth asserting here is the negative: an owned site carries none of
+  // that gating and stays crawlable.
+  it("leaves crawling available on an owned site", () => {
     mocks.sites.data = [
       {
         id: 1,
@@ -332,85 +400,5 @@ describe("SitesPage source controls", () => {
     render(<SitesPage />);
 
     expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("shows pending approval, blocks crawling, and submits the approval reviewer", () => {
-    mocks.sites.data = [
-      {
-        id: 2,
-        name: "News pool",
-        base_url: "https://example.com/feed",
-        platform: "pool",
-        pool_source_approved: false,
-      },
-    ];
-    render(<SitesPage />);
-
-    expect(document.body.textContent).toContain("Pending approval");
-    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Approve source" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Approved by" }), {
-      target: { value: "editor" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Approve source" }));
-
-    expect(mocks.poolMutations.approve.mutate).toHaveBeenCalledWith(
-      { id: 2, approvedBy: "editor" },
-      expect.any(Object),
-    );
-  });
-
-  it("shows quarantine state and submits a reactivation reviewer", () => {
-    mocks.sites.data = [
-      {
-        id: 2,
-        name: "News pool",
-        base_url: "https://example.com/feed",
-        platform: "pool",
-        pool_source_approved: true,
-        pool_source_approved_by: "editor",
-        pool_source_quarantined: true,
-        pool_source_consecutive_failures: 3,
-      },
-    ];
-    render(<SitesPage />);
-
-    expect(document.body.textContent).toContain("Quarantined");
-    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Reactivate source" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Reactivated by" }), {
-      target: { value: "editor" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Reactivate source" }));
-
-    expect(mocks.poolMutations.reactivate.mutate).toHaveBeenCalledWith(
-      { id: 2, reactivatedBy: "editor" },
-      expect.any(Object),
-    );
-  });
-
-  it("confirms before revoking an approved pool source", () => {
-    mocks.sites.data = [
-      {
-        id: 2,
-        name: "News pool",
-        base_url: "https://example.com/feed",
-        platform: "pool",
-        pool_source_approved: true,
-      },
-    ];
-    render(<SitesPage />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Revoke approval" }));
-    expect(screen.getByRole("heading", { name: "Revoke News pool?" })).not.toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Revoke approval" }));
-
-    expect(mocks.poolMutations.revoke.mutate).toHaveBeenCalledWith(2, expect.any(Object));
   });
 });

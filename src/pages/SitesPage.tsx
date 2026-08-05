@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ingestSite, publishSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
@@ -11,19 +11,15 @@ import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
-import PoolSourceReviewModal, {
-  type PoolSourceReviewAction,
-} from "../components/sites/PoolSourceReviewModal";
-import PoolSourceStatusBadge from "../components/sites/PoolSourceStatusBadge";
+import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import {
-  useApprovePoolSource,
-  useDeleteSite,
-  useReactivatePoolSource,
-  useRevokePoolSourceApproval,
-  useSites,
-} from "../hooks/useSites";
+  useCreatePipelineBatch,
+  usePipelineBatch,
+  useRetryPipelineSite,
+} from "../hooks/usePipeline";
+import { useDeleteSite, useSites } from "../hooks/useSites";
 import { errorDetail } from "../lib/errors";
 import {
   RQ_SCHEDULING_COPY,
@@ -42,6 +38,11 @@ import type { Site } from "../types/site";
 const GRID =
   "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
+
+const batchIdFromUrl = () => {
+  const value = Number(new URLSearchParams(window.location.search).get("batch"));
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
 
 function SiteDetail({
   label,
@@ -126,41 +127,36 @@ function SuggestionMethodBadge() {
   );
 }
 
-function poolCrawlBlockedReason(site: Site) {
-  if (site.platform !== "pool") return undefined;
-  if (site.pool_source_quarantined) {
-    return site.pool_source_approved
-      ? "Reactivate this quarantined source before crawling."
-      : "Approve this source, then reactivate it before crawling.";
-  }
-  if (!site.pool_source_approved) return "Approve this source before crawling.";
-  return undefined;
-}
-
 export default function SitesPage() {
   const sitesQuery = useSites();
-  const sites = sitesQuery.data;
+  const sites = useMemo(
+    () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
+    [sitesQuery.data],
+  );
   const totalArticles =
     sites?.every((site) => site.article_count !== undefined)
       ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
       : null;
   const activeJobs = useActiveJobs().data ?? [];
   const deleteSite = useDeleteSite();
-  const approvePool = useApprovePoolSource();
-  const revokePool = useRevokePoolSourceApproval();
-  const reactivatePool = useReactivatePoolSource();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<TrackedJob[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
-  const [pendingRevoke, setPendingRevoke] = useState<{ id: number; name: string } | null>(null);
-  const [poolReview, setPoolReview] = useState<{
-    action: PoolSourceReviewAction;
-    site: Pick<Site, "id" | "name" | "base_url">;
-  } | null>(null);
   const [search, setSearch] = useState("");
+  const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
+  const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
+  const createBatch = useCreatePipelineBatch();
+  const batchQuery = usePipelineBatch(batchId);
+  const retryPipelineSite = useRetryPipelineSite();
+
+  useEffect(() => {
+    const syncBatchFromUrl = () => setBatchId(batchIdFromUrl());
+    window.addEventListener("popstate", syncBatchFromUrl);
+    return () => window.removeEventListener("popstate", syncBatchFromUrl);
+  }, []);
   const visibleSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
@@ -170,6 +166,52 @@ export default function SitesPage() {
   }, [search, sites]);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
+
+  const toggleSelectedSite = (siteId: number) => {
+    setSelectedSiteIds((current) => {
+      const next = new Set(current);
+      if (next.has(siteId)) next.delete(siteId);
+      else next.add(siteId);
+      return next;
+    });
+  };
+
+  const showBatch = (nextBatchId: number) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("batch", String(nextBatchId));
+    window.history.pushState({}, "", url);
+    setBatchId(nextBatchId);
+  };
+
+  const launchBatch = async () => {
+    if (selectedSiteIds.size === 0 || createBatch.isPending) return;
+    setNotice(null);
+    try {
+      const batch = await createBatch.mutateAsync([...selectedSiteIds]);
+      showBatch(batch.id);
+      setSelectedSiteIds(new Set());
+      setNotice({ message: `Batch #${batch.id} started for ${batch.total} sites.`, tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The batch pipeline could not be started. Please try again."),
+        tone: "error",
+      });
+    }
+  };
+
+  const retryBatchSite = async (siteId: number) => {
+    if (batchId === null || retryPipelineSite.isPending) return;
+    setNotice(null);
+    try {
+      await retryPipelineSite.mutateAsync({ batchId, siteId });
+      setNotice({ message: "The failed stage was queued again.", tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The failed stage could not be retried."),
+        tone: "error",
+      });
+    }
+  };
 
   const run = async (
     siteId: number,
@@ -215,46 +257,6 @@ export default function SitesPage() {
     });
   };
 
-  const openPoolReview = (action: PoolSourceReviewAction, site: Site) => {
-    if (action === "approve") approvePool.reset();
-    else reactivatePool.reset();
-    setNotice(null);
-    setPoolReview({ action, site: { id: site.id, name: site.name, base_url: site.base_url } });
-  };
-
-  const submitPoolReview = (reviewer: string) => {
-    if (!poolReview) return;
-    const { action, site } = poolReview;
-    const onSuccess = () => {
-      setPoolReview(null);
-      setNotice({
-        message: `${site.name} was ${action === "approve" ? "approved" : "reactivated"}.`,
-        tone: "info",
-      });
-    };
-
-    if (action === "approve") {
-      approvePool.mutate({ id: site.id, approvedBy: reviewer }, { onSuccess });
-    } else {
-      reactivatePool.mutate({ id: site.id, reactivatedBy: reviewer }, { onSuccess });
-    }
-  };
-
-  const revoke = () => {
-    if (!pendingRevoke) return;
-    const { id, name } = pendingRevoke;
-    setPendingRevoke(null);
-    setNotice(null);
-    revokePool.mutate(id, {
-      onSuccess: () => setNotice({ message: `${name} approval was revoked.`, tone: "info" }),
-      onError: (error) =>
-        setNotice({
-          message: errorDetail(error, `${name} approval could not be revoked. Please try again.`),
-          tone: "error",
-        }),
-    });
-  };
-
   return (
     <>
       <PageHeader
@@ -272,6 +274,16 @@ export default function SitesPage() {
           </button>
           <button onClick={() => setShowAdd(true)} className="btn btn-outline">
             + Connect source
+          </button>
+          <button
+            type="button"
+            onClick={() => void launchBatch()}
+            disabled={selectedSiteIds.size === 0 || createBatch.isPending}
+            className="btn btn-outline"
+          >
+            {createBatch.isPending
+              ? "Starting batch…"
+              : `Run batch${selectedSiteIds.size ? ` (${selectedSiteIds.size})` : ""}`}
           </button>
           <label className="min-w-52 flex-1 sm:max-w-sm">
             <span className="sr-only">Search sources</span>
@@ -291,6 +303,28 @@ export default function SitesPage() {
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+
+        {batchQuery.data && (
+          <BatchPipelinePanel
+            batch={batchQuery.data}
+            sites={sites ?? []}
+            retryingSiteId={
+              retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
+            }
+            onRetry={(siteId) => void retryBatchSite(siteId)}
+          />
+        )}
+
+        {batchId !== null && batchQuery.isError && (
+          <div className="mb-4">
+            <ErrorPanel
+              title={`Batch #${batchId} could not be loaded`}
+              description="The engine could not return the latest pipeline progress."
+              onRetry={() => void batchQuery.refetch()}
+              retrying={batchQuery.isFetching}
+            />
+          </div>
+        )}
 
         <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
           <div>Site</div>
@@ -322,48 +356,21 @@ export default function SitesPage() {
         )}
 
         <div className="flex flex-col gap-2.5">
-          {visibleSites?.map((site, index) => {
-            const blockedReason = poolCrawlBlockedReason(site);
-            const crawlBusy = busy[busyKey(site.id, "Crawl")];
-            const poolActions =
-              site.platform === "pool"
-                ? [
-                    ...(!site.pool_source_approved
-                      ? [
-                          {
-                            label: "Approve source",
-                            disabled: approvePool.isPending,
-                            onSelect: () => openPoolReview("approve", site),
-                          },
-                        ]
-                      : []),
-                    ...(site.pool_source_quarantined
-                      ? [
-                          {
-                            label: "Reactivate source",
-                            disabled: !site.pool_source_approved || reactivatePool.isPending,
-                            onSelect: () => openPoolReview("reactivate", site),
-                          },
-                        ]
-                      : []),
-                    ...(site.pool_source_approved
-                      ? [
-                          {
-                            label: "Revoke approval",
-                            disabled: revokePool.isPending,
-                            onSelect: () => setPendingRevoke({ id: site.id, name: site.name }),
-                          },
-                        ]
-                      : []),
-                  ]
-                : [];
-
-            return (
+          {visibleSites?.map((site, index) => (
             <div
               key={site.id}
               className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
             >
               <div className="flex items-center gap-3">
+                {site.platform !== "pool" && (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 flex-none accent-primary"
+                    aria-label={`Select ${site.name} for batch`}
+                    checked={selectedSiteIds.has(site.id)}
+                    onChange={() => toggleSelectedSite(site.id)}
+                  />
+                )}
                 {/* {component.voice-icon-circular}, wearing one of the five
                     atmospheric stops — the row's only colour. */}
                 <span
@@ -437,23 +444,20 @@ export default function SitesPage() {
                   activeJobs={activeJobs}
                   trackedJobs={jobs}
                 />
-                {site.platform === "pool" && <PoolSourceStatusBadge site={site} />}
                 {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
               <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
                   type="button"
                   onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
-                  disabled={crawlBusy || Boolean(blockedReason)}
-                  title={blockedReason}
+                  disabled={busy[busyKey(site.id, "Crawl")]}
                   className="btn btn-outline btn-sm"
                 >
-                  {crawlBusy ? "Queueing…" : "Crawl"}
+                  {busy[busyKey(site.id, "Crawl")] ? "Queueing…" : "Crawl"}
                 </button>
                 <ActionMenu
                   label="Actions"
                   items={[
-                    ...poolActions,
                     ...(site.platform === "pool"
                       ? []
                       : [
@@ -499,8 +503,7 @@ export default function SitesPage() {
                 />
               </div>
             </div>
-            );
-          })}
+          ))}
         </div>
 
         {!sitesQuery.isPending &&
@@ -529,27 +532,6 @@ export default function SitesPage() {
           pending={deleteSite.isPending}
           onConfirm={remove}
           onCancel={() => setPendingDelete(null)}
-        />
-      )}
-      {pendingRevoke && (
-        <ConfirmDialog
-          title={`Revoke ${pendingRevoke.name}?`}
-          description="This stops manual and scheduled crawls for the content pool. Existing imported articles are not deleted by revoking approval."
-          confirmLabel="Revoke approval"
-          pending={revokePool.isPending}
-          onConfirm={revoke}
-          onCancel={() => setPendingRevoke(null)}
-        />
-      )}
-      {poolReview && (
-        <PoolSourceReviewModal
-          key={`${poolReview.site.id}:${poolReview.action}`}
-          site={poolReview.site}
-          action={poolReview.action}
-          pending={poolReview.action === "approve" ? approvePool.isPending : reactivatePool.isPending}
-          error={poolReview.action === "approve" ? approvePool.error : reactivatePool.error}
-          onSubmit={submitPoolReview}
-          onClose={() => setPoolReview(null)}
         />
       )}
     </>

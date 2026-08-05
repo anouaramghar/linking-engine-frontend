@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approvePoolSource,
   bulkCreateSites,
+  listPoolAuditEvents,
   listSites,
   reactivatePoolSource,
-  revokePoolSourceApproval,
+  revokePoolSource,
 } from "./sites";
 
 const get = vi.hoisted(() => vi.fn());
@@ -62,31 +63,40 @@ describe("bulkCreateSites", () => {
 });
 
 describe("content-pool controls", () => {
-  it("approves a pool source with the reviewer identity", async () => {
+  // The operator is identified by their API key, so these carry no body. A
+  // browser-supplied name would be self-asserted, and the audit trail these
+  // actions write is only worth keeping if the identity in it is not.
+  it("approves a pool source without asserting an identity", async () => {
     post.mockResolvedValue({ data: { id: 7 } });
 
-    await approvePoolSource(7, "editor");
+    await approvePoolSource(7);
 
-    expect(post).toHaveBeenCalledWith("/sites/7/pool-source/approval", {
-      approved_by: "editor",
-    });
+    expect(post).toHaveBeenCalledWith("/sites/7/pool-source/approval");
   });
 
   it("revokes pool approval", async () => {
     del.mockResolvedValue({ data: { id: 7 } });
 
-    await revokePoolSourceApproval(7);
+    await revokePoolSource(7);
 
     expect(del).toHaveBeenCalledWith("/sites/7/pool-source/approval");
   });
 
-  it("reactivates a quarantined pool source with the reviewer identity", async () => {
+  it("reactivates a quarantined pool source without asserting an identity", async () => {
     post.mockResolvedValue({ data: { id: 7 } });
 
-    await reactivatePoolSource(7, "editor");
+    await reactivatePoolSource(7);
 
-    expect(post).toHaveBeenCalledWith("/sites/7/pool-source/reactivate", {
-      reactivated_by: "editor",
+    expect(post).toHaveBeenCalledWith("/sites/7/pool-source/reactivate");
+  });
+
+  it("reads the audit trail newest-first within one page", async () => {
+    get.mockResolvedValue({ data: [] });
+
+    await listPoolAuditEvents(7);
+
+    expect(get).toHaveBeenCalledWith("/sites/7/pool-source/audit-events", {
+      params: { limit: 50, offset: 0 },
     });
   });
 });
