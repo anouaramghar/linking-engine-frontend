@@ -79,6 +79,13 @@ vi.mock("../hooks/useSuggestions", () => ({
     error: null,
     refetch: vi.fn(),
   }),
+  useSuggestionEvents: () => ({
+    data: [],
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   useSuggestionCounts: (filters: {
     siteId?: number;
     minPercent?: number;

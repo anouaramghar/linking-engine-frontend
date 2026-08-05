@@ -7,11 +7,12 @@ import {
   STATUS_META,
   TARGET_ORIGIN_LABEL,
   isReversible,
-  pct,
 } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
 import PlacementContextCard from "./PlacementContextCard";
 import type { PlacementState } from "./PlacementContextCard";
+import SuggestionTraceCard from "./SuggestionTraceCard";
+import type { SuggestionTraceState } from "./SuggestionTraceCard";
 
 interface Props {
   suggestion: Suggestion;
@@ -19,6 +20,8 @@ interface Props {
   /** Generated per suggestion, so it is fetched by the page that knows which
    *  one is open rather than by this component. */
   placement: PlacementState;
+  /** Loaded lazily for the open drawer, just like placement context. */
+  trace?: SuggestionTraceState;
   onClose: () => void;
   onAccept: () => void;
   onReject: () => void;
@@ -29,6 +32,7 @@ export default function SuggestionPreview({
   suggestion: s,
   siteName,
   placement,
+  trace,
   onClose,
   onAccept,
   onReject,
@@ -39,10 +43,6 @@ export default function SuggestionPreview({
   // Beside the list this is ordinary page content; over the list it is a dialog.
   // The trap follows the same switch, so Tab only stops escaping once there is
   // something behind the panel to escape into.
-  // Shown only when the engine reported one, so a baseline row and an engine
-  // that predates the components both simply omit it.
-  const bm25Score =
-    s.method === "hybrid_bm25" ? s.score_components?.bm25_score : undefined;
   const overlaid = useMediaQuery(OVERLAY_PREVIEW_QUERY);
   const panel = useRef<HTMLElement>(null);
   const onKeyDown = useFocusTrap(panel, onClose, overlaid);
@@ -108,26 +108,7 @@ export default function SuggestionPreview({
         )}
       </div>
 
-      <div className="my-5">
-        <div className="relative overflow-hidden rounded-xxl border border-hairline bg-canvas-soft p-4">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[radial-gradient(circle,theme(colors.orb-sky/40%),transparent_70%)]" />
-          <div className="eyebrow">
-            {s.method === "hybrid_bm25" ? "Semantic similarity" : "Cosine baseline"}
-          </div>
-          <div className="mt-2 font-serif text-display-md text-ink">{pct(s.score)}</div>
-          {/*
-            The percentage above is similarity for every method. On a pilot row it
-            is *not* what chose the suggestion, so the selection score is shown as
-            its own raw number — never rescaled into a second percentage, which
-            would read as a confidence it is not.
-          */}
-          {bm25Score !== undefined && (
-            <div className="mt-1 text-caption text-muted">
-              Selected by BM25 &middot; score {bm25Score.toFixed(1)}
-            </div>
-          )}
-        </div>
-      </div>
+      {trace && <SuggestionTraceCard suggestion={s} trace={trace} />}
 
       {s.status === "pending" ? (
         <div className="flex flex-col gap-2 sm:flex-row">

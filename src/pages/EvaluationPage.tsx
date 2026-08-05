@@ -1,6 +1,31 @@
-import PageHeader from "../components/PageHeader";
+import { useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 
-const KPIS = ["Candidate recall", "Hit@5", "NDCG@5", "Editor acceptance"];
+import {
+  getEvaluationCsv,
+  type EvaluationFilters,
+  type EvaluationMetric,
+  type EvaluationMetrics,
+  type MethodMetrics,
+} from "../api/evaluation";
+import EvaluationDrilldown from "../components/evaluation/EvaluationDrilldown";
+import {
+  AcceptanceTrend,
+  OrphanTrend,
+} from "../components/evaluation/EvaluationTrendCharts";
+import PageHeader from "../components/PageHeader";
+import { useEvaluationMetrics } from "../hooks/useEvaluation";
+import { useSites } from "../hooks/useSites";
+import { formatCount } from "../lib/utils";
+
+type RangeKey = "7d" | "30d" | "90d" | "all";
+
+const RANGE_OPTIONS: Array<{ value: RangeKey; label: string; days?: number }> = [
+  { value: "7d", label: "Last 7 days", days: 7 },
+  { value: "30d", label: "Last 30 days", days: 30 },
+  { value: "90d", label: "Last 90 days", days: 90 },
+  { value: "all", label: "All time" },
+];
 
 const KPI_ORBS = [
   "bg-[radial-gradient(circle,theme(colors.orb-mint/45%),transparent_70%)]",
@@ -9,69 +34,605 @@ const KPI_ORBS = [
   "bg-[radial-gradient(circle,theme(colors.orb-peach/45%),transparent_70%)]",
 ];
 
-const QUALITY_CHECKS = [
-  {
-    label: "Candidate coverage",
-    description: "Do semantic and lexical retrieval find enough eligible articles?",
-  },
-  {
-    label: "Final ranking",
-    description: "Does BM25-512 place useful links in the first three positions?",
-  },
-  {
-    label: "Editorial usefulness",
-    description: "Do editors approve rank 1, rank 2, and rank 3 suggestions?",
-  },
-];
+const DEFINITION = {
+  acceptance:
+    "Accepted suggestions divided by accepted plus rejected suggestions in the selected generated-suggestion cohort.",
+  decision:
+    "Time between suggestion generation and the latest current editorial decision. Pending suggestions are excluded.",
+  placement:
+    "Generated placements with both a verbatim passage and anchor text, divided by all placement generations.",
+  publication:
+    "Published suggestions divided by completed publishing outcomes: published plus terminal failures.",
+  orphans:
+    "Active pages with no observed inbound internal link in the latest crawl. Orphans helped are verified inserted or appended LinkMesh links to previously orphaned targets.",
+} as const;
+
+const formatRate = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "—";
+  const distanceFromEdge = Math.min(value, 1 - value);
+  const precision = distanceFromEdge > 0 && distanceFromEdge < 0.01 ? 2 : 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+  }).format(value);
+};
+
+const formatHours = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "—";
+  if (value < 1) return `${Math.max(1, Math.round(value * 60))}m`;
+  if (value < 24) return `${value.toFixed(value < 10 ? 1 : 0)}h`;
+  return `${(value / 24).toFixed(1)}d`;
+};
+
+const formatDelta = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return "No previous sample";
+  const points = value * 100;
+  return `${points > 0 ? "+" : ""}${points.toFixed(Math.abs(points) < 1 ? 2 : 1)} pp vs previous`;
+};
+
+const methodLabel = (method: string) => {
+  if (method === "hybrid_bm25") return "Hybrid BM25";
+  if (method === "baseline_cosine") return "Cosine baseline";
+  return method.replaceAll("_", " ");
+};
+
+const filtersFor = (range: RangeKey, siteId: number | undefined): EvaluationFilters => {
+  const selected = RANGE_OPTIONS.find((option) => option.value === range)!;
+  if (!selected.days) return siteId ? { site_id: siteId } : {};
+  const dateTo = new Date();
+  const dateFrom = new Date(dateTo.getTime() - selected.days * 24 * 60 * 60 * 1000);
+  return {
+    ...(siteId ? { site_id: siteId } : {}),
+    date_from: dateFrom.toISOString(),
+    date_to: dateTo.toISOString(),
+  };
+};
+
+function DefinitionHint({ text }: { text: string }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-pill border border-hairline text-caption-sm normal-case text-muted"
+    >
+      ?
+    </span>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+  definition,
+  comparison,
+  orb,
+  loading,
+  onDetails,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  definition: string;
+  comparison?: string;
+  orb: string;
+  loading: boolean;
+  onDetails?: () => void;
+}) {
+  return (
+    <div className="card relative min-h-44 overflow-hidden px-5 py-5 sm:px-6">
+      <div
+        className={`pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full ${orb}`}
+      />
+      <div className="eyebrow relative">
+        {label}
+        <DefinitionHint text={definition} />
+      </div>
+      <div
+        className={`relative mt-3 font-serif text-display-lg text-ink ${
+          loading ? "animate-pulse text-muted" : ""
+        }`}
+      >
+        {loading ? "···" : value}
+      </div>
+      <div className="relative mt-2 text-caption leading-normal text-muted">{detail}</div>
+      {comparison && (
+        <div className="relative mt-1 text-caption-sm font-medium text-body">{comparison}</div>
+      )}
+      {onDetails && !loading && (
+        <button
+          type="button"
+          className="relative mt-3 text-caption font-medium text-ink underline underline-offset-4"
+          onClick={onDetails}
+        >
+          View suggestions
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CompactStat({
+  label,
+  value,
+  detail,
+  definition,
+  onDetails,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  definition?: string;
+  onDetails?: () => void;
+}) {
+  return (
+    <div className="rounded-xl bg-surface-strong px-4 py-3">
+      <div className="text-caption-sm text-muted">
+        {label}
+        {definition && <DefinitionHint text={definition} />}
+      </div>
+      <div className="mt-1 text-title-md font-medium text-ink">{value}</div>
+      <div className="mt-1 text-caption-sm text-muted">{detail}</div>
+      {onDetails && (
+        <button
+          type="button"
+          className="mt-2 text-caption-sm font-medium text-ink underline underline-offset-4"
+          onClick={onDetails}
+        >
+          View suggestions
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MethodComparison({ methods }: { methods: MethodMetrics[] }) {
+  return (
+    <section className="card mt-4 overflow-hidden">
+      <div className="border-b border-hairline px-4 py-4 sm:px-6">
+        <h2 className="font-serif text-display-sm text-ink">Ranking method comparison</h2>
+        <p className="mt-1 text-caption leading-normal text-muted">
+          Editorial outcomes and semantic quality for each method in the selected cohort.
+        </p>
+      </div>
+      {methods.length === 0 ? (
+        <p className="px-4 py-6 text-body-sm text-muted sm:px-6">
+          No suggestions were generated in this period.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] text-left">
+            <thead className="bg-surface-strong text-caption-upper uppercase text-muted">
+              <tr>
+                <th className="px-4 py-3 font-medium sm:px-6">Method</th>
+                <th className="px-4 py-3 text-right font-medium">Suggestions</th>
+                <th className="px-4 py-3 text-right font-medium">Acceptance</th>
+                <th className="px-4 py-3 text-right font-medium">Applied</th>
+                <th className="px-4 py-3 text-right font-medium sm:pr-6">Avg. semantic</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline text-body-sm">
+              {methods.map((method) => (
+                <tr key={method.method}>
+                  <td className="px-4 py-4 font-medium text-ink sm:px-6">
+                    {methodLabel(method.method)}
+                  </td>
+                  <td className="px-4 py-4 text-right text-body">
+                    {formatCount(method.suggestions)}
+                  </td>
+                  <td className="px-4 py-4 text-right text-body">
+                    {formatRate(method.acceptance_rate)}
+                    <span className="ml-1 text-caption-sm text-muted">
+                      ({formatCount(method.accepted)}/{formatCount(method.accepted + method.rejected)})
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-right text-body">
+                    {formatCount(method.applied)}
+                  </td>
+                  <td className="px-4 py-4 text-right text-body sm:pr-6">
+                    {formatRate(method.average_semantic_score)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SitesBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
+  return (
+    <section className="card mt-4 overflow-hidden">
+      <div className="border-b border-hairline px-4 py-4 sm:px-6">
+        <h2 className="font-serif text-display-sm text-ink">Suggestions by site</h2>
+        <p className="mt-1 text-caption leading-normal text-muted">
+          Cohort volume, editorial acceptance and delivered links for each managed site.
+        </p>
+      </div>
+      {metrics.sites.length === 0 ? (
+        <p className="px-4 py-6 text-body-sm text-muted sm:px-6">No managed sites yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left">
+            <thead className="bg-surface-strong text-caption-upper uppercase text-muted">
+              <tr>
+                <th className="px-4 py-3 font-medium sm:px-6">Site</th>
+                <th className="px-4 py-3 text-right font-medium">Suggestions</th>
+                <th className="px-4 py-3 text-right font-medium">Pending</th>
+                <th className="px-4 py-3 text-right font-medium">Acceptance</th>
+                <th className="px-4 py-3 text-right font-medium sm:pr-6">Published</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline text-body-sm">
+              {metrics.sites.map((site) => (
+                <tr key={site.site_id}>
+                  <td className="px-4 py-4 font-medium text-ink sm:px-6">{site.site_name}</td>
+                  <td className="px-4 py-4 text-right text-body">
+                    {formatCount(site.suggestions)}
+                  </td>
+                  <td className="px-4 py-4 text-right text-body">
+                    {formatCount(site.pending)}
+                  </td>
+                  <td className="px-4 py-4 text-right text-body">
+                    {formatRate(site.acceptance_rate)}
+                  </td>
+                  <td className="px-4 py-4 text-right text-body sm:pr-6">
+                    {formatCount(site.applied)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MetricDefinitions({ cohortDefinition }: { cohortDefinition: string }) {
+  return (
+    <details className="card mt-4 px-4 py-4 sm:px-6">
+      <summary className="cursor-pointer text-body-sm font-medium text-ink">
+        How these metrics are calculated
+      </summary>
+      <dl className="mt-4 grid grid-cols-1 gap-4 text-caption leading-normal sm:grid-cols-2">
+        <div>
+          <dt className="font-medium text-ink">Suggestion cohort</dt>
+          <dd className="mt-1 text-muted">{cohortDefinition}</dd>
+        </div>
+        {Object.entries(DEFINITION).map(([label, definition]) => (
+          <div key={label}>
+            <dt className="font-medium capitalize text-ink">{label}</dt>
+            <dd className="mt-1 text-muted">{definition}</dd>
+          </div>
+        ))}
+        <div>
+          <dt className="font-medium text-ink">Previous period</dt>
+          <dd className="mt-1 text-muted">
+            A period of the same length immediately before the selected range. Rate changes are percentage points.
+          </dd>
+        </div>
+      </dl>
+    </details>
+  );
+}
+
+function DashboardBody({
+  metrics,
+  onDrilldown,
+}: {
+  metrics: EvaluationMetrics;
+  onDrilldown: (metric: EvaluationMetric) => void;
+}) {
+  const { editorial, placement, publication, orphans, comparison } = metrics;
+  const cards = [
+    {
+      label: "Editor acceptance",
+      value: formatRate(editorial.acceptance_rate),
+      detail: editorial.decisions
+        ? `${formatCount(editorial.accepted)} accepted of ${formatCount(editorial.decisions)} decisions`
+        : "No editorial decisions yet",
+      definition: DEFINITION.acceptance,
+      comparison: comparison ? formatDelta(comparison.acceptance_rate_change) : undefined,
+      metric: "accepted" as const,
+    },
+    {
+      label: "Median decision time",
+      value: formatHours(editorial.median_decision_hours),
+      detail: editorial.decision_time_sample
+        ? `${formatCount(editorial.decision_time_sample)} timed decisions`
+        : "No timed decisions yet",
+      definition: DEFINITION.decision,
+      metric: "decided" as const,
+    },
+    {
+      label: "Placement success",
+      value: formatRate(placement.success_rate),
+      detail: placement.generated
+        ? `${formatCount(placement.successful)} natural placements of ${formatCount(placement.generated)} generated`
+        : "No placements generated yet",
+      definition: DEFINITION.placement,
+      comparison: comparison ? formatDelta(comparison.placement_success_rate_change) : undefined,
+      metric: "placement_success" as const,
+    },
+    {
+      label: "Publishing success",
+      value: formatRate(publication.success_rate),
+      detail: publication.completed
+        ? `${formatCount(publication.succeeded)} succeeded · ${formatCount(publication.failed)} failed`
+        : "No completed publications yet",
+      definition: DEFINITION.publication,
+      comparison: comparison ? formatDelta(comparison.publication_success_rate_change) : undefined,
+      metric: "published" as const,
+    },
+  ];
+
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card, index) => (
+          <MetricCard
+            key={card.label}
+            {...card}
+            orb={KPI_ORBS[index]}
+            loading={false}
+            onDetails={() => onDrilldown(card.metric)}
+          />
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <section className="card px-4 py-5 sm:px-6">
+          <h2 className="font-serif text-display-sm text-ink">Editorial overview</h2>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            Current outcomes for suggestions generated in the selected cohort.
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <CompactStat
+              label="All suggestions"
+              value={formatCount(editorial.suggestions_total)}
+              detail={
+                comparison
+                  ? formatDelta(comparison.suggestions_change_rate)
+                  : "Across every current status"
+              }
+            />
+            <CompactStat
+              label="Pending review"
+              value={formatCount(editorial.pending)}
+              detail="Still awaiting a decision"
+              onDetails={() => onDrilldown("pending")}
+            />
+            <CompactStat
+              label="Rejection rate"
+              value={formatRate(editorial.rejection_rate)}
+              detail={`${formatCount(editorial.rejected)} rejected`}
+              definition={DEFINITION.acceptance}
+              onDetails={() => onDrilldown("rejected")}
+            />
+            <CompactStat
+              label="Average decision"
+              value={formatHours(editorial.average_decision_hours)}
+              detail={`${formatCount(editorial.decision_time_sample)} timed decisions`}
+              definition={DEFINITION.decision}
+              onDetails={() => onDrilldown("decided")}
+            />
+          </div>
+        </section>
+
+        <section className="card px-4 py-5 sm:px-6">
+          <h2 className="font-serif text-display-sm text-ink">
+            Orphan-page impact <DefinitionHint text={DEFINITION.orphans} />
+          </h2>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            Latest crawl state plus verified LinkMesh publications for this cohort.
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <CompactStat
+              label="Active articles"
+              value={formatCount(orphans.active_articles)}
+              detail="Across selected managed sites"
+            />
+            <CompactStat
+              label="Orphans remaining"
+              value={formatCount(orphans.remaining)}
+              detail="No active inbound link"
+            />
+            <div className="col-span-2 rounded-xl bg-surface-strong px-4 py-4">
+              <div className="text-caption-sm text-muted">Orphans helped</div>
+              <div className="mt-1 font-serif text-display-sm text-ink">
+                {formatCount(orphans.reduced_by_linkmesh)}
+              </div>
+              <div className="mt-1 text-caption-sm leading-normal text-muted">
+                Previously orphaned targets that received a verified LinkMesh link.
+              </div>
+              <button
+                type="button"
+                className="mt-2 text-caption-sm font-medium text-ink underline underline-offset-4"
+                onClick={() => onDrilldown("orphan_helped")}
+              >
+                View suggestions
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <AcceptanceTrend points={metrics.trend} />
+        <OrphanTrend points={metrics.orphan_trend} />
+      </div>
+
+      <MethodComparison methods={metrics.methods} />
+      <SitesBreakdown metrics={metrics} />
+      <MetricDefinitions cohortDefinition={metrics.cohort_definition} />
+    </>
+  );
+}
+
+function PageState({ children }: { children: ReactNode }) {
+  return <div className="card px-5 py-8 text-center text-body-sm text-muted">{children}</div>;
+}
 
 export default function EvaluationPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedRange = searchParams.get("range");
+  const range: RangeKey = RANGE_OPTIONS.some((option) => option.value === requestedRange)
+    ? (requestedRange as RangeKey)
+    : "30d";
+  const rawSiteId = Number(searchParams.get("site"));
+  const siteId = Number.isInteger(rawSiteId) && rawSiteId > 0 ? rawSiteId : undefined;
+  const filters = useMemo(() => filtersFor(range, siteId), [range, siteId]);
+  const query = useEvaluationMetrics(filters);
+  const sitesQuery = useSites();
+  const ownedSites = sitesQuery.data?.filter((site) => site.platform !== "pool") ?? [];
+  const [drilldown, setDrilldown] = useState<EvaluationMetric | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState(false);
+
+  const updateFilter = (key: "range" | "site", value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setSearchParams(next, { replace: true });
+    setDrilldown(null);
+  };
+
+  const exportCsv = async () => {
+    setIsExporting(true);
+    setExportError(false);
+    try {
+      const blob = await getEvaluationCsv(filters);
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `linkmesh-evaluation-${range}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(href);
+    } catch {
+      setExportError(true);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="Evaluation"
-        sub="Hybrid retrieval quality · live evaluation data: Soon"
-        badge="Soon"
+        sub="Live editorial, placement and publishing performance"
+        badge="Live data"
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {KPIS.map((label, index) => (
-            <div key={label} className="card relative overflow-hidden px-6 py-5">
-              <div
-                className={`pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full ${KPI_ORBS[index]}`}
-              />
-              <div className="eyebrow relative">{label}</div>
-              <div className="relative mt-3 font-serif text-display-lg text-ink">Soon</div>
-              <div className="badge relative mt-3">Data pending</div>
-            </div>
-          ))}
+        <div className="card mb-4 flex flex-wrap items-end gap-3 px-4 py-4 sm:px-5">
+          <label className="min-w-40 flex-1 text-caption font-medium text-body sm:flex-none">
+            Date range
+            <select
+              aria-label="Date range"
+              className="input mt-1 w-full min-w-40"
+              value={range}
+              onChange={(event) => updateFilter("range", event.target.value)}
+            >
+              {RANGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="min-w-48 flex-1 text-caption font-medium text-body">
+            Site
+            <select
+              aria-label="Site"
+              className="input mt-1 w-full min-w-48"
+              value={siteId ?? ""}
+              onChange={(event) => updateFilter("site", event.target.value)}
+            >
+              <option value="">All managed sites</option>
+              {ownedSites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            {query.isFetching ? "Refreshing..." : "Refresh"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void exportCsv()}
+            disabled={isExporting}
+          >
+            {isExporting ? "Exporting..." : "Export CSV"}
+          </button>
+          {exportError && (
+            <span role="alert" className="w-full text-caption text-error-ink">
+              CSV export failed. Try again.
+            </span>
+          )}
         </div>
 
-        <section className="card mt-4 px-4 py-5 sm:px-8 sm:py-7">
-          <h2 className="font-serif text-display-sm text-ink">Hybrid quality checks</h2>
-          <p className="mt-2 max-w-3xl text-body-sm text-muted">
-            Hybrid combines semantic and lexical retrieval, then uses BM25-512 for the
-            final order. Live measurements will appear here when the evaluation pipeline
-            is connected to the dashboard.
-          </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-caption text-muted">
+          <span>
+            {query.data
+              ? `Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(query.data.generated_at))}`
+              : "Loading the latest evaluation data"}
+          </span>
+          <span>Filters are saved in the page URL.</span>
+        </div>
 
-          <div className="mt-6 flex max-w-3xl flex-col gap-4">
-            {QUALITY_CHECKS.map((check) => (
-              <div
-                key={check.label}
-                className="flex flex-col gap-2 border-b border-hairline pb-4 last:border-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
-              >
-                <div className="min-w-0">
-                  <div className="text-body-sm font-medium text-ink">{check.label}</div>
-                  <div className="mt-1 text-caption text-muted">{check.description}</div>
-                </div>
-                <div className="badge flex-none">
-                  Live data <span className="font-medium text-ink">Soon</span>
-                </div>
-              </div>
+        {query.isPending && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {KPI_ORBS.map((orb, index) => (
+              <MetricCard
+                key={orb}
+                label={[
+                  "Editor acceptance",
+                  "Median decision time",
+                  "Placement success",
+                  "Publishing success",
+                ][index]}
+                value="—"
+                detail="Loading live metrics"
+                definition="Loading metric definition"
+                orb={orb}
+                loading
+              />
             ))}
           </div>
-        </section>
+        )}
+
+        {query.isError && !query.isPending && (
+          <PageState>
+            <p>Evaluation metrics could not be loaded.</p>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm mt-3"
+              onClick={() => void query.refetch()}
+            >
+              Try again
+            </button>
+          </PageState>
+        )}
+
+        {query.data && <DashboardBody metrics={query.data} onDrilldown={setDrilldown} />}
       </div>
+
+      {drilldown && (
+        <EvaluationDrilldown metric={drilldown} filters={filters} onClose={() => setDrilldown(null)} />
+      )}
     </>
   );
 }

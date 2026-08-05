@@ -64,6 +64,8 @@ export interface Placement {
 
 export interface Suggestion {
   id: number;
+  /** Stable correlation key returned by trace-aware engine versions. */
+  trace_id?: string;
   site_id: number;
   source_article: ArticleBrief;
   target_article: ArticleBrief;
@@ -78,5 +80,14 @@ export interface Suggestion {
   publish_outcome?: "inserted" | "block" | "already_present" | null;
   publish_attempts?: number;
   publish_error?: string | null;
+  created_at: string;
+}
+
+export interface SuggestionEvent {
+  id: number;
+  suggestion_id: number;
+  event_type: string;
+  actor: string;
+  details: Record<string, unknown>;
   created_at: string;
 }

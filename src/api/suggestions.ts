@@ -3,6 +3,7 @@ import type {
   Placement,
   ReviewStatus,
   Suggestion,
+  SuggestionEvent,
   SuggestionStatus,
   SuggestionTargetOrigin,
 } from "../types/suggestion";
@@ -101,6 +102,12 @@ export const reviewSuggestion = (id: number, status: ReviewStatus) =>
  */
 export const getPlacement = (id: number) =>
   api.get<Placement>(`/suggestions/${id}/placement`).then((r) => r.data);
+
+/** Lifecycle history is loaded only for the open drawer, never for queue rows. */
+export const getSuggestionEvents = (id: number) =>
+  api
+    .get<SuggestionEvent[]>(`/suggestions/${id}/events`, { params: { limit: 50 } })
+    .then((response) => response.data);
 
 export interface BulkReviewResult {
   /** Rows that actually moved. */

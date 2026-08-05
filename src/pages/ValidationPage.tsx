@@ -38,6 +38,7 @@ import {
   usePlacement,
   useReview,
   useSuggestionCounts,
+  useSuggestionEvents,
   useSuggestions,
 } from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
@@ -780,6 +781,7 @@ export default function ValidationPage() {
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.
   const placementQuery = usePlacement(selected?.id ?? null);
+  const traceQuery = useSuggestionEvents(selected?.id ?? null);
 
   // The position the cursor last held. Tracked in an effect rather than during
   // render so a discarded concurrent render cannot record a place the editor
@@ -1080,6 +1082,12 @@ export default function ValidationPage() {
               isLoading: placementQuery.isPending || placementQuery.isFetching,
               error: placementQuery.error,
               onRetry: () => void placementQuery.refetch(),
+            }}
+            trace={{
+              data: traceQuery.data,
+              isLoading: traceQuery.isPending || traceQuery.isFetching,
+              error: traceQuery.error,
+              onRetry: () => void traceQuery.refetch(),
             }}
             onClose={() => setSelectedId(null)}
             onAccept={() => decide(selected.id, "approved")}
