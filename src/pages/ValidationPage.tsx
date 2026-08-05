@@ -17,6 +17,8 @@ import { useQueueFilters } from "../hooks/useQueueFilters";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
+import SelectionActions from "../components/suggestions/SelectionActions";
+import type { SelectionConfirmation } from "../components/suggestions/SelectionActions";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
 import { useIncrementalList } from "../hooks/useIncrementalList";
@@ -131,7 +133,12 @@ export default function ValidationPage() {
     () => new Set(),
   );
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
+  const [selectionConfirmation, setSelectionConfirmation] =
+    useState<SelectionConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [previewSiteId, setPreviewSiteId] = useState<number | null>(null);
   const cursorRef = useRef<HTMLLIElement>(null);
@@ -245,6 +252,18 @@ export default function ValidationPage() {
     [sourceSuggestions, statusOverrides],
   );
 
+  // Derive the live selection instead of synchronising it in an effect. A row
+  // disappears from the selection as soon as the server or a local override
+  // says it is no longer pending.
+  const activeSelectedSuggestionIds = useMemo(() => {
+    const reviewable = new Set(
+      resolvedSuggestions
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.id),
+    );
+    return new Set([...selectedSuggestionIds].filter((id) => reviewable.has(id)));
+  }, [resolvedSuggestions, selectedSuggestionIds]);
+
   const suggestions = useMemo(
     () =>
       filterSuggestions(resolvedSuggestions, {
@@ -288,6 +307,18 @@ export default function ValidationPage() {
     () => new Set(visibleSuggestions.map((suggestion) => suggestion.id)),
     [visibleSuggestions],
   );
+  const selectableVisibleIds = useMemo(
+    () =>
+      visibleGroups
+        .filter((group) => !collapsedSources.has(group.key))
+        .flatMap((group) => group.suggestions)
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.id),
+    [collapsedSources, visibleGroups],
+  );
+  const allVisibleSelected =
+    selectableVisibleIds.length > 0 &&
+    selectableVisibleIds.every((id) => activeSelectedSuggestionIds.has(id));
   const shown = visibleSuggestions.length;
 
   const hasMore =
@@ -304,6 +335,44 @@ export default function ValidationPage() {
     if (!hasMoreLoaded && suggestionsQuery.hasNextPage) {
       void suggestionsQuery.fetchNextPage();
     }
+  };
+
+  const setSuggestionChecked = useCallback((id: number, checked: boolean) => {
+    setSelectedSuggestionIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    // The ids shown in a confirmation are a snapshot. Any selection change
+    // invalidates it so the editor can never confirm a different set by accident.
+    setSelectionConfirmation(null);
+  }, []);
+
+  const clearSuggestionSelection = useCallback(() => {
+    setSelectedSuggestionIds(new Set());
+    setSelectionConfirmation(null);
+  }, []);
+
+  const removeSelectedSuggestionIds = useCallback((ids: number[]) => {
+    if (!ids.length) return;
+    setSelectedSuggestionIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next.size === current.size ? current : next;
+    });
+  }, []);
+
+  const toggleVisibleSelection = () => {
+    setSelectedSuggestionIds((current) => {
+      const next = new Set(current);
+      selectableVisibleIds.forEach((id) => {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
+    setSelectionConfirmation(null);
   };
 
   // Names are looked up per rendered row, so the linear scan is hoisted into a
@@ -361,6 +430,7 @@ export default function ValidationPage() {
     effectiveStatus === "all" ? scopedCounts.total : scopedCounts[effectiveStatus];
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
+    if (status !== "pending") removeSelectedSuggestionIds(ids);
     setStatusOverrides((current) => {
       // Housekeeping on write rather than in an effect: drop the overrides the
       // server has already caught up with as we add the new ones.
@@ -572,6 +642,7 @@ export default function ValidationPage() {
       siteLabel: siteFilter === 0 ? "All sites" : siteName(siteFilter),
       undoAvailable: count <= ENGINE_PAGE_LIMIT,
     });
+    setSelectionConfirmation(null);
   };
 
   const confirmBulk = () => {
@@ -619,6 +690,58 @@ export default function ValidationPage() {
             message: "The bulk review could not be saved. Please try again.",
             tone: "error",
           }),
+      },
+    );
+  };
+
+  const requestSelectedReview = (action: BulkReviewAction) => {
+    const ids = [...activeSelectedSuggestionIds].sort((left, right) => left - right);
+    if (!ids.length) return;
+    setConfirmation(null);
+    setSelectionConfirmation({ action, ids });
+  };
+
+  const confirmSelectedReview = () => {
+    if (!selectionConfirmation) return;
+    const pendingConfirmation = selectionConfirmation;
+    const approving = pendingConfirmation.action === "approve";
+    const status = approving ? "approved" : "rejected";
+    const describe = (count: number) =>
+      approving
+        ? `${count} ${plural(count)} queued for publish.`
+        : `${count} ${plural(count)} rejected.`;
+
+    setNotice(null);
+    setSelectionConfirmation(null);
+    bulkReview.mutate(
+      { ids: pendingConfirmation.ids, status },
+      {
+        onSuccess: ({ reviewed, reviewedCount, skipped }) => {
+          // A completed request consumes the whole selection, including rows
+          // the engine skipped because they stopped being reviewable meanwhile.
+          removeSelectedSuggestionIds(pendingConfirmation.ids);
+          applyBatch(
+            reviewed,
+            status,
+            skipped,
+            describe,
+            undefined,
+            reviewedCount,
+          );
+        },
+        onError: (error) => {
+          if (error instanceof BulkReviewChunkError) {
+            removeSelectedSuggestionIds([
+              ...error.completed.reviewed,
+              ...error.completed.skipped,
+            ]);
+          }
+          if (applyChunkFailure(error, status, describe)) return;
+          setNotice({
+            message: "The selected review could not be saved. Please try again.",
+            tone: "error",
+          });
+        },
       },
     );
   };
@@ -700,7 +823,8 @@ export default function ValidationPage() {
         else if (notice?.undoIds?.length) undo(notice.undoIds);
       },
       onEscape: () => {
-        if (confirmation) setConfirmation(null);
+        if (selectionConfirmation) setSelectionConfirmation(null);
+        else if (confirmation) setConfirmation(null);
         else setSelectedId(null);
       },
     },
@@ -748,12 +872,14 @@ export default function ValidationPage() {
               onChange={(patch) => {
                 setFilters(patch);
                 setConfirmation(null);
+                setSelectionConfirmation(null);
               }}
               sites={sites}
               isFiltered={isFiltered}
               onClear={() => {
                 clearFilters();
                 setConfirmation(null);
+                setSelectionConfirmation(null);
               }}
             />
             <BulkActions
@@ -762,11 +888,13 @@ export default function ValidationPage() {
               onSelect={(status) => {
                 setFilters({ status: status as StatusFilter });
                 setConfirmation(null);
+                setSelectionConfirmation(null);
               }}
               threshold={threshold}
               onThresholdChange={(value) => {
                 setFilters({ threshold: clampThreshold(value) });
                 setConfirmation(null);
+                setSelectionConfirmation(null);
               }}
               acceptCount={acceptCount}
               rejectCount={rejectCount}
@@ -827,6 +955,21 @@ export default function ValidationPage() {
             />
           )}
 
+          {!loading && !failed && (
+            <SelectionActions
+              selectedCount={activeSelectedSuggestionIds.size}
+              visibleCount={selectableVisibleIds.length}
+              allVisibleSelected={allVisibleSelected}
+              confirmation={selectionConfirmation}
+              busy={bulkReview.isPending}
+              onToggleVisible={toggleVisibleSelection}
+              onClear={clearSuggestionSelection}
+              onRequest={requestSelectedReview}
+              onConfirm={confirmSelectedReview}
+              onCancel={() => setSelectionConfirmation(null)}
+            />
+          )}
+
           <div className="flex flex-col gap-2.5 pb-6">
             {loading && <SkeletonRows count={5} label="Loading suggestions" />}
 
@@ -858,6 +1001,7 @@ export default function ValidationPage() {
                           suggestion={suggestion}
                           siteName={siteName(suggestion.site_id)}
                           selected={suggestion.id === selectedId}
+                          checked={activeSelectedSuggestionIds.has(suggestion.id)}
                           showSource={false}
                           containerRef={
                             suggestion.id === selectedId ? cursorRef : undefined
@@ -866,6 +1010,7 @@ export default function ValidationPage() {
                           onAccept={acceptRow}
                           onReject={rejectRow}
                           onUndo={undoRow}
+                          onCheckedChange={setSuggestionChecked}
                         />
                       ))}
                     </SuggestionGroup>

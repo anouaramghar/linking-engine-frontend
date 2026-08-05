@@ -163,10 +163,12 @@ describe("SuggestionPreview publication state", () => {
         suggestion={suggestion("approved")}
         siteName="Example site"
         selected={false}
+        checked={false}
         onOpen={onOpen}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={onUndo}
+        onCheckedChange={vi.fn()}
       />,
     );
 
@@ -182,10 +184,12 @@ describe("SuggestionPreview publication state", () => {
         suggestion={suggestion("applied")}
         siteName="Example site"
         selected={false}
+        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={vi.fn()}
+        onCheckedChange={vi.fn()}
       />,
     );
 
@@ -198,10 +202,12 @@ describe("SuggestionPreview publication state", () => {
         suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
         siteName="Example site"
         selected={false}
+        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={vi.fn()}
+        onCheckedChange={vi.fn()}
       />,
     );
 
@@ -249,10 +255,12 @@ describe("SuggestionPreview publication state", () => {
         suggestion={suggestion("failed")}
         siteName="Example site"
         selected={false}
+        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={onUndo}
+        onCheckedChange={vi.fn()}
       />,
     );
 
@@ -295,10 +303,12 @@ describe("SuggestionPreview publication state", () => {
         }}
         siteName="Example site"
         selected={false}
+        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={vi.fn()}
+        onCheckedChange={vi.fn()}
       />,
     );
 

@@ -13,6 +13,7 @@ interface Props {
   suggestion: Suggestion;
   siteName: string;
   selected: boolean;
+  checked: boolean;
   /**
    * Handlers take the id rather than closing over it. A queue can hold hundreds
    * of mounted rows and the cursor moves on every `j`/`k`, so the parent has to
@@ -23,6 +24,7 @@ interface Props {
   onAccept: (id: number) => void;
   onReject: (id: number) => void;
   onUndo: (id: number) => void;
+  onCheckedChange: (id: number, checked: boolean) => void;
   showSource?: boolean;
   /** Set on the keyboard cursor's row so the queue can scroll it into view. */
   containerRef?: React.Ref<HTMLLIElement>;
@@ -32,10 +34,12 @@ function SuggestionCard({
   suggestion: s,
   siteName,
   selected,
+  checked,
   onOpen,
   onAccept,
   onReject,
   onUndo,
+  onCheckedChange,
   showSource = true,
   containerRef,
 }: Props) {
@@ -52,6 +56,17 @@ function SuggestionCard({
       }`}
     >
       <div className="flex min-w-0 flex-1 items-start gap-3 lg:items-center">
+        {s.status === "pending" && (
+          <label className="touch-target flex flex-none cursor-pointer items-center justify-center rounded-md hover:bg-surface-strong">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(event) => onCheckedChange(s.id, event.target.checked)}
+              aria-label={`Select suggestion: ${s.source_article.title} to ${s.target_article.title}`}
+              className="h-4 w-4 cursor-pointer accent-primary"
+            />
+          </label>
+        )}
         <span aria-hidden="true" className={`dot mt-2 lg:mt-0 ${meta.dot}`} />
         {/* A real button so the preview is reachable by keyboard, with the row
             actions kept outside it rather than nested inside a control. */}

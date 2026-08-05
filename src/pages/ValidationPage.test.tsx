@@ -398,6 +398,59 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByText("Source 1")).not.toBeNull();
   });
 
+  it("accepts only the suggestions selected by checkbox after confirmation", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    const checkboxes = screen.getAllByRole("checkbox", {
+      name: /^Select suggestion:/,
+    });
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+
+    expect(screen.getByText("2 selected")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Accept selected" }));
+    expect(mocks.bulkMutate).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alertdialog", { name: "Confirm selected suggestions" })
+        .textContent,
+    ).toContain("Accept 2 selected suggestions");
+
+    await user.click(
+      screen.getByRole("button", { name: "Confirm selected accept" }),
+    );
+
+    expect(mocks.bulkMutate).toHaveBeenCalledWith(
+      { ids: [1, 2], status: "approved" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "2 suggestions queued for publish",
+    );
+    expect(screen.queryByText("2 selected")).toBeNull();
+  });
+
+  it("selects visible pending rows and rejects them together", async () => {
+    const user = userEvent.setup();
+    renderQueue("/?status=all");
+
+    // The applied row is visible too, but only the two pending rows are selectable.
+    await user.click(screen.getByRole("button", { name: "Select visible (2)" }));
+    expect(screen.getByText("2 selected")).not.toBeNull();
+    expect(screen.getAllByRole("checkbox", { name: /^Select suggestion:/ })).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Reject selected" }));
+    await user.click(
+      screen.getByRole("button", { name: "Confirm selected reject" }),
+    );
+
+    expect(mocks.bulkMutate).toHaveBeenCalledWith(
+      { ids: [1, 2], status: "rejected" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    expect(screen.getByRole("status").textContent).toContain("2 suggestions rejected");
+  });
+
   it("cancels a bulk action without sending or changing decisions", async () => {
     const user = userEvent.setup();
     renderQueue();
