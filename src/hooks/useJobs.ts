@@ -24,6 +24,7 @@ export const didActiveJobsFinish = (before: JobRun[], after: JobRun[]) => {
 const refreshJobOutputs = (qc: ReturnType<typeof useQueryClient>) => {
   void qc.invalidateQueries({ queryKey: ["suggestions"] });
   void qc.invalidateQueries({ queryKey: ["sites"] });
+  void qc.invalidateQueries({ queryKey: ["publish", "pending"] });
 };
 
 /** Poll a job until it settles, then refresh whatever it produced. */

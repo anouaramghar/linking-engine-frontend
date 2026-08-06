@@ -50,11 +50,27 @@ const suggestion: Suggestion = {
   created_at: "2026-07-16T10:00:00Z",
 };
 
+/** These tests are about layout and focus, so placement is already resolved. */
+const placement = {
+  data: {
+    suggestion_id: 1,
+    found: true,
+    placement_context: "The long steep pulls fewer acids out of the grounds.",
+    anchor_text: "fewer acids",
+    llm_model: "google/gemma-4-31b-it",
+    generated_at: "2026-08-03T10:00:00Z",
+  },
+  isLoading: false,
+  error: null,
+  onRetry: vi.fn(),
+};
+
 const renderPreview = (onClose = vi.fn()) => {
   const result = render(
     <SuggestionPreview
       suggestion={suggestion}
       siteName="Example site"
+      placement={placement}
       onClose={onClose}
       onAccept={vi.fn()}
       onReject={vi.fn()}

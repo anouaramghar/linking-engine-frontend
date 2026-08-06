@@ -10,34 +10,55 @@ import type { Config } from "tailwindcss";
  * `rounded-xl` is 12px, the system's `{rounded.xl}` is 16px) and leaving both
  * reachable is how the design drifted in the first place. With the defaults
  * gone, an off-system class emits no CSS and shows up immediately.
+ *
+ * Every colour resolves through a CSS variable rather than a literal, and the
+ * literals themselves live in `src/index.css`. That indirection is what makes
+ * the dark theme a palette swap instead of a rewrite: the tokens are named for
+ * their *role* (`canvas`, `ink`, `hairline`), so re-pointing the variables under
+ * `[data-theme="dark"]` re-themes every component without touching a single
+ * class. The channels are stored space-separated (`12 10 9`) so Tailwind's
+ * `<alpha-value>` placeholder keeps working — `bg-error/5` and `bg-canvas-deep/40`
+ * still compose opacity on top of a themed colour.
  */
+const token = (name: string) => `rgb(var(--c-${name}) / <alpha-value>)`;
+
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // The theme is an explicit preference, not only an OS reading: `useTheme`
+  // resolves "system" to a concrete attribute on <html>, so one selector covers
+  // both. Components should rarely need `dark:` — the tokens above already
+  // carry the change — but it is here for the cases the palette cannot express.
+  darkMode: ["selector", '[data-theme="dark"]'],
   theme: {
     colors: {
       transparent: "transparent",
       current: "currentColor",
 
       // Brand & accent — the ink pill is the only CTA colour in the system.
-      primary: "#292524",
-      "primary-active": "#0c0a09",
+      // Dark inverts the pill rather than dimming it: an ink pill on an ink
+      // canvas is not a button.
+      primary: token("primary"),
+      "primary-active": token("primary-active"),
 
       // Text
-      ink: "#0c0a09",
-      body: "#4e4e4e",
-      "body-strong": "#292524",
+      ink: token("ink"),
+      body: token("body"),
+      "body-strong": token("body-strong"),
       // Darkened from the source palette so normal caption text clears WCAG AA
       // on every light product surface, including {colors.surface-strong}.
-      muted: "#706a62",
-      "muted-soft": "#a8a29e",
-      "on-primary": "#ffffff",
-      "on-dark": "#ffffff",
-      "on-dark-soft": "#a8a29e",
+      muted: token("muted"),
+      "muted-soft": token("muted-soft"),
+      "on-primary": token("on-primary"),
+      // `on-dark` stays white in both themes. It is the partner of the two
+      // grounds that do not invert — the error fill and the raised notice — so
+      // flipping it with the rest would put dark text on a red banner.
+      "on-dark": token("on-dark"),
+      "on-dark-soft": token("on-dark-soft"),
 
       // Hairlines
-      hairline: "#e7e5e4",
-      "hairline-soft": "#f0efed",
-      "hairline-strong": "#d6d3d1",
+      hairline: token("hairline"),
+      "hairline-soft": token("hairline-soft"),
+      "hairline-strong": token("hairline-strong"),
       // Derived: the boundary of a control the user is meant to type into.
       // `hairline-strong` measures 1.49:1 on {colors.surface-card}, and a field
       // whose fill matches the page is identified by its border alone — WCAG
@@ -45,38 +66,47 @@ export default {
       // is the lightest value in the same stone family that clears 3:1 against
       // all three grounds a control can sit between: surface-card 3.33,
       // canvas-soft 3.19, canvas 3.05. Still a hairline, not a rule.
-      "hairline-control": "#928c84",
+      "hairline-control": token("hairline-control"),
 
-      // Surface
-      canvas: "#f5f5f5",
-      "canvas-soft": "#fafafa",
-      "canvas-deep": "#0c0a09",
-      "surface-card": "#ffffff",
-      "surface-strong": "#f0efed",
-      "surface-dark": "#0c0a09",
-      "surface-dark-elevated": "#1c1917",
+      // Surface. The elevation order survives the flip by reversing: in light,
+      // raised means lighter than the page; in dark, it still means lighter,
+      // which is why `canvas` is the darkest value of the three rather than the
+      // lightest.
+      canvas: token("canvas"),
+      "canvas-soft": token("canvas-soft"),
+      // The modal scrim. A scrim is a shadow, not a surface, so this one stays
+      // dark in both themes instead of inverting into a white wash.
+      "canvas-deep": token("canvas-deep"),
+      "surface-card": token("surface-card"),
+      "surface-strong": token("surface-strong"),
+      "surface-dark": token("surface-dark"),
+      "surface-dark-elevated": token("surface-dark-elevated"),
 
       // Atmospheric gradient stops. Decoration only — never a button fill, a
-      // text colour, or a component background.
-      "orb-mint": "#a7e5d3",
-      "orb-peach": "#f4c5a8",
-      "orb-lavender": "#c8b8e0",
-      "orb-sky": "#a8c8e8",
-      "orb-rose": "#e8b8c4",
+      // text colour, or a component background. Unchanged across themes: at the
+      // 28–35% they are drawn with, the same pastels read as a wash on white
+      // and as a low glow on ink.
+      "orb-mint": token("orb-mint"),
+      "orb-peach": token("orb-peach"),
+      "orb-lavender": token("orb-lavender"),
+      "orb-sky": token("orb-sky"),
+      "orb-rose": token("orb-rose"),
 
       // Semantic
-      success: "#16a34a",
-      error: "#dc2626",
+      success: token("success"),
+      error: token("error"),
       // Derived, not in the design system: it documents `{colors.semantic-error}`
       // as a single flat value but no press state, and destructive confirms need
       // one. Kept as the same hue one step darker so it reads as the same token.
-      "error-active": "#b91c1c",
+      "error-active": token("error-active"),
       // Derived: `error` as *text*. #dc2626 clears AA on pure white (4.83:1) but
       // the app almost never puts it there — on the tinted `bg-error/5` grounds
       // where failures are actually reported it falls to 4.1–4.3:1. Same value
       // as `error-active` on purpose: one hue, two intents. `error` stays the
       // fill and border; `error-ink` is the only one allowed to carry words.
-      "error-ink": "#b91c1c",
+      // This is the one semantic that must travel: a dark red on an ink canvas
+      // is unreadable, so the dark theme lightens it instead.
+      "error-ink": token("error-ink"),
     },
     borderRadius: {
       none: "0px",
@@ -132,13 +162,16 @@ export default {
         section: "96px",
       },
       boxShadow: {
+        // A black shadow says nothing on a near-black canvas, so the opacity is
+        // a variable too — the dark theme deepens it and leans on the hairline
+        // to carry the edge that light relies on the shadow for.
         // The system's single shadow tier.
-        soft: "0 4px 16px rgba(0, 0, 0, 0.04)",
+        soft: "0 4px 16px rgb(0 0 0 / var(--shadow-soft))",
         // Derived: a lifted variant for the two surfaces that float above the
         // page (menu pop-out, overlaid detail drawer). The system documents
         // one tier because its surfaces never stack.
-        lift: "0 8px 24px rgba(0, 0, 0, 0.08)",
-        drawer: "0 8px 40px rgba(0, 0, 0, 0.16)",
+        lift: "0 8px 24px rgb(0 0 0 / var(--shadow-lift))",
+        drawer: "0 8px 40px rgb(0 0 0 / var(--shadow-drawer))",
       },
       keyframes: {
         rowIn: {

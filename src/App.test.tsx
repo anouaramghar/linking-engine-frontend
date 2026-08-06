@@ -28,6 +28,10 @@ vi.mock("./pages/EvaluationPage", () => ({
   default: () => <div>Evaluation page</div>,
 }));
 
+vi.mock("./pages/ContentPoolPage", () => ({
+  default: () => <div>Content pool page</div>,
+}));
+
 afterEach(cleanup);
 
 describe("App shell", () => {
@@ -44,6 +48,7 @@ describe("App shell", () => {
     for (const nav of [mobile, desktop]) {
       expect(nav.querySelector('a[href="/queue"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/sites"]')).not.toBeNull();
+      expect(nav.querySelector('a[href="/content-pool"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/evaluation"]')).not.toBeNull();
     }
   });

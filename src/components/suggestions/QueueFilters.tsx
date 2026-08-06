@@ -87,7 +87,14 @@ export default function QueueFilters({
         </select>
 
         {isFiltered && (
-          <button type="button" onClick={onClear} className="btn btn-text btn-sm">
+          <button
+            type="button"
+            onClick={() => {
+              search.cancel();
+              onClear();
+            }}
+            className="btn btn-text btn-sm"
+          >
             Clear filters
           </button>
         )}

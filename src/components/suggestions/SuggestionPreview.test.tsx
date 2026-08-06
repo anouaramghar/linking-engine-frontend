@@ -21,11 +21,28 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   created_at: "2026-07-16T10:00:00Z",
 });
 
+/** Placement is generated per suggestion by the page; these tests are about
+ *  everything else in the drawer, so they render it already resolved. */
+const placement = {
+  data: {
+    suggestion_id: 1,
+    found: true,
+    placement_context: "The long steep pulls fewer acids out of the grounds.",
+    anchor_text: "fewer acids",
+    llm_model: "google/gemma-4-31b-it",
+    generated_at: "2026-08-03T10:00:00Z",
+  },
+  isLoading: false,
+  error: null,
+  onRetry: vi.fn(),
+};
+
 const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
   render(
     <SuggestionPreview
       suggestion={suggestion(status)}
       siteName="Example site"
+      placement={placement}
       onClose={vi.fn()}
       onAccept={vi.fn()}
       onReject={vi.fn()}
@@ -40,7 +57,7 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getByText("90%")).not.toBeNull();
     expect(screen.getByText("Internal link")).not.toBeNull();
     expect(screen.getByText("Placement context")).not.toBeNull();
-    expect(screen.getAllByText("Soon")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Soon");
     expect(document.body.textContent).not.toContain("GraphSAGE");
     expect(document.body.textContent).not.toContain("Shared taxonomy");
   });
@@ -51,6 +68,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={hybrid}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -79,6 +97,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={hybrid}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -152,7 +171,7 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.getByText("Queued for publish")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
@@ -170,7 +189,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo decision/ })).toBeNull();
   });
 
   it("shows the Hybrid method on a current card", () => {
@@ -204,6 +223,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={external}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -215,6 +235,53 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getByText("Wikipedia")).not.toBeNull();
     expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
       "https://en.wikipedia.org/wiki/External_target",
+    );
+  });
+
+  it("renders a quarantined row and offers the only way back", () => {
+    // The worker returns 'failed' rows in the default queue. A status the
+    // client does not know about reads its metadata off undefined, which takes
+    // the whole queue down rather than one card, and leaves the editor no way
+    // to retry a suggestion the worker has stopped retrying.
+    const onUndo = vi.fn();
+    render(
+      <SuggestionCard
+        suggestion={suggestion("failed")}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={onUndo}
+      />,
+    );
+
+    expect(screen.getByText("Publishing failed")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
+    expect(onUndo).toHaveBeenCalled();
+  });
+
+  it("explains a quarantined row in the drawer", () => {
+    const failed = {
+      ...suggestion("failed"),
+      publish_error: "HTTP 403: editor-bot needs permission to edit posts",
+    };
+    render(
+      <SuggestionPreview
+        suggestion={failed}
+        siteName="Example site"
+        placement={placement}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Publishing failed")).not.toBeNull();
+    expect(document.body.textContent).toContain("stopped retrying");
+    expect(document.body.textContent).toContain(
+      "HTTP 403: editor-bot needs permission to edit posts",
     );
   });
 

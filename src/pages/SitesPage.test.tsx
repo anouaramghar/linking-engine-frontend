@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
@@ -14,6 +14,23 @@ const mocks = vi.hoisted(() => ({
   },
   activeJobs: {
     data: [] as unknown[],
+    refetch: vi.fn(),
+  },
+  batch: {
+    data: undefined as unknown,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+    requestedId: null as number | null,
+  },
+  createBatch: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  retryBatch: {
+    isPending: false,
+    variables: undefined as { siteId: number } | undefined,
+    mutateAsync: vi.fn(),
   },
 }));
 
@@ -27,6 +44,15 @@ vi.mock("../hooks/useJobs", () => ({
   useJob: () => ({ data: undefined }),
 }));
 
+vi.mock("../hooks/usePipeline", () => ({
+  usePipelineBatch: (batchId: number | null) => {
+    mocks.batch.requestedId = batchId;
+    return mocks.batch;
+  },
+  useCreatePipelineBatch: () => mocks.createBatch,
+  useRetryPipelineSite: () => mocks.retryBatch,
+}));
+
 beforeEach(() => {
   Object.assign(mocks.sites, {
     data: [],
@@ -36,6 +62,17 @@ beforeEach(() => {
     dataUpdatedAt: 0,
   });
   mocks.activeJobs.data = [];
+  Object.assign(mocks.batch, {
+    data: undefined,
+    isError: false,
+    isFetching: false,
+    requestedId: null,
+  });
+  Object.assign(mocks.createBatch, { isPending: false });
+  mocks.createBatch.mutateAsync.mockReset();
+  Object.assign(mocks.retryBatch, { isPending: false, variables: undefined });
+  mocks.retryBatch.mutateAsync.mockReset();
+  window.history.replaceState({}, "", "/sites");
 });
 
 afterEach(cleanup);
@@ -62,6 +99,130 @@ describe("SitesPage scheduler copy", () => {
     render(<SitesPage />);
 
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+  });
+});
+
+describe("SitesPage batch pipeline", () => {
+  it("selects non-pool sites and starts one batch", async () => {
+    mocks.sites.data = [
+      {
+        id: 4,
+        name: "Nona",
+        base_url: "https://nona.example.com",
+        platform: "html",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 5,
+        name: "Shawn",
+        base_url: "https://shawn.example.com",
+        platform: "wordpress",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 6,
+        name: "Pool",
+        base_url: "https://pool.example.com",
+        platform: "pool",
+        crawl_frequency: "daily",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+    ];
+    mocks.createBatch.mutateAsync.mockResolvedValue({ id: 12, total: 2 });
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Nona for batch" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Shawn for batch" }));
+    expect(screen.queryByRole("checkbox", { name: "Select Pool for batch" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run batch (2)" }));
+
+    await waitFor(() => expect(mocks.createBatch.mutateAsync).toHaveBeenCalledWith([4, 5]));
+    expect(window.location.search).toBe("?batch=12");
+  });
+
+  it("selects all visible sites and exposes a clear selection tray", () => {
+    mocks.sites.data = [
+      {
+        id: 4,
+        name: "Nona",
+        base_url: "https://nona.example.com",
+        platform: "html",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 5,
+        name: "Shawn",
+        base_url: "https://shawn.example.com",
+        platform: "wordpress",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(screen.queryByRole("checkbox", { name: "Select Nona for batch" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Shawn for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
+      "2 sites selected",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    expect(screen.queryByRole("region", { name: "Batch selection" })).toBeNull();
+  });
+
+  it("caps batch selection at the engine limit", () => {
+    mocks.sites.data = Array.from({ length: 101 }, (_, index) => ({
+      id: index + 1,
+      name: `Site ${index + 1}`,
+      base_url: `https://site-${index + 1}.example.com`,
+      platform: "html",
+      crawl_frequency: "manual",
+      created_at: "2026-08-04T08:00:00Z",
+    }));
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+
+    expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
+      "100 sites selected",
+    );
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Site 101 for batch" }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect((screen.getByRole("button", { name: "Run batch (100)" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it("restores batch monitoring from the page URL", () => {
+    window.history.replaceState({}, "", "/sites?batch=27");
+
+    render(<SitesPage />);
+
+    expect(mocks.batch.requestedId).toBe(27);
   });
 });
 
@@ -255,7 +416,7 @@ describe("SitesPage Hybrid standard", () => {
 
     expect(document.body.textContent).toContain("Hybrid");
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Compare methods/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Suggestion method/ })).toBeNull();
@@ -265,7 +426,7 @@ describe("SitesPage Hybrid standard", () => {
     mocks.sites.data = [{ ...site, suggestion_slots_available: 0 }];
     render(<SitesPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     const generate = screen.getByRole("menuitem", {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
@@ -274,23 +435,19 @@ describe("SitesPage Hybrid standard", () => {
 });
 
 describe("SitesPage source controls", () => {
-  it("filters connected sources without hiding the fleet total", () => {
+  it("keeps content-pool sources out of the owned-sites fleet", () => {
     mocks.sites.data = [
       { id: 1, name: "Docs", base_url: "https://docs.example.com", platform: "wordpress" },
       { id: 2, name: "News pool", base_url: "https://example.com/feed", platform: "pool" },
     ];
     render(<SitesPage />);
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search sources" }), {
-      target: { value: "pool" },
-    });
-
-    expect(document.body.textContent).toContain("2 connected sources");
-    expect(document.body.textContent).toContain("News pool");
-    expect(document.body.textContent).not.toContain("docs.example.com");
+    expect(document.body.textContent).toContain("1 connected source");
+    expect(document.body.textContent).toContain("docs.example.com");
+    expect(document.body.textContent).not.toContain("News pool");
   });
 
-  it("keeps pool actions read-only", () => {
+  it("shows no owned-site row when the account only has a pool source", () => {
     mocks.sites.data = [{
       id: 2,
       name: "News pool",
@@ -300,9 +457,24 @@ describe("SitesPage source controls", () => {
     }];
     render(<SitesPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
-    expect(screen.queryByRole("menuitem", { name: /Generate suggestions/ })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Publish approved" })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Delete site" })).not.toBeNull();
+    expect(document.body.textContent).toContain("No sites are connected yet");
+    expect(document.body.textContent).not.toContain("News pool");
+  });
+
+  // Pool approval moved to ContentPoolPage, which owns its own tests. What is
+  // still worth asserting here is the negative: an owned site carries none of
+  // that gating and stays crawlable.
+  it("leaves crawling available on an owned site", () => {
+    mocks.sites.data = [
+      {
+        id: 1,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect((screen.getByRole("button", { name: "Crawl Docs" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

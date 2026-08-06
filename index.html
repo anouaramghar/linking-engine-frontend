@@ -3,14 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <!-- The system is a single light world with no dark variant. Declaring it
-         stops the browser from auto-darkening form controls and scrollbars
-         under a dark OS setting, which is the one place it would disagree. -->
-    <meta name="color-scheme" content="light" />
-    <!-- The Brand mark, inline so it costs no request and cannot 404. -->
+    <!-- Both worlds are supported now, so the browser is told to expect either.
+         Which one is in force is decided by `color-scheme` on :root in index.css,
+         keyed off the data-theme attribute the script below sets. -->
+    <meta name="color-scheme" content="light dark" />
+    <!-- Resolve the theme before the first paint.
+
+         This has to be inline and synchronous: the stylesheet and the React
+         bundle both arrive later, so anything that waits for them paints the
+         light palette first and then corrects itself — a white flash on exactly
+         the setup that asked not to see white. Kept deliberately tiny, and
+         duplicated in `useTheme.ts`, which owns the same key and values from
+         React's side. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("linkmesh.theme");
+          var dark =
+            stored === "dark" ||
+            ((stored === "system" || !stored) &&
+              matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+        } catch (e) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <!-- The Brand mark, inline so it costs no request and cannot 404.
+
+         The marks paint in `currentColor` so the embedded media query can move
+         them to near-white against dark browser chrome, where an ink mark on an
+         ink tab strip is an empty square. Browsers that ignore the query keep
+         the ink default, which is the behaviour this had before. -->
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2026%2026'%3E%3Ccircle%20cx='6'%20cy='20'%20r='4'%20fill='%230c0a09'/%3E%3Ccircle%20cx='20'%20cy='6'%20r='4'%20fill='none'%20stroke='%230c0a09'%20stroke-width='1.5'/%3E%3Cpath%20d='M8.8%2017.2L17.2%208.8'%20stroke='%230c0a09'%20stroke-width='1.5'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2026%2026'%3E%3Cstyle%3Esvg%7Bcolor:%230c0a09%7D@media(prefers-color-scheme:dark)%7Bsvg%7Bcolor:%23fafaf9%7D%7D%3C/style%3E%3Ccircle%20cx='6'%20cy='20'%20r='4'%20fill='currentColor'/%3E%3Ccircle%20cx='20'%20cy='6'%20r='4'%20fill='none'%20stroke='currentColor'%20stroke-width='1.5'/%3E%3Cpath%20d='M8.8%2017.2L17.2%208.8'%20stroke='currentColor'%20stroke-width='1.5'/%3E%3C/svg%3E"
     />
     <title>LinkMesh Dashboard</title>
   </head>

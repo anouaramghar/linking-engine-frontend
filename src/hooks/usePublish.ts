@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { listPendingPublication } from "../api/publish";
+import { getPublicationDryRun, listPendingPublication } from "../api/publish";
 import { publishSite } from "../api/sites";
 import { isConflict } from "../lib/errors";
 
@@ -15,6 +15,14 @@ export const usePendingPublication = (enabled = true) =>
     queryKey: ["publish", "pending"],
     queryFn: listPendingPublication,
     enabled,
+  });
+
+export const usePublicationDryRun = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["publish", "dry-run", siteId],
+    queryFn: () => getPublicationDryRun(siteId!),
+    enabled: siteId !== null,
+    retry: false,
   });
 
 /**

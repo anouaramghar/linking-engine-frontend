@@ -10,23 +10,31 @@ import {
   pct,
 } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
+import PlacementContextCard from "./PlacementContextCard";
+import type { PlacementState } from "./PlacementContextCard";
 
 interface Props {
   suggestion: Suggestion;
   siteName: string;
+  /** Generated per suggestion, so it is fetched by the page that knows which
+   *  one is open rather than by this component. */
+  placement: PlacementState;
   onClose: () => void;
   onAccept: () => void;
   onReject: () => void;
   onUndo: () => void;
+  actionsDisabled?: boolean;
 }
 
 export default function SuggestionPreview({
   suggestion: s,
   siteName,
+  placement,
   onClose,
   onAccept,
   onReject,
   onUndo,
+  actionsDisabled = false,
 }: Props) {
   const slug = s.target_article.url.replace(/^https?:\/\/[^/]+/, "") || s.target_article.url;
   const publicationMessage = PUBLICATION_STATUS_MESSAGE[s.status];
@@ -58,7 +66,7 @@ export default function SuggestionPreview({
       </div>
 
       <div className="eyebrow mb-2">Source article</div>
-      <div className="font-serif text-display-sm text-ink">{s.source_article.title}</div>
+      <div className="break-words font-serif text-display-sm text-ink">{s.source_article.title}</div>
       <div className="mb-4 mt-2 text-caption text-muted">
         {siteName} &middot;{" "}
         <a
@@ -71,14 +79,11 @@ export default function SuggestionPreview({
         </a>
       </div>
 
-      <div className="card px-5 py-4">
-        <div className="eyebrow">Placement context</div>
-        <div className="mt-2 text-body-sm font-medium text-ink">Soon</div>
-      </div>
+      <PlacementContextCard placement={placement} />
 
       <div className="eyebrow mb-2 mt-5">Links to &rarr;</div>
       <div className="rounded-xl bg-surface-strong p-4">
-        <div className="text-body-sm font-medium leading-snug text-ink">
+        <div className="break-words text-body-sm font-medium leading-snug text-ink">
           {s.target_article.title}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -88,7 +93,7 @@ export default function SuggestionPreview({
           )}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-muted">
-          <span>{slug}</span>
+          <span className="min-w-0 max-w-full break-all">{slug}</span>
           <a
             href={s.target_article.url}
             target="_blank"
@@ -128,10 +133,20 @@ export default function SuggestionPreview({
 
       {s.status === "pending" ? (
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button onClick={onAccept} className="btn btn-primary flex-1">
+          <button
+            type="button"
+            onClick={onAccept}
+            disabled={actionsDisabled}
+            className="btn btn-primary flex-1"
+          >
             Accept & queue placement
           </button>
-          <button onClick={onReject} className="btn btn-outline">
+          <button
+            type="button"
+            onClick={onReject}
+            disabled={actionsDisabled}
+            className="btn btn-outline"
+          >
             Reject
           </button>
         </div>
@@ -142,7 +157,12 @@ export default function SuggestionPreview({
             {STATUS_META[s.status].label}
           </div>
           {isReversible(s.status) && (
-            <button type="button" onClick={onUndo} className="btn btn-outline">
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={actionsDisabled}
+              className="btn btn-outline"
+            >
               Undo
             </button>
           )}
@@ -153,6 +173,11 @@ export default function SuggestionPreview({
         <div aria-label="Publish status" className="card mt-3 px-4 py-3">
           <div className="eyebrow">Publish status</div>
           <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
+          {s.status === "failed" && s.publish_error && (
+            <div className="mt-2 break-words text-caption leading-normal text-error-ink">
+              {s.publish_error}
+            </div>
+          )}
         </div>
       )}
 
@@ -171,7 +196,11 @@ export default function SuggestionPreview({
 
   if (!overlaid) {
     return (
-      <aside aria-label="Suggestion detail" className={panelClass}>
+      <aside
+        data-suggestion-id={s.id}
+        aria-label="Suggestion detail"
+        className={panelClass}
+      >
         {body}
       </aside>
     );
@@ -190,6 +219,7 @@ export default function SuggestionPreview({
     >
       <aside
         ref={panel}
+        data-suggestion-id={s.id}
         role="dialog"
         aria-modal="true"
         aria-label="Suggestion detail"

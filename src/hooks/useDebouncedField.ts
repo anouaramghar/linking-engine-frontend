@@ -16,6 +16,8 @@ export interface DebouncedField {
   change: (next: string) => void;
   /** Settle immediately — for blur, Enter, or anything that reads the value. */
   flush: () => void;
+  /** Cancel an in-flight commit and restore the committed value. */
+  cancel: () => void;
 }
 
 export function useDebouncedField<T>({
@@ -51,6 +53,10 @@ export function useDebouncedField<T>({
     latest.current = commit;
   });
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    // A reset or URL change invalidates the draft that the old timer captured.
+    clearTimeout(timer.current);
+  }, [value]);
 
   const change = (next: string) => {
     setDraft(next);
@@ -67,5 +73,10 @@ export function useDebouncedField<T>({
     else setDraft(format(value));
   };
 
-  return { draft, change, flush };
+  const cancel = () => {
+    clearTimeout(timer.current);
+    setDraft(format(value));
+  };
+
+  return { draft, change, flush, cancel };
 }

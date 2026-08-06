@@ -22,7 +22,7 @@ const TONE: Record<NoticeTone, string> = {
   error: "bg-error text-on-dark focus-ring-inverse",
 };
 
-/** Long enough to read and act on an undo; errors stay until dismissed. */
+/** Informational notices without recovery stay visible long enough to read. */
 const AUTO_DISMISS_MS = 8000;
 
 interface Props {
@@ -45,10 +45,12 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
   });
 
   useEffect(() => {
-    if (notice.tone === "error") return;
+    // A recoverable decision must remain available until the operator chooses
+    // Undo or dismisses it; a timer would make the recovery path disappear.
+    if (notice.tone === "error" || canUndo) return;
     const timer = setTimeout(() => dismiss.current(), AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
-  }, [notice]);
+  }, [canUndo, notice]);
 
   return (
     <div

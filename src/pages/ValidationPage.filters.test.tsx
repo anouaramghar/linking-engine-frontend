@@ -54,6 +54,14 @@ vi.mock("../hooks/useSuggestions", () => ({
       refetch: vi.fn(),
     };
   },
+  // Not what these tests are about; the filter assertions never open a row.
+  usePlacement: () => ({
+    data: undefined,
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   useSuggestionCounts: () => ({
     data: {
       pending: 1,
@@ -89,6 +97,13 @@ vi.mock("../hooks/useSites", () => ({
 
 vi.mock("../hooks/usePublish", () => ({
   usePublishSites: () => ({ mutate: vi.fn(), isPending: false }),
+  usePublicationDryRun: () => ({
+    data: undefined,
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   usePendingPublication: () => ({
     data: [],
     isPending: false,
@@ -268,5 +283,14 @@ describe("bulk rule preview", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Confirm accept" })).toBeNull(),
     );
+  });
+
+  it("filters the queue by 'failed' status when the 'Publishing failed' chip is clicked", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: /Publishing failed/i }));
+
+    await waitFor(() => expect(mocks.queueFilters?.status).toBe("failed"));
   });
 });

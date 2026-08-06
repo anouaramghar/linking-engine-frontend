@@ -10,7 +10,7 @@ export interface SuggestionQueueFilters {
 }
 
 /** Statuses the publication worker owns; a local override must never mask them. */
-const WORKER_OWNED: SuggestionStatus[] = ["applying", "applied", "expired"];
+const WORKER_OWNED: SuggestionStatus[] = ["applying", "applied", "expired", "failed"];
 
 export const clampThreshold = (value: number) =>
   Math.min(100, Math.max(0, Number.isFinite(value) ? Math.round(value) : 0));
