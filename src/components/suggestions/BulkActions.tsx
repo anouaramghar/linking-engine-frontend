@@ -37,6 +37,7 @@ interface Props {
   /** False when the active status filter shows no pending suggestions to act on. */
   actionable: boolean;
   confirmation: BulkConfirmation | null;
+  confirmationBlocked?: boolean;
   onRequest: (action: BulkReviewAction) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -52,6 +53,7 @@ export default function BulkActions({
   rejectCount,
   actionable,
   confirmation,
+  confirmationBlocked = false,
   onRequest,
   onConfirm,
   onCancel,
@@ -232,8 +234,15 @@ export default function BulkActions({
           <button type="button" onClick={onCancel} className="btn btn-outline btn-sm">
             Cancel
           </button>
-          <button type="button" onClick={onConfirm} className="btn btn-primary btn-sm">
-            Confirm {confirmation.action === "approve" ? "accept" : "reject"}
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={confirmationBlocked}
+            className="btn btn-primary btn-sm"
+          >
+            {confirmationBlocked
+              ? "Updating…"
+              : `Confirm ${confirmation.action === "approve" ? "accept" : "reject"}`}
           </button>
         </div>
       )}

@@ -191,7 +191,11 @@ export default function SuggestionPreview({
 
   if (!overlaid) {
     return (
-      <aside aria-label="Suggestion detail" className={panelClass}>
+      <aside
+        data-suggestion-id={s.id}
+        aria-label="Suggestion detail"
+        className={panelClass}
+      >
         {body}
       </aside>
     );
@@ -210,6 +214,7 @@ export default function SuggestionPreview({
     >
       <aside
         ref={panel}
+        data-suggestion-id={s.id}
         role="dialog"
         aria-modal="true"
         aria-label="Suggestion detail"

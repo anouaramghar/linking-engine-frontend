@@ -707,9 +707,13 @@ export default function ValidationPage() {
     );
   };
 
-  const pendingPublication = (pendingPublicationQuery.data ?? []).filter(
-    (entry) => siteFilter === 0 || entry.site_id === siteFilter,
-  );
+  const publicationUnavailable =
+    pendingPublicationQuery.isPending || pendingPublicationQuery.isFetching || pendingPublicationQuery.isError;
+  const pendingPublication = publicationUnavailable
+    ? []
+    : (pendingPublicationQuery.data ?? []).filter(
+        (entry) => siteFilter === 0 || entry.site_id === siteFilter,
+      );
   const awaitingPublish = pendingPublication.map((entry) => entry.site_id);
   const approvedCount = pendingPublication.reduce(
     (total, entry) => total + entry.awaiting_publication,
@@ -717,6 +721,7 @@ export default function ValidationPage() {
   );
 
   const startPublish = () => {
+    if (publicationUnavailable || publish.isPending || awaitingPublish.length === 0) return;
     setNotice(null);
     publish.mutate(awaitingPublish, {
       onSuccess: ({ queued, alreadyRunning, failed }) =>
@@ -870,9 +875,12 @@ export default function ValidationPage() {
       focusAfterReview.current = null;
       return;
     }
-    const control = document.querySelector<HTMLElement>(
-      `[data-suggestion-id="${target}"] button`,
+    const preview = document.querySelector<HTMLElement>(
+      `[role="dialog"][aria-label="Suggestion detail"][data-suggestion-id="${target}"], aside[aria-label="Suggestion detail"][data-suggestion-id="${target}"]`,
     );
+    const control = preview
+      ? preview.querySelector<HTMLElement>("button:not([aria-label='Close preview'])")
+      : document.querySelector<HTMLElement>(`[data-suggestion-id="${target}"] button`);
     if (control) {
       control.focus();
       focusAfterReview.current = null;
@@ -941,8 +949,9 @@ export default function ValidationPage() {
                  !bulkControlsBlocked &&
                  (statusFilter === "all" || statusFilter === "pending")
                }
-              confirmation={confirmation}
-              onRequest={requestBulk}
+               confirmation={confirmation}
+               confirmationBlocked={bulkControlsBlocked}
+               onRequest={requestBulk}
               onConfirm={confirmBulk}
               onCancel={() => setConfirmation(null)}
             />
@@ -1024,6 +1033,16 @@ export default function ValidationPage() {
               >
                 Retry supporting data
               </button>
+            </div>
+          )}
+
+          {publicationUnavailable && !pendingPublicationQuery.isError && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
+            >
+              Refreshing publication status. Publishing is paused until it returns.
             </div>
           )}
 

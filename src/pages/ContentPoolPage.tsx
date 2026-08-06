@@ -24,7 +24,7 @@ import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
 
 type PoolFilter = "all" | "approved" | "not_approved" | "quarantined";
-const LOCAL_JOB_GUARD_MS = 10_000;
+const LOCAL_JOB_GUARD_MS = 20_000;
 
 const status = (site: Site): Exclude<PoolFilter, "all"> =>
   site.pool_source_quarantined
