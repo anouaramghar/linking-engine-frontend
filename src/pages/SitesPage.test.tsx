@@ -187,6 +187,35 @@ describe("SitesPage batch pipeline", () => {
     expect(screen.queryByRole("region", { name: "Batch selection" })).toBeNull();
   });
 
+  it("caps batch selection at the engine limit", () => {
+    mocks.sites.data = Array.from({ length: 101 }, (_, index) => ({
+      id: index + 1,
+      name: `Site ${index + 1}`,
+      base_url: `https://site-${index + 1}.example.com`,
+      platform: "html",
+      crawl_frequency: "manual",
+      created_at: "2026-08-04T08:00:00Z",
+    }));
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+
+    expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
+      "100 sites selected",
+    );
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Site 101 for batch" }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect((screen.getByRole("button", { name: "Run batch (100)" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
   it("restores batch monitoring from the page URL", () => {
     window.history.replaceState({}, "", "/sites?batch=27");
 
@@ -386,7 +415,7 @@ describe("SitesPage Hybrid standard", () => {
 
     expect(document.body.textContent).toContain("Hybrid");
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Compare methods/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Suggestion method/ })).toBeNull();
@@ -396,7 +425,7 @@ describe("SitesPage Hybrid standard", () => {
     mocks.sites.data = [{ ...site, suggestion_slots_available: 0 }];
     render(<SitesPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     const generate = screen.getByRole("menuitem", {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
@@ -445,6 +474,6 @@ describe("SitesPage source controls", () => {
     ];
     render(<SitesPage />);
 
-    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Crawl Docs" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -38,7 +38,13 @@ export function EmptyPanel({ children }: { children: React.ReactNode }) {
 /** Placeholder rows shaped like the list they stand in for. */
 export function SkeletonRows({ count = 4, label }: { count?: number; label: string }) {
   return (
-    <div aria-busy="true" aria-label={label} className="flex flex-col gap-2.5">
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="flex flex-col gap-2.5"
+    >
+      <span className="sr-only">{label}</span>
       {Array.from({ length: count }, (_, index) => (
         <div key={index} className="card flex animate-pulse items-center gap-4 px-5 py-4">
           <div className="h-8 w-8 flex-none rounded-full bg-hairline" />

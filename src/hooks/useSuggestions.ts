@@ -5,6 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import {
   bulkReview,
@@ -32,10 +33,14 @@ export const useSuggestions = (
     placeholderData: keepPreviousData,
     enabled,
   });
+  const items = useMemo(
+    () => query.data?.pages.flatMap((page) => page.items) ?? [],
+    [query.data],
+  );
 
   return {
     ...query,
-    items: query.data?.pages.flatMap((page) => page.items) ?? [],
+    items,
   };
 };
 
@@ -66,13 +71,15 @@ export const useSuggestionCounts = (
  * Never stale, because it is not: the engine stores the answer on the row, so a
  * refetch can only return what is already in the cache.
  */
+const PLACEMENT_CACHE_MS = 15 * 60 * 1000;
+
 export const usePlacement = (suggestionId: number | null) =>
   useQuery({
     queryKey: ["placement", suggestionId],
     queryFn: () => getPlacement(suggestionId as number),
     enabled: suggestionId !== null,
     staleTime: Infinity,
-    gcTime: Infinity,
+    gcTime: PLACEMENT_CACHE_MS,
     // A failed generation is worth one automatic retry — but not the default
     // three, which would keep an editor waiting through three model timeouts
     // before the card admits anything is wrong. Beyond that it is their call.

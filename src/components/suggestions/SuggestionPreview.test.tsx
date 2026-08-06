@@ -171,7 +171,7 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.getByText("Queued for publish")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
@@ -189,7 +189,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo decision/ })).toBeNull();
   });
 
   it("shows the Hybrid method on a current card", () => {
@@ -257,7 +257,7 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.getByText("Publishing failed")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
   });
 

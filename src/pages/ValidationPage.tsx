@@ -69,6 +69,7 @@ const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "applied", label: "Published live" },
   { key: "failed", label: "Publishing failed" },
   { key: "rejected", label: "Rejected" },
+  { key: "expired", label: "Expired" },
 ];
 
 interface BatchFailure {
@@ -80,6 +81,7 @@ const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
 const STATUS_OVERRIDE_LIMIT = 5_000;
 const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
+const SOURCE_SUGGESTION_PAGE_SIZE = 20;
 
 const EMPTY_COUNTS: SuggestionCounts = {
   pending: 0,
@@ -130,6 +132,7 @@ export default function ValidationPage() {
   const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
     () => new Set(),
   );
+  const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -137,11 +140,16 @@ export default function ValidationPage() {
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
+  const pendingNavigationAfterId = useRef<number | null>(null);
+  const focusAfterReview = useRef<number | "main" | null>(null);
 
   const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
 
   const sitesQuery = useSites();
-  const sites = sitesQuery.data;
+  const sites = useMemo(
+    () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
+    [sitesQuery.data],
+  );
   const hasSites = Boolean(sites?.length);
 
   /**
@@ -193,6 +201,7 @@ export default function ValidationPage() {
   );
   const suggestionsQuery = useSuggestions(queueFilters, hasSites);
   const sourceSuggestions = suggestionsQuery.items;
+  const refreshingQueueData = Boolean(suggestionsQuery.isPlaceholderData);
   const fleetCountsQuery = useSuggestionCounts({}, hasSites);
   // The chips label the list, so they count inside the same window it shows —
   // otherwise "Pending review · 805" sits above a filtered queue of nine.
@@ -210,6 +219,13 @@ export default function ValidationPage() {
     hasSites,
   );
   const pendingPublicationQuery = usePendingPublication(hasSites);
+  const refreshingCounts = [
+    fleetCountsQuery,
+    scopedCountsQuery,
+    acceptCountsQuery,
+    rejectCountsQuery,
+  ].some((query) => query.isPlaceholderData);
+  const queueUpdating = refreshingQueueData || refreshingCounts;
   const publicationPreview = usePublicationDryRun(previewSiteId);
   const review = useReview();
   const bulkReview = useBulkReview();
@@ -228,9 +244,15 @@ export default function ValidationPage() {
   ];
   const loading =
     sitesQuery.isPending ||
-    (hasSites && queueQueries.some((query) => query.isPending));
-  const failed =
-    sitesQuery.isError || queueQueries.some((query) => query.isError);
+    (hasSites && suggestionsQuery.isPending);
+  const failed = sitesQuery.isError || suggestionsQuery.isError;
+  const supportQueryFailed = [
+    fleetCountsQuery,
+    scopedCountsQuery,
+    acceptCountsQuery,
+    rejectCountsQuery,
+    pendingPublicationQuery,
+  ].some((query) => query.isError);
   const fetching = queueQueries.some((query) => query.isFetching);
   const retry = () => {
     void sitesQuery.refetch();
@@ -258,13 +280,6 @@ export default function ValidationPage() {
     () => groupSuggestionsBySource(suggestions),
     [suggestions],
   );
-  const navigableSuggestions = useMemo(
-    () =>
-      suggestionGroups
-        .filter((group) => !collapsedSources.has(group.key))
-        .flatMap((group) => group.suggestions),
-    [collapsedSources, suggestionGroups],
-  );
 
   const {
     visible: visibleGroups,
@@ -280,9 +295,27 @@ export default function ValidationPage() {
     SOURCE_GROUP_PAGE_SIZE,
     SOURCE_GROUP_AUTO_LOAD_LIMIT,
   );
+  const renderedGroups = useMemo(
+    () =>
+      visibleGroups.map((group) => ({
+        ...group,
+        visibleSuggestions: group.suggestions.slice(
+          0,
+          groupLimits[group.key] ?? SOURCE_SUGGESTION_PAGE_SIZE,
+        ),
+      })),
+    [groupLimits, visibleGroups],
+  );
+  const navigableSuggestions = useMemo(
+    () =>
+      renderedGroups
+        .filter((group) => !collapsedSources.has(group.key))
+        .flatMap((group) => group.visibleSuggestions),
+    [collapsedSources, renderedGroups],
+  );
   const visibleSuggestions = useMemo(
-    () => visibleGroups.flatMap((group) => group.suggestions),
-    [visibleGroups],
+    () => renderedGroups.flatMap((group) => group.visibleSuggestions),
+    [renderedGroups],
   );
   const visibleSuggestionIds = useMemo(
     () => new Set(visibleSuggestions.map((suggestion) => suggestion.id)),
@@ -426,18 +459,34 @@ export default function ValidationPage() {
     }
 
     if (unknownIdCount) {
+      focusAfterReview.current = "main";
       setSelectedId(null);
     } else if (selectedId !== null && applied.includes(selectedId)) {
-      const selectedIndex = navigableSuggestions.findIndex(
-        (item) => item.id === selectedId,
-      );
-      if (selectedIndex !== -1) {
-        const removed = new Set(applied);
-        // Resume at the true vacated position after every reviewed row above
-        // the cursor has also left the filtered list.
-        lastIndex.current = navigableSuggestions
-          .slice(0, selectedIndex)
-          .filter((suggestion) => !removed.has(suggestion.id)).length;
+      if (status === "pending") {
+        // Undo puts the row back into the current pending queue, so keep the
+        // editor on that row and put focus on its new decision control.
+        focusAfterReview.current = selectedId;
+      } else {
+        const selectedIndex = navigableSuggestions.findIndex(
+          (item) => item.id === selectedId,
+        );
+        if (selectedIndex !== -1) {
+          const removed = new Set(applied);
+          const next =
+            navigableSuggestions
+              .slice(selectedIndex + 1)
+              .find((suggestion) => !removed.has(suggestion.id)) ??
+            [...navigableSuggestions]
+              .slice(0, selectedIndex)
+              .reverse()
+              .find((suggestion) => !removed.has(suggestion.id));
+          // Resume at the true vacated position after every reviewed row above
+          // the cursor has also left the filtered list.
+          lastIndex.current = navigableSuggestions
+            .slice(0, selectedIndex)
+            .filter((suggestion) => !removed.has(suggestion.id)).length;
+          focusAfterReview.current = next?.id ?? "main";
+        }
       }
     }
 
@@ -487,18 +536,22 @@ export default function ValidationPage() {
   };
 
   const decide = (id: number, status: ReviewStatus) => {
+    if (queueUpdating || confirmation) return;
     const message =
       status === "approved" ? "1 suggestion queued for publish." : "1 suggestion rejected.";
     // Deliberate tri-state: undefined leaves a non-cursor selection alone;
     // null clears a cursor whose removed row has no successor.
-    const successor = id === selectedId ? successorOf(id) : undefined;
+    const successor = successorOf(id);
     setNotice(null);
     review.mutate(
       { id, status },
       {
         onSuccess: () => {
           applyStatuses([id], status, { message, tone: "info", undoIds: [id] });
-          if (successor !== undefined) setSelectedId(successor);
+          focusAfterReview.current = successor ?? "main";
+          if (id === selectedId) {
+            setSelectedId(successor);
+          }
         },
         onError: (error) =>
           setNotice({
@@ -512,6 +565,7 @@ export default function ValidationPage() {
   };
 
   const undo = (ids: number[]) => {
+    if (queueUpdating || confirmation) return;
     setNotice(null);
     bulkReview.mutate(
       { ids, status: "pending" },
@@ -564,6 +618,7 @@ export default function ValidationPage() {
   const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
 
   const requestBulk = (action: BulkReviewAction) => {
+    if (queueUpdating) return;
     const count = action === "approve" ? acceptCount : rejectCount;
     setConfirmation({
       action,
@@ -575,7 +630,7 @@ export default function ValidationPage() {
   };
 
   const confirmBulk = () => {
-    if (!confirmation) return;
+    if (!confirmation || queueUpdating) return;
     const approving = confirmation.action === "approve";
     const status = approving ? "approved" : "rejected";
     const describe = (count: number) =>
@@ -670,10 +725,47 @@ export default function ValidationPage() {
 
   // Move the cursor within the visible list, seeding it at the top on first use.
   const step = (delta: number) => {
-    if (!navigableSuggestions.length) return;
+    if (queueUpdating || !navigableSuggestions.length) return;
     const current = navigableSuggestions.findIndex(
       (item) => item.id === selectedId,
     );
+    const currentGroup = renderedGroups.find((group) =>
+      group.visibleSuggestions.some((item) => item.id === selectedId),
+    );
+    const groupHasMore = Boolean(
+      currentGroup && currentGroup.visibleSuggestions.length < currentGroup.suggestions.length,
+    );
+    if (
+      delta > 0 &&
+      current === navigableSuggestions.length - 1 &&
+      (groupHasMore || suggestionsQuery.hasNextPage)
+    ) {
+      if (
+        suggestionsQuery.isFetchingNextPage ||
+        pendingNavigationAfterId.current !== null
+      ) {
+        return;
+      }
+      pendingNavigationAfterId.current = navigableSuggestions[current].id;
+      if (groupHasMore && currentGroup) {
+        setGroupLimits((current) => ({
+          ...current,
+          [currentGroup.key]:
+            (current[currentGroup.key] ?? SOURCE_SUGGESTION_PAGE_SIZE) +
+            SOURCE_SUGGESTION_PAGE_SIZE,
+        }));
+      } else {
+        showMoreLoaded();
+        void suggestionsQuery.fetchNextPage().catch(() => {
+          pendingNavigationAfterId.current = null;
+          setNotice({
+            message: "The next queue page could not be loaded. Please try again.",
+            tone: "error",
+          });
+        });
+      }
+      return;
+    }
     // A bulk review can pull the cursor row out from under the selection. The
     // row that slid into its index is the one to resume on — snapping back to
     // the top of the queue would lose the editor's place entirely.
@@ -688,6 +780,23 @@ export default function ValidationPage() {
     if (!visibleSuggestionIds.has(nextSuggestion.id)) showMore();
     setSelectedId(nextSuggestion.id);
   };
+
+  useEffect(() => {
+    const afterId = pendingNavigationAfterId.current;
+    if (afterId === null || suggestionsQuery.isFetchingNextPage) return;
+    const index = navigableSuggestions.findIndex((item) => item.id === afterId);
+    const next = index === -1 ? undefined : navigableSuggestions[index + 1];
+    if (next) {
+      pendingNavigationAfterId.current = null;
+      setSelectedId(next.id);
+    } else if (!suggestionsQuery.hasNextPage) {
+      pendingNavigationAfterId.current = null;
+    }
+  }, [
+    navigableSuggestions,
+    suggestionsQuery.hasNextPage,
+    suggestionsQuery.isFetchingNextPage,
+  ]);
 
   useQueueShortcuts(
     {
@@ -711,6 +820,23 @@ export default function ValidationPage() {
     // Optional-called: not every environment implements scrollIntoView.
     cursorRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [selectedId]);
+
+  useEffect(() => {
+    const target = focusAfterReview.current;
+    if (target === null) return;
+    if (target === "main") {
+      document.getElementById("main")?.focus();
+      focusAfterReview.current = null;
+      return;
+    }
+    const control = document.querySelector<HTMLElement>(
+      `[data-suggestion-id="${target}"] button`,
+    );
+    if (control) {
+      control.focus();
+      focusAfterReview.current = null;
+    }
+  }, [selectedId, visibleSuggestions]);
 
   const toggleSourceGroup = (groupKey: string) => {
     const isCollapsing = !collapsedSources.has(groupKey);
@@ -770,7 +896,7 @@ export default function ValidationPage() {
               }}
               acceptCount={acceptCount}
               rejectCount={rejectCount}
-              actionable={statusFilter === "all" || statusFilter === "pending"}
+               actionable={!queueUpdating && (statusFilter === "all" || statusFilter === "pending")}
               confirmation={confirmation}
               onRequest={requestBulk}
               onConfirm={confirmBulk}
@@ -827,6 +953,36 @@ export default function ValidationPage() {
             />
           )}
 
+          {queueUpdating && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
+            >
+              Updating the queue for these filters. Review actions are paused until the current
+              results arrive.
+            </div>
+          )}
+
+          {supportQueryFailed && !failed && (
+            <div
+              role="alert"
+              className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+            >
+              <span className="min-w-0 flex-1">
+                Some queue totals or publication status could not be loaded. The current list is
+                still available, but related bulk controls may be paused.
+              </span>
+              <button
+                type="button"
+                onClick={retry}
+                className="btn btn-outline btn-sm border-error/40 bg-surface-card text-error-ink hover:border-error"
+              >
+                Retry supporting data
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2.5 pb-6">
             {loading && <SkeletonRows count={5} label="Loading suggestions" />}
 
@@ -842,22 +998,32 @@ export default function ValidationPage() {
             {!loading && !failed && (
               <>
                 <div className="flex flex-col gap-3">
-                  {visibleGroups.map((group) => (
+                  {renderedGroups.map((group) => (
                     <SuggestionGroup
                       key={group.key}
                       sourceArticle={group.sourceArticle}
                       siteId={group.siteId}
                       siteName={siteName(group.siteId)}
                       count={group.suggestions.length}
+                      visibleCount={group.visibleSuggestions.length}
+                      onShowMore={() =>
+                        setGroupLimits((current) => ({
+                          ...current,
+                          [group.key]:
+                            (current[group.key] ?? SOURCE_SUGGESTION_PAGE_SIZE) +
+                            SOURCE_SUGGESTION_PAGE_SIZE,
+                        }))
+                      }
                       collapsed={collapsedSources.has(group.key)}
                       onToggle={() => toggleSourceGroup(group.key)}
                     >
-                      {group.suggestions.map((suggestion) => (
+                      {group.visibleSuggestions.map((suggestion) => (
                         <SuggestionCard
                           key={suggestion.id}
                           suggestion={suggestion}
                           siteName={siteName(suggestion.site_id)}
-                          selected={suggestion.id === selectedId}
+                           selected={suggestion.id === selectedId}
+                           actionsDisabled={queueUpdating}
                           showSource={false}
                           containerRef={
                             suggestion.id === selectedId ? cursorRef : undefined
@@ -936,6 +1102,7 @@ export default function ValidationPage() {
               error: placementQuery.error,
               onRetry: () => void placementQuery.refetch(),
             }}
+            actionsDisabled={queueUpdating}
             onClose={() => setSelectedId(null)}
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}

@@ -51,6 +51,10 @@ export function useDebouncedField<T>({
     latest.current = commit;
   });
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    // A reset or URL change invalidates the draft that the old timer captured.
+    clearTimeout(timer.current);
+  }, [value]);
 
   const change = (next: string) => {
     setDraft(next);

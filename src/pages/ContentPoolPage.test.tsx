@@ -18,7 +18,16 @@ vi.mock("../hooks/useSites", () => ({
   useReactivatePoolSource: () => ({ mutateAsync: mocks.reactivate }),
   useDeleteSite: () => ({ mutateAsync: mocks.remove, isPending: false }),
   useCreateSite: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
-  usePoolAuditEvents: () => ({ data: [], isPending: false, isError: false }),
+  usePoolAuditEvents: () => ({
+    events: [],
+    hasNextPage: false,
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("../api/sites", async (original) => ({
@@ -63,7 +72,7 @@ describe("ContentPoolPage", () => {
     expect(document.body.textContent).toContain("Industry feed");
     expect(document.body.textContent).toContain("Not approved");
     expect(document.body.textContent).not.toContain("Owned");
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Industry feed/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Approve" }));
 
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(2));
@@ -87,7 +96,7 @@ describe("ContentPoolPage", () => {
 
     expect(document.body.textContent).toContain("Quarantined");
     expect(document.body.textContent).toContain("three consecutive failures");
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Research feed/ }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Reactivate" }));
 
     await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith(3));

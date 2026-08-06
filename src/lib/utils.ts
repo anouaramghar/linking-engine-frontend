@@ -10,6 +10,12 @@ export const pct = (n: number) => `${scorePercent(n)}%`;
 
 export const formatCount = (count: number) => new Intl.NumberFormat("en-US").format(count);
 
+export const sitePlatformLabel = (platform: "wordpress" | "html" | "pool") => {
+  if (platform === "wordpress") return "WP REST API";
+  if (platform === "pool") return "Content pool";
+  return "Sitemap crawl";
+};
+
 export const initials = (name: string) =>
   name
     .split(" ")

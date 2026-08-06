@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 
+import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
 import { ingestSite, publishSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
@@ -15,6 +16,7 @@ import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
+import { useIncrementalList } from "../hooks/useIncrementalList";
 import {
   useCreatePipelineBatch,
   usePipelineBatch,
@@ -27,6 +29,7 @@ import {
   formatCount,
   initials,
   orbPlateClass,
+  sitePlatformLabel,
   timeAgo,
 } from "../lib/utils";
 import type { JobKind, JobRun } from "../types/job";
@@ -49,15 +52,24 @@ function SiteDetail({
   label,
   value,
   title,
+  dateTime,
 }: {
   label?: string;
   value: string;
   title?: string;
+  dateTime?: string | null;
 }) {
   return (
-    <span className="text-caption text-muted" title={title}>
+    <span
+      role={label ? "group" : undefined}
+      className="text-caption text-muted"
+      title={title}
+      aria-label={label ? `${label}: ${value}` : undefined}
+    >
       {label && <span className="xl:hidden">{label}: </span>}
-      <span className="font-medium text-ink">{value}</span>
+      <span className="font-medium text-ink">
+        {dateTime ? <time dateTime={dateTime}>{value}</time> : value}
+      </span>
     </span>
   );
 }
@@ -211,7 +223,8 @@ export default function SitesPage() {
     sites?.every((site) => site.article_count !== undefined)
       ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
       : null;
-  const activeJobs = useActiveJobs().data ?? [];
+  const activeJobsQuery = useActiveJobs();
+  const activeJobs = activeJobsQuery.data ?? [];
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -234,13 +247,20 @@ export default function SitesPage() {
     window.addEventListener("popstate", syncBatchFromUrl);
     return () => window.removeEventListener("popstate", syncBatchFromUrl);
   }, []);
-  const visibleSites = useMemo(() => {
+  const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
     return sites?.filter((site) =>
-      [site.name, site.base_url, site.platform].some((value) => value.toLowerCase().includes(query)),
+      [site.name, site.base_url, site.platform, sitePlatformLabel(site.platform)].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
     );
   }, [search, sites]);
+  const {
+    visible: visibleSites,
+    hasMore: hasMoreSites,
+    showMore: showMoreSites,
+  } = useIncrementalList(filteredSites ?? [], search, 50, 250);
 
   const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
   const selectedVisibleCount = visibleSiteIds.filter((id) => selectedSiteIds.has(id)).length;
@@ -248,6 +268,15 @@ export default function SitesPage() {
     visibleSiteIds.length > 0 && selectedVisibleCount === visibleSiteIds.length;
   const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
   const selectedOutsideSearchCount = selectedSiteIds.size - selectedVisibleCount;
+  const batchLimitReached = selectedSiteIds.size >= MAX_PIPELINE_BATCH_SITES;
+  const selectedActiveCount = [...selectedSiteIds].filter((id) =>
+    activeJobs.some(
+      (job) =>
+        job.site_id === id && (job.kind === "ingestion" || job.kind === "analysis"),
+    ),
+  ).length;
+  const batchBlocked =
+    activeJobsQuery.isError || selectedActiveCount > 0 || selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES;
 
   useEffect(() => {
     if (selectVisibleRef.current) selectVisibleRef.current.indeterminate = someVisibleSelected;
@@ -270,8 +299,17 @@ export default function SitesPage() {
   const toggleAllVisible = () => {
     setSelectedSiteIds((current) => {
       const next = new Set(current);
-      if (allVisibleSelected) visibleSiteIds.forEach((id) => next.delete(id));
-      else visibleSiteIds.forEach((id) => next.add(id));
+      if (allVisibleSelected || (batchLimitReached && someVisibleSelected)) {
+        visibleSiteIds.forEach((id) => next.delete(id));
+      }
+      else {
+        let slots = MAX_PIPELINE_BATCH_SITES - next.size;
+        visibleSiteIds.forEach((id) => {
+          if (next.has(id) || slots <= 0) return;
+          next.add(id);
+          slots -= 1;
+        });
+      }
       return next;
     });
   };
@@ -289,7 +327,15 @@ export default function SitesPage() {
   };
 
   const launchBatch = async () => {
-    if (selectedSiteIds.size === 0 || createBatch.isPending) return;
+    if (
+      selectedSiteIds.size === 0 ||
+      selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES ||
+      activeJobsQuery.isError ||
+      selectedActiveCount > 0 ||
+      createBatch.isPending
+    ) {
+      return;
+    }
     setNotice(null);
     try {
       const batch = await createBatch.mutateAsync([...selectedSiteIds]);
@@ -327,7 +373,13 @@ export default function SitesPage() {
     queuedMessage?: string,
   ) => {
     const key = busyKey(siteId, label);
-    if (busy[key]) return;
+    if (
+      busy[key] ||
+      activeJobsQuery.isError ||
+      activeJobs.some((job) => job.site_id === siteId && job.kind === kind)
+    ) {
+      return;
+    }
     setBusy((current) => ({ ...current, [key]: true }));
     setNotice(null);
     try {
@@ -356,7 +408,15 @@ export default function SitesPage() {
     deleteSite.mutate(
       { id, confirmName: name },
       {
-        onSuccess: () => setNotice({ message: `${name} was deleted.`, tone: "info" }),
+        onSuccess: () => {
+          setSelectedSiteIds((current) => {
+            if (!current.has(id)) return current;
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          });
+          setNotice({ message: `${name} was deleted.`, tone: "info" });
+        },
         onError: (error) =>
           setNotice({
             message: errorDetail(error, `${name} could not be deleted. Please try again.`),
@@ -417,7 +477,10 @@ export default function SitesPage() {
                 label="Select all visible sites"
                 checked={allVisibleSelected}
                 indeterminate={someVisibleSelected}
-                disabled={visibleSiteIds.length === 0}
+                disabled={
+                  visibleSiteIds.length === 0 ||
+                  (batchLimitReached && selectedVisibleCount === 0)
+                }
                 onChange={toggleAllVisible}
               />
               <span className="text-caption font-medium text-ink">Select visible sites</span>
@@ -425,6 +488,24 @@ export default function SitesPage() {
             <span className="text-caption text-muted">
               {visibleSiteIds.length} visible
             </span>
+          </div>
+        )}
+
+        {activeJobsQuery.isError && (
+          <div
+            role="alert"
+            className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+          >
+            <span className="min-w-0 flex-1">
+              Live job status is unavailable. Refresh it before starting another crawl or analysis.
+            </span>
+            <button
+              type="button"
+              onClick={() => void activeJobsQuery.refetch()}
+              className="btn btn-outline btn-sm border-error/40 bg-surface-card text-error-ink hover:border-error"
+            >
+              Refresh job status
+            </button>
           </div>
         )}
 
@@ -461,7 +542,10 @@ export default function SitesPage() {
                   label="Select all visible sites"
                   checked={allVisibleSelected}
                   indeterminate={someVisibleSelected}
-                  disabled={visibleSiteIds.length === 0}
+                  disabled={
+                    visibleSiteIds.length === 0 ||
+                    (batchLimitReached && selectedVisibleCount === 0)
+                  }
                   onChange={toggleAllVisible}
                 />
               </label>
@@ -503,12 +587,17 @@ export default function SitesPage() {
                 selectedSiteIds.has(site.id) ? "border-ink bg-surface-strong" : ""
               }`}
             >
-              <div className="flex min-w-0 items-center gap-3">
+              <div
+                role="group"
+                aria-label={`Site ${site.name}`}
+                className="flex min-w-0 items-center gap-3"
+              >
                 {selectionMode ? (
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                  <label className="touch-target flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                     <SelectionControl
                       label={`Select ${site.name} for batch`}
                       checked={selectedSiteIds.has(site.id)}
+                      disabled={!selectedSiteIds.has(site.id) && batchLimitReached}
                       onChange={() => toggleSelectedSite(site.id)}
                     />
                     <SiteIdentity site={site} index={index} />
@@ -546,10 +635,12 @@ export default function SitesPage() {
                   label="Last crawl"
                   value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
                   title={site.last_crawl_at ?? undefined}
+                  dateTime={site.last_crawl_at}
                 />
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
+                  label="Articles"
                   value={
                     site.article_count === undefined ? "Soon" : formatCount(site.article_count)
                   }
@@ -557,6 +648,7 @@ export default function SitesPage() {
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
+                  label="Int. links"
                   value={
                     site.internal_link_count === undefined
                       ? "Soon"
@@ -566,8 +658,10 @@ export default function SitesPage() {
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
+                  label="Last crawl"
                   value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
                   title={site.last_crawl_at ?? undefined}
+                  dateTime={site.last_crawl_at}
                 />
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -582,13 +676,23 @@ export default function SitesPage() {
                 <button
                   type="button"
                   onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
-                  disabled={busy[busyKey(site.id, "Crawl")]}
+                  aria-label={`Crawl ${site.name}`}
+                  disabled={
+                    busy[busyKey(site.id, "Crawl")] ||
+                    activeJobsQuery.isError ||
+                    activeJobs.some((job) => job.site_id === site.id && job.kind === "ingestion")
+                  }
                   className="btn btn-outline btn-sm"
                 >
-                  {busy[busyKey(site.id, "Crawl")] ? "Queueing…" : "Crawl"}
+                  {busy[busyKey(site.id, "Crawl")]
+                    ? "Queueing…"
+                    : activeJobs.some((job) => job.site_id === site.id && job.kind === "ingestion")
+                      ? "Crawl active"
+                      : "Crawl"}
                 </button>
                 <ActionMenu
                   label="Actions"
+                  ariaLabel={`Actions for ${site.name}`}
                   items={[
                     ...(site.platform === "pool"
                       ? []
@@ -601,6 +705,7 @@ export default function SitesPage() {
                             disabled:
                               site.suggestion_slots_available === 0 ||
                               busy[busyKey(site.id, "Generate suggestions")] ||
+                              activeJobsQuery.isError ||
                               activeJobs.some(
                                 (job) => job.site_id === site.id && job.kind === "analysis",
                               ),
@@ -615,7 +720,12 @@ export default function SitesPage() {
                           },
                           {
                             label: "Publish approved",
-                            disabled: busy[busyKey(site.id, "Publish approved")],
+                            disabled:
+                              busy[busyKey(site.id, "Publish approved")] ||
+                              activeJobsQuery.isError ||
+                              activeJobs.some(
+                                (job) => job.site_id === site.id && job.kind === "publication",
+                              ),
                             onSelect: () =>
                               void run(
                                 site.id,
@@ -637,6 +747,17 @@ export default function SitesPage() {
             </div>
           ))}
         </div>
+
+        {hasMoreSites && (
+          <div className="flex flex-col items-center gap-2 py-4">
+            <button type="button" onClick={showMoreSites} className="btn btn-outline">
+              Show more sources
+            </button>
+            <span className="text-caption text-muted" aria-live="polite">
+              Showing {visibleSites.length} of {filteredSites?.length ?? 0}
+            </span>
+          </div>
+        )}
 
         {!sitesQuery.isPending &&
           !sitesQuery.isError &&
@@ -664,7 +785,13 @@ export default function SitesPage() {
                 {selectedSiteIds.size} site{selectedSiteIds.size === 1 ? "" : "s"} selected
               </div>
               <div className="mt-1 text-caption text-muted">
-                {selectedOutsideSearchCount > 0
+                {activeJobsQuery.isError
+                  ? "Live job status is unavailable. Refresh before starting a batch."
+                  : selectedActiveCount > 0
+                    ? `${selectedActiveCount} selected site${selectedActiveCount === 1 ? " is" : "s are"} already busy.`
+                    : batchLimitReached
+                      ? `Batch limit reached: ${MAX_PIPELINE_BATCH_SITES} sites maximum.`
+                      : selectedOutsideSearchCount > 0
                   ? `${selectedOutsideSearchCount} selected outside this search.`
                   : "Ready to run together."}
               </div>
@@ -679,7 +806,7 @@ export default function SitesPage() {
             <button
               type="button"
               onClick={() => void launchBatch()}
-              disabled={createBatch.isPending}
+              disabled={createBatch.isPending || batchBlocked}
               className="btn btn-primary btn-sm sm:min-w-[10rem]"
             >
               {createBatch.isPending ? "Starting batch…" : `Run batch (${selectedSiteIds.size})`}

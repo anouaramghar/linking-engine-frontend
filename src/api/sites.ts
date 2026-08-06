@@ -61,9 +61,15 @@ export const revokePoolSource = (id: number) =>
 export const reactivatePoolSource = (id: number) =>
   api.post<Site>(`/sites/${id}/pool-source/reactivate`).then((r) => r.data);
 
-export const listPoolAuditEvents = (id: number) =>
+export const POOL_AUDIT_PAGE_SIZE = 50;
+
+export const listPoolAuditEvents = (
+  id: number,
+  limit = POOL_AUDIT_PAGE_SIZE,
+  offset = 0,
+) =>
   api
     .get<PoolAuditEvent[]>(`/sites/${id}/pool-source/audit-events`, {
-      params: { limit: 50, offset: 0 },
+      params: { limit, offset },
     })
     .then((r) => r.data);

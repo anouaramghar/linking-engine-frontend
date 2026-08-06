@@ -256,6 +256,21 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ValidationPage live review state", () => {
+  it("pauses review actions while filtered results are being replaced", () => {
+    mocks.suggestionsQuery = query({ isPlaceholderData: true });
+    renderQueue();
+
+    expect(
+      (screen.getByRole("button", {
+        name: /Accept suggestion from Example site: Source 1/,
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /^Accept ≥/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("Review actions are paused");
+  });
+
   it("shows server counts beyond the suggestions loaded on the first page", () => {
     mocks.countsOverride = {
       pending: 2400,
@@ -371,7 +386,7 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     expect(screen.getByRole("region", { name: /1 pending suggestion/ }).textContent).toContain(
       "1 pending suggestion",
     );
@@ -390,7 +405,9 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    await user.click(
+      screen.getByRole("button", { name: /Accept suggestion from Example site: Source 1/ }),
+    );
 
     expect(mocks.reviewMutate).toHaveBeenCalledWith(
       { id: 1, status: "approved" },
@@ -404,7 +421,7 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(screen.queryByRole("region", { name: /pending suggestion/ })).toBeNull();
@@ -417,7 +434,7 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
     mocks.bulkMutate.mockClear();
 
@@ -438,7 +455,7 @@ describe("ValidationPage live review state", () => {
 
     // The worker claims suggestion 1 between the decision and this batch.
     mocks.bulkSkipped = [1];
-    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     const notice = screen.getByRole("alert");
@@ -459,7 +476,7 @@ describe("ValidationPage live review state", () => {
     mocks.filteredReviewedIds = [4];
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     expect(screen.getByRole("status").textContent).toContain(
@@ -483,7 +500,7 @@ describe("ValidationPage live review state", () => {
     );
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*3/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
     mocks.bulkError = new BulkReviewChunkError(
       { reviewed: [1], reviewedCount: 1, skipped: [], status: "pending" },
@@ -507,7 +524,7 @@ describe("ValidationPage live review state", () => {
     renderQueue();
 
     mocks.bulkSkipped = [1];
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     const notice = screen.getByRole("alert");
@@ -530,7 +547,7 @@ describe("ValidationPage live review state", () => {
     mocks.filteredReviewedCount = 1001;
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1001/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     expect(screen.getByRole("region", { name: /1001 pending suggestions/ }).textContent).toContain(
       "too large to undo in one step",
     );
@@ -685,7 +702,7 @@ describe("ValidationPage keyboard review", () => {
     expect(within(preview()).getByText("Source 4")).not.toBeNull();
 
     // A bulk reject takes that row without going through `decide`.
-    await user.click(screen.getByRole("button", { name: /Reject.*2/ }));
+    await user.click(screen.getByRole("button", { name: /^Reject </ }));
     await user.click(screen.getByRole("button", { name: "Confirm reject" }));
     await user.keyboard("j");
 
@@ -710,7 +727,7 @@ describe("ValidationPage keyboard review", () => {
     await user.keyboard("jjj");
     expect(within(preview()).getByText("Source 4")).not.toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /Reject.*2/ }));
+    await user.click(screen.getByRole("button", { name: /^Reject </ }));
     await user.click(screen.getByRole("button", { name: "Confirm reject" }));
     await user.keyboard("j");
 
@@ -829,7 +846,7 @@ describe("ValidationPage mixed-method queue", () => {
     mocks.suggestions.splice(0, mocks.suggestions.length, hybrid(2));
     renderQueue();
 
-    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    await user.click(screen.getByRole("button", { name: /^Accept suggestion/ }));
 
     expect(mocks.reviewMutate).toHaveBeenCalledWith(
       { id: 2, status: "approved" },
@@ -847,7 +864,7 @@ describe("ValidationPage mixed-method queue", () => {
     );
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
+    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
     expect(screen.getByRole("region", { name: /2 pending suggestions/ }).textContent).toContain(
       "2 pending suggestions",
     );

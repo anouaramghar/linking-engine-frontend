@@ -23,6 +23,7 @@ interface Props {
   onAccept: (id: number) => void;
   onReject: (id: number) => void;
   onUndo: (id: number) => void;
+  actionsDisabled?: boolean;
   showSource?: boolean;
   /** Set on the keyboard cursor's row so the queue can scroll it into view. */
   containerRef?: React.Ref<HTMLLIElement>;
@@ -36,6 +37,7 @@ function SuggestionCard({
   onAccept,
   onReject,
   onUndo,
+  actionsDisabled = false,
   showSource = true,
   containerRef,
 }: Props) {
@@ -46,6 +48,7 @@ function SuggestionCard({
   return (
     <li
       ref={containerRef}
+      data-suggestion-id={s.id}
       aria-current={selected || undefined}
       className={`card flex animate-rowIn flex-col items-stretch gap-3 px-4 py-4 transition-shadow hover:shadow-soft lg:flex-row lg:items-center lg:gap-4 lg:px-5 ${
         selected ? "border-ink" : ""
@@ -111,19 +114,25 @@ function SuggestionCard({
         {s.status === "pending" ? (
           <>
             <button
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 onAccept(s.id);
               }}
+              aria-label={`Accept suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+              disabled={actionsDisabled}
               className="btn btn-primary btn-sm"
             >
               Accept
             </button>
             <button
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 onReject(s.id);
               }}
+              aria-label={`Reject suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+              disabled={actionsDisabled}
               className="btn btn-outline btn-sm"
             >
               Reject
@@ -139,6 +148,8 @@ function SuggestionCard({
                   event.stopPropagation();
                   onUndo(s.id);
                 }}
+                aria-label={`Undo decision for suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+                disabled={actionsDisabled}
                 className="btn btn-outline btn-sm"
               >
                 Undo

@@ -89,8 +89,9 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
 
 export default function App() {
   const { data: sites } = useSites();
-  const ownedSiteCount = sites?.filter((site) => site.platform !== "pool").length ?? 0;
-  const { data: counts } = useSuggestionCounts({}, Boolean(sites?.length));
+  const ownedSites = sites?.filter((site) => site.platform !== "pool");
+  const ownedSiteCount = ownedSites?.length ?? 0;
+  const { data: counts } = useSuggestionCounts({}, Boolean(ownedSites?.length));
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   const pending = counts?.pending ?? 0;
   const healthLabel = healthPending
@@ -146,8 +147,8 @@ export default function App() {
           aria-live="polite"
           aria-atomic="true"
           className="mt-auto border-t border-hairline px-2 pt-4 text-caption leading-relaxed text-muted"
-        >
-          <div className="mb-0.5 flex items-center gap-2">
+          >
+            <div className="mb-0.5 flex items-center gap-2">
             <span
               aria-hidden="true"
               className={`dot ${
@@ -155,11 +156,9 @@ export default function App() {
               }`}
             />
             <span className="font-medium text-ink">{healthLabel}</span>
+            </div>
+            <div>{ownedSiteCount} sites connected</div>
           </div>
-          <div>{ownedSiteCount} sites connected</div>
-          <div>Last batch: <span className="font-medium text-ink">Soon</span></div>
-          <div>Vectors: <span className="font-medium text-ink">Soon</span> &middot; pgvector</div>
-        </div>
       </aside>
 
       <main

@@ -53,7 +53,6 @@ export default function ConfirmDialog({
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             autoComplete="off"
-            autoFocus
             className="field mt-2"
           />
         </div>

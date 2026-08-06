@@ -112,4 +112,14 @@ describe("content-pool controls", () => {
       params: { limit: 50, offset: 0 },
     });
   });
+
+  it("supports loading older audit pages", async () => {
+    get.mockResolvedValue({ data: [] });
+
+    await listPoolAuditEvents(7, 25, 50);
+
+    expect(get).toHaveBeenCalledWith("/sites/7/pool-source/audit-events", {
+      params: { limit: 25, offset: 50 },
+    });
+  });
 });

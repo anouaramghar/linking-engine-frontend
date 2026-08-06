@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   approvePoolSource,
@@ -6,6 +11,7 @@ import {
   createSite,
   deleteSite,
   listPoolAuditEvents,
+  POOL_AUDIT_PAGE_SIZE,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
@@ -13,11 +19,19 @@ import {
 
 export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
 
+const invalidateSiteDependencies = (qc: ReturnType<typeof useQueryClient>) =>
+  Promise.all([
+    qc.invalidateQueries({ queryKey: ["sites"] }),
+    qc.invalidateQueries({ queryKey: ["suggestions"] }),
+    qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
+    qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
+  ]);
+
 export const useCreateSite = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createSite,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+    onSuccess: () => invalidateSiteDependencies(qc),
   });
 };
 
@@ -25,7 +39,7 @@ export const useBulkCreateSites = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: bulkCreateSites,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+    onSuccess: () => invalidateSiteDependencies(qc),
   });
 };
 
@@ -34,7 +48,7 @@ export const useDeleteSite = () => {
   return useMutation({
     mutationFn: ({ id, confirmName }: { id: number; confirmName: string }) =>
       deleteSite(id, confirmName),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+    onSuccess: () => invalidateSiteDependencies(qc),
   });
 };
 
@@ -42,7 +56,7 @@ const usePoolMutation = (mutationFn: (id: number) => Promise<unknown>) => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sites"] }),
+    onSuccess: () => invalidateSiteDependencies(qc),
   });
 };
 
@@ -50,9 +64,21 @@ export const useApprovePoolSource = () => usePoolMutation(approvePoolSource);
 export const useRevokePoolSource = () => usePoolMutation(revokePoolSource);
 export const useReactivatePoolSource = () => usePoolMutation(reactivatePoolSource);
 
-export const usePoolAuditEvents = (siteId: number | null) =>
-  useQuery({
+export const usePoolAuditEvents = (siteId: number | null) => {
+  const query = useInfiniteQuery({
     queryKey: ["pool-audit", siteId],
-    queryFn: () => listPoolAuditEvents(siteId!),
+    queryFn: ({ pageParam }) =>
+      listPoolAuditEvents(siteId!, POOL_AUDIT_PAGE_SIZE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === POOL_AUDIT_PAGE_SIZE
+        ? pages.length * POOL_AUDIT_PAGE_SIZE
+        : undefined,
     enabled: siteId !== null,
   });
+
+  return {
+    ...query,
+    events: query.data?.pages.flatMap((page) => page) ?? [],
+  };
+};
