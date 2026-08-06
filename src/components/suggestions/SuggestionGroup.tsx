@@ -8,6 +8,7 @@ interface Props {
   siteName: string;
   count: number;
   visibleCount: number;
+  canShowMore: boolean;
   collapsed: boolean;
   onToggle: () => void;
   onShowMore: () => void;
@@ -23,6 +24,7 @@ export default function SuggestionGroup({
   siteName,
   count,
   visibleCount,
+  canShowMore,
   collapsed,
   onToggle,
   onShowMore,
@@ -76,8 +78,13 @@ export default function SuggestionGroup({
         <ul className="flex flex-col gap-2.5 p-2.5">{children}</ul>
         {visibleCount < count && (
           <div className="flex flex-col items-center gap-2 border-t border-hairline-soft px-3 py-3">
-            <button type="button" onClick={onShowMore} className="btn btn-outline btn-sm">
-              Show more suggestions
+            <button
+              type="button"
+              onClick={onShowMore}
+              disabled={!canShowMore}
+              className="btn btn-outline btn-sm"
+            >
+              {canShowMore ? "Show more suggestions" : "Suggestion limit reached"}
             </button>
             <span className="text-caption text-muted" aria-live="polite">
               Showing {visibleCount} of {count}

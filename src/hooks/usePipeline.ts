@@ -25,6 +25,7 @@ export const usePipelineBatch = (batchId: number | null) => {
       if (isTerminalBatchStatus(batch.status)) {
         void queryClient.invalidateQueries({ queryKey: ["sites"] });
         void queryClient.invalidateQueries({ queryKey: ["suggestions"] });
+        void queryClient.invalidateQueries({ queryKey: ["jobs", "active"] });
       }
       return batch;
     },
@@ -34,15 +35,26 @@ export const usePipelineBatch = (batchId: number | null) => {
   });
 };
 
-export const useCreatePipelineBatch = () =>
-  useMutation({ mutationFn: createPipelineBatch });
+export const useCreatePipelineBatch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createPipelineBatch,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs", "active"] });
+      void queryClient.invalidateQueries({ queryKey: ["sites"] });
+    },
+  });
+};
 
 export const useRetryPipelineSite = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ batchId, siteId }: { batchId: number; siteId: number }) =>
       retryPipelineSite(batchId, siteId),
-    onSuccess: (batch) =>
-      queryClient.setQueryData(["pipeline-batch", batch.id], batch),
+    onSuccess: (batch) => {
+      queryClient.setQueryData(["pipeline-batch", batch.id], batch);
+      void queryClient.invalidateQueries({ queryKey: ["jobs", "active"] });
+      void queryClient.invalidateQueries({ queryKey: ["sites"] });
+    },
   });
 };

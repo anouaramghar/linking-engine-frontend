@@ -90,7 +90,7 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number | null
 export default function App() {
   const { data: sites } = useSites();
   const ownedSites = sites?.filter((site) => site.platform !== "pool");
-  const ownedSiteCount = ownedSites?.length ?? 0;
+  const ownedSiteCount = ownedSites?.length ?? null;
   const { data: counts } = useSuggestionCounts({}, Boolean(ownedSites?.length));
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   const pending = counts?.pending ?? null;
@@ -157,7 +157,11 @@ export default function App() {
             />
             <span className="font-medium text-ink">{healthLabel}</span>
             </div>
-            <div>{ownedSiteCount} sites connected</div>
+           <div>
+             {ownedSiteCount === null
+               ? "Site count unavailable"
+               : `${ownedSiteCount} sites connected`}
+           </div>
           </div>
       </aside>
 

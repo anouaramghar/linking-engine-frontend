@@ -83,6 +83,7 @@ const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_PAGE_SIZE = 20;
 const SOURCE_SUGGESTION_AUTO_LOAD_LIMIT = 100;
+const SOURCE_SUGGESTION_HARD_LIMIT = 1_000;
 
 const EMPTY_COUNTS: SuggestionCounts = {
   pending: 0,
@@ -294,6 +295,7 @@ export default function ValidationPage() {
     showMore: showMoreLoaded,
     sentinel,
     autoLoadPaused,
+    renderLimitReached,
   } = useIncrementalList(
     suggestionGroups,
     // Every filter belongs in this key: a narrowed queue that kept the previous
@@ -332,9 +334,10 @@ export default function ValidationPage() {
 
   const hasMore =
     !suggestionsQuery.isPlaceholderData &&
-    (hasMoreLoaded || Boolean(suggestionsQuery.hasNextPage));
+    (renderLimitReached || hasMoreLoaded || Boolean(suggestionsQuery.hasNextPage));
   const queueAutoLoadPaused =
     autoLoadPaused ||
+    renderLimitReached ||
     (!hasMoreLoaded && Boolean(suggestionsQuery.hasNextPage));
   const showMore = () => {
     if (suggestionsQuery.isPlaceholderData) return;
@@ -667,6 +670,7 @@ export default function ValidationPage() {
         ? `${count} ${plural(count)} queued for publish.`
         : `${count} ${plural(count)} rejected.`;
     setNotice(null);
+    focusAfterReview.current = "main";
     setConfirmation(null);
     filteredReview.mutate(
       {
@@ -1069,12 +1073,18 @@ export default function ValidationPage() {
                       siteName={siteName(group.siteId)}
                       count={group.suggestions.length}
                       visibleCount={group.visibleSuggestions.length}
+                      canShowMore={
+                        group.visibleSuggestions.length <
+                        Math.min(group.suggestions.length, SOURCE_SUGGESTION_HARD_LIMIT)
+                      }
                       onShowMore={() =>
                         setGroupLimits((current) => ({
                           ...current,
-                          [group.key]:
+                          [group.key]: Math.min(
+                            SOURCE_SUGGESTION_HARD_LIMIT,
                             (current[group.key] ?? SOURCE_SUGGESTION_PAGE_SIZE) +
-                            SOURCE_SUGGESTION_PAGE_SIZE,
+                              SOURCE_SUGGESTION_PAGE_SIZE,
+                          ),
                         }))
                       }
                       collapsed={collapsedSources.has(group.key)}
@@ -1105,10 +1115,14 @@ export default function ValidationPage() {
                     <button
                       type="button"
                       onClick={showMore}
-                      disabled={suggestionsQuery.isFetchingNextPage}
+                       disabled={renderLimitReached || suggestionsQuery.isFetchingNextPage}
                       className="btn btn-outline"
                     >
-                      {suggestionsQuery.isFetchingNextPage ? "Loading more..." : "Show more"}
+                       {renderLimitReached
+                         ? "Render limit reached"
+                         : suggestionsQuery.isFetchingNextPage
+                           ? "Loading more..."
+                           : "Show more"}
                     </button>
                     {/* Paging and filtering both change this line and nothing
                         else on screen, so it has to announce itself. Bare

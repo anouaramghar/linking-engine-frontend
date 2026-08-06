@@ -9,6 +9,8 @@ export const PAGE_SIZE = 100;
  * this point the editor has to ask.
  */
 export const AUTO_LOAD_LIMIT = 500;
+/** Hard ceiling for manual loading, so repeated clicks cannot mount an unbounded DOM. */
+export const MAX_RENDER_LIMIT = 1000;
 
 /**
  * Renders a long list a page at a time. The queue holds every suggestion for
@@ -38,7 +40,7 @@ export const useIncrementalList = <T,>(
   }
 
   const showMore = useCallback(
-    () => setCount((current) => current + pageSize),
+    () => setCount((current) => Math.min(MAX_RENDER_LIMIT, current + pageSize)),
     [pageSize],
   );
 
@@ -47,12 +49,18 @@ export const useIncrementalList = <T,>(
   // count, not one captured when the sentinel happened to mount.
   const autoShowMore = useCallback(
     () =>
-      setCount((current) => (current >= autoLoadLimit ? current : current + pageSize)),
+      setCount((current) =>
+        Math.min(
+          MAX_RENDER_LIMIT,
+          current >= autoLoadLimit ? current : current + pageSize,
+        ),
+      ),
     [autoLoadLimit, pageSize],
   );
 
   const shown = Math.min(count, items.length);
   const hasMore = items.length > count;
+  const renderLimitReached = hasMore && count >= MAX_RENDER_LIMIT;
 
   // A callback ref, so the observer is wired when the sentinel mounts and torn
   // down when it leaves — no ref reads during render.
@@ -74,6 +82,7 @@ export const useIncrementalList = <T,>(
     total: items.length,
     shown,
     hasMore,
+    renderLimitReached,
     showMore,
     sentinel,
     /** Scrolling has stopped growing the list; only `showMore` will now. */

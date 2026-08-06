@@ -113,7 +113,7 @@ export default function ActionMenu({
     // rather than leaving it stranded over unrelated rows. Restore focus to
     // the trigger so keyboard users do not lose their place.
     const onViewportChange = (event: Event) => {
-      if (menu.current?.contains(event.target as Node)) return;
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
       close();
     };
 
