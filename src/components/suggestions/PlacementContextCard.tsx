@@ -1,3 +1,4 @@
+import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import { errorDetail } from "../../lib/errors";
 import type { Placement } from "../../types/suggestion";
 
@@ -49,14 +50,13 @@ function Body({ placement }: Props) {
 
   if (isLoading) {
     return (
-      <div className="mt-2 flex items-center gap-2 text-body-sm text-muted">
-        <span className="job-activity-dot" />
-        <span className="job-activity-dot job-activity-dot-2" />
-        <span className="job-activity-dot job-activity-dot-3" />
+      <div className="mt-2 flex items-center gap-2.5 text-body-sm text-muted">
+        <LogoLoadingAnimation size="sm" className="text-primary flex-none" label="Reading the article..." />
         <span>Reading the article&hellip;</span>
       </div>
     );
   }
+
 
   if (error) {
     // Two different situations. An unset API key is not fixed by trying again,

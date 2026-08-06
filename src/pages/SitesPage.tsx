@@ -7,6 +7,7 @@ import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
+import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
@@ -23,6 +24,7 @@ import {
   useRetryPipelineSite,
 } from "../hooks/usePipeline";
 import { useDeleteSite, useSites } from "../hooks/useSites";
+
 import { errorDetail } from "../lib/errors";
 import {
   RQ_SCHEDULING_COPY,
@@ -681,6 +683,9 @@ export default function SitesPage() {
                   }
                   className="btn btn-outline btn-sm"
                 >
+                  {busy[busyKey(site.id, "Crawl")] && (
+                    <LogoLoadingAnimation size="xs" className="text-primary flex-none" />
+                  )}
                   {busy[busyKey(site.id, "Crawl")]
                     ? "Queueing…"
                     : hasActiveJob(site.id, "ingestion")

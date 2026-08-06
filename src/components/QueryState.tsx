@@ -1,3 +1,5 @@
+import LogoLoadingAnimation from "./LogoLoadingAnimation";
+
 const PANEL =
   "rounded-xl border border-dashed border-hairline-strong bg-canvas-soft px-5 py-14 text-center";
 
@@ -35,7 +37,22 @@ export function EmptyPanel({ children }: { children: React.ReactNode }) {
   return <div className={`${PANEL} text-body-sm text-muted`}>{children}</div>;
 }
 
-/** Placeholder rows shaped like the list they stand in for. */
+/** Dedicated brand loading panel with animated LinkMesh logo. */
+export function LogoLoadingPanel({ label = "Loading data..." }: { label?: string }) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className={`${PANEL} flex flex-col items-center justify-center gap-3`}
+    >
+      <LogoLoadingAnimation size="lg" className="text-primary" label={label} />
+      <span className="text-body-sm text-muted">{label}</span>
+    </div>
+  );
+}
+
+/** Placeholder rows shaped like the list they stand in for, featuring the brand loading logo. */
 export function SkeletonRows({ count = 4, label }: { count?: number; label: string }) {
   return (
     <div
@@ -47,7 +64,11 @@ export function SkeletonRows({ count = 4, label }: { count?: number; label: stri
       <span className="sr-only">{label}</span>
       {Array.from({ length: count }, (_, index) => (
         <div key={index} className="card flex animate-pulse items-center gap-4 px-5 py-4">
-          <div className="h-8 w-8 flex-none rounded-full bg-hairline" />
+          {index === 0 ? (
+            <LogoLoadingAnimation size={32} className="text-primary/70 flex-none" aria-hidden="true" />
+          ) : (
+            <div className="h-8 w-8 flex-none rounded-full bg-hairline" />
+          )}
           <div className="min-w-0 flex-1">
             <div className="h-3.5 w-1/2 rounded-xs bg-hairline" />
             <div className="mt-2 h-3 w-1/3 rounded-xs bg-hairline-soft" />
@@ -58,3 +79,4 @@ export function SkeletonRows({ count = 4, label }: { count?: number; label: stri
     </div>
   );
 }
+

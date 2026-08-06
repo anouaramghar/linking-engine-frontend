@@ -48,6 +48,7 @@ const STATUS_VALUES: StatusFilter[] = [
   "applying",
   "applied",
   "expired",
+  "failed",
 ];
 
 const ORIGIN_VALUES: SuggestionTargetOrigin[] = ["internal", "content_pool"];

@@ -284,4 +284,13 @@ describe("bulk rule preview", () => {
       expect(screen.queryByRole("button", { name: "Confirm accept" })).toBeNull(),
     );
   });
+
+  it("filters the queue by 'failed' status when the 'Publishing failed' chip is clicked", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: /Publishing failed/i }));
+
+    await waitFor(() => expect(mocks.queueFilters?.status).toBe("failed"));
+  });
 });

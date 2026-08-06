@@ -4,6 +4,7 @@ import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
+import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
@@ -296,6 +297,9 @@ export default function ContentPoolPage() {
                       }
                       onClick={() => void crawl(site)}
                     >
+                      {crawlingId === site.id && (
+                        <LogoLoadingAnimation size="xs" className="text-primary flex-none" />
+                      )}
                       {crawlingId === site.id
                         ? "Queueing…"
                         : activeJob
