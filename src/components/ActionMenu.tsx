@@ -110,11 +110,16 @@ export default function ActionMenu({
       if (event.key === "Escape") close();
     };
     // A fixed pop-out cannot follow its trigger, so scrolling dismisses it
-    // rather than leaving it stranded over unrelated rows. Restore focus to
-    // the trigger so keyboard users do not lose their place.
+    // rather than leaving it stranded over unrelated rows. Scrolling the menu's
+    // own overflow is not that and must not close it.
+    //
+    // Focus goes back to the trigger only when it is inside the menu that is
+    // about to unmount — otherwise it would fall to the body. Dragging it back
+    // unconditionally would scroll a mouse user's viewport to the trigger,
+    // undoing the scroll that dismissed the menu in the first place.
     const onViewportChange = (event: Event) => {
       if (event.target instanceof Node && menu.current?.contains(event.target)) return;
-      close();
+      close(menu.current?.contains(document.activeElement) ?? false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
@@ -183,13 +188,13 @@ export default function ActionMenu({
           ref={menu}
           id={menuId}
           role="menu"
-           aria-label={ariaLabel}
+          aria-label={ariaLabel}
           onKeyDown={onMenuKeyDown}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) close(false);
           }}
           style={{ top: position?.top ?? -9999, left: position?.left ?? -9999 }}
-           className="card fixed z-40 max-h-[calc(100dvh-1rem)] w-48 max-w-[calc(100vw-1rem)] overflow-y-auto py-2 shadow-lift"
+          className="card fixed z-40 max-h-[calc(100dvh-1rem)] w-48 max-w-[calc(100vw-1rem)] overflow-y-auto py-2 shadow-lift"
         >
           {items.map((item) => (
             <button

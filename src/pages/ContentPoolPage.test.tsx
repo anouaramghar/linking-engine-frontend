@@ -36,7 +36,7 @@ vi.mock("../api/sites", async (original) => ({
 }));
 
 vi.mock("../hooks/useJobs", () => ({
-  useActiveJobs: () => ({ data: [] }),
+  useActiveJobs: () => ({ data: [], refetch: vi.fn() }),
   useJob: () => ({ data: undefined }),
 }));
 

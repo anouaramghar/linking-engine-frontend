@@ -30,7 +30,6 @@ export const useSuggestions = (
     queryFn: ({ pageParam }) => listSuggestionPage(filters, pageParam),
     initialPageParam: null as SuggestionCursor | null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-    maxPages: 10,
     placeholderData: keepPreviousData,
     enabled,
   });

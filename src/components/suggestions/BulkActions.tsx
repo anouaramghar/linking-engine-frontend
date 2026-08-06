@@ -61,6 +61,26 @@ export default function BulkActions({
   const confirmationTitleId = useId();
   const confirmationDescriptionId = useId();
 
+  // Opening the confirmation disables the button that opened it, so focus has
+  // to be handed on deliberately or it falls to the body and a keyboard user
+  // loses the destructive prompt they just raised. Confirm takes focus on
+  // open; Cancel hands it back to its own trigger. Confirming does not restore
+  // it — the queue moves on, and the page places focus itself.
+  const acceptButton = useRef<HTMLButtonElement>(null);
+  const rejectButton = useRef<HTMLButtonElement>(null);
+  const restoreFocusTo = useRef<BulkReviewAction | null>(null);
+  useEffect(() => {
+    const action = restoreFocusTo.current;
+    if (confirmation || !action) return;
+    restoreFocusTo.current = null;
+    (action === "approve" ? acceptButton : rejectButton).current?.focus();
+  }, [confirmation]);
+
+  const cancel = () => {
+    restoreFocusTo.current = confirmation?.action ?? null;
+    onCancel();
+  };
+
   // Mirrors the committed threshold, but tolerates the transient empty string
   // and any leading zeros while the field is being edited. Resynced during
   // render when the parent clamps the value, so the input never paints a
@@ -179,6 +199,7 @@ export default function BulkActions({
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button
+            ref={acceptButton}
             type="button"
             aria-label={`Accept \u2265 ${threshold}% \u00b7 ${acceptLabel}`}
             disabled={!actionable || acceptCount === null || acceptCount === 0}
@@ -191,6 +212,7 @@ export default function BulkActions({
             <span className="text-caption opacity-75">&ge; {threshold}%</span>
           </button>
           <button
+            ref={rejectButton}
             type="button"
             aria-label={`Reject < ${threshold}% \u00b7 ${rejectLabel}`}
             disabled={!actionable || rejectCount === null || rejectCount === 0}
@@ -214,7 +236,8 @@ export default function BulkActions({
           // The system has no warning colour and asks for none: an interrupt
           // reads as a raised band on {colors.surface-strong} rather than a
           // saturated fill. It stays inline, so it is a live region rather than
-          // a modal dialog that would need to take and trap focus.
+          // a modal dialog that would trap focus — but it still takes focus,
+          // because the button that raised it is disabled from this point on.
           className="flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-strong px-4 py-3"
         >
           <div className="min-w-0 flex-1">
@@ -231,10 +254,11 @@ export default function BulkActions({
               Approved links are not live until published.
             </div>
           </div>
-          <button type="button" onClick={onCancel} className="btn btn-outline btn-sm">
+          <button type="button" onClick={cancel} className="btn btn-outline btn-sm">
             Cancel
           </button>
           <button
+            autoFocus
             type="button"
             onClick={onConfirm}
             disabled={confirmationBlocked}

@@ -1,13 +1,14 @@
-import { lazy, Suspense } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
+import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
-const EvaluationPage = lazy(() => import("./pages/EvaluationPage"));
-const ContentPoolPage = lazy(() => import("./pages/ContentPoolPage"));
-const SitesPage = lazy(() => import("./pages/SitesPage"));
-const ValidationPage = lazy(() => import("./pages/ValidationPage"));
+import { useTheme } from "./hooks/useTheme";
+import EvaluationPage from "./pages/EvaluationPage";
+import ContentPoolPage from "./pages/ContentPoolPage";
+import SitesPage from "./pages/SitesPage";
+import ValidationPage from "./pages/ValidationPage";
 
 const NAV = [
   { to: "/queue", label: "Review queue" },
@@ -93,6 +94,9 @@ export default function App() {
   const ownedSiteCount = ownedSites?.length ?? null;
   const { data: counts } = useSuggestionCounts({}, Boolean(ownedSites?.length));
   const { isError: healthFailed, isPending: healthPending } = useHealth();
+  // Owned here, once, because the toggle appears in both the rail and the
+  // mobile header and `<html data-theme>` may have only one writer.
+  const { preference, setTheme } = useTheme();
   const pending = counts?.pending ?? null;
   const healthLabel = healthPending
     ? "Checking engine"
@@ -112,21 +116,29 @@ export default function App() {
       </a>
 
       <header className="mobile-app-header z-40 flex-none border-b border-hairline bg-canvas-soft lg:hidden">
-        <div className="flex items-center justify-between gap-4 px-4 pb-3">
+        {/* Brand, health and the theme control do not fit on one line at 375px.
+            The trailing pair wraps together to a second, right-aligned row
+            rather than the health label truncating or hiding — the dot beside it
+            is aria-hidden, so that label is the only thing carrying engine
+            state to a sighted reader. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3">
           <Brand />
-          <div
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            className="flex items-center gap-2 text-caption text-muted"
-          >
-            <span
-              aria-hidden="true"
-              className={`dot ${
-                healthPending ? "bg-muted-soft" : healthFailed ? "bg-error" : "bg-success"
-              }`}
-            />
-            <span className="font-medium text-ink">{healthLabel}</span>
+          <div className="ml-auto flex items-center gap-3">
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="flex items-center gap-2 text-caption text-muted"
+            >
+              <span
+                aria-hidden="true"
+                className={`dot ${
+                  healthPending ? "bg-muted-soft" : healthFailed ? "bg-error" : "bg-success"
+                }`}
+              />
+              <span className="font-medium text-ink">{healthLabel}</span>
+            </div>
+            <ThemeToggle preference={preference} onChange={setTheme} />
           </div>
         </div>
         <PrimaryNavigation pending={pending} mobile />
@@ -163,6 +175,10 @@ export default function App() {
                : `${ownedSiteCount} sites connected`}
            </div>
           </div>
+
+        <div className="mt-3 px-2">
+          <ThemeToggle preference={preference} onChange={setTheme} />
+        </div>
       </aside>
 
       <main
@@ -173,26 +189,14 @@ export default function App() {
         {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
         <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
         <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
-        <Suspense
-          fallback={
-            <div
-              role="progressbar"
-              aria-label="Loading page"
-              className="flex min-h-0 flex-1 items-center justify-center p-8 text-body-sm text-muted"
-            >
-              Loading page…
-            </div>
-          }
-        >
-          <Routes>
-            <Route path="/" element={<Navigate to="/queue" replace />} />
-            <Route path="/queue" element={<ValidationPage />} />
-            <Route path="/sites" element={<SitesPage />} />
-            <Route path="/content-pool" element={<ContentPoolPage />} />
-            <Route path="/evaluation" element={<EvaluationPage />} />
-            <Route path="*" element={<Navigate to="/queue" replace />} />
-          </Routes>
-        </Suspense>
+        <Routes>
+          <Route path="/" element={<Navigate to="/queue" replace />} />
+          <Route path="/queue" element={<ValidationPage />} />
+          <Route path="/sites" element={<SitesPage />} />
+          <Route path="/content-pool" element={<ContentPoolPage />} />
+          <Route path="/evaluation" element={<EvaluationPage />} />
+          <Route path="*" element={<Navigate to="/queue" replace />} />
+        </Routes>
       </main>
     </div>
   );

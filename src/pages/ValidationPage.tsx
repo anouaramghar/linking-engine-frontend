@@ -148,10 +148,13 @@ export default function ValidationPage() {
   const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
 
   const sitesQuery = useSites();
-  const sites = useMemo(
-    () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
-    [sitesQuery.data],
-  );
+  // Every site, because this list is also what resolves a suggestion's site
+  // name — dropping pool sources here would label their groups "site 12".
+  const sites = sitesQuery.data;
+  // Only owned sites are counted in the header: a pool source contributes
+  // articles to link *from*, it is not somewhere links get published.
+  const ownedSiteCount =
+    sites?.filter((site) => site.platform !== "pool").length ?? 0;
   const hasSites = Boolean(sites?.length);
 
   /**
@@ -221,12 +224,17 @@ export default function ValidationPage() {
     hasSites,
   );
   const pendingPublicationQuery = usePendingPublication(hasSites);
+  // Only a *stale* answer pauses review: `isPlaceholderData` means these counts
+  // still describe the previous filter, so acting on them would act on the
+  // wrong rows. A background refetch is not that — reviewing a row invalidates
+  // this whole key namespace, so gating on `isFetching` here would freeze the
+  // queue for four round-trips after every single decision.
   const refreshingCounts = [
     fleetCountsQuery,
     scopedCountsQuery,
     acceptCountsQuery,
     rejectCountsQuery,
-  ].some((query) => query.isPending || query.isFetching || query.isPlaceholderData);
+  ].some((query) => query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
   const publicationPreview = usePublicationDryRun(previewSiteId);
   const review = useReview();
@@ -711,8 +719,11 @@ export default function ValidationPage() {
     );
   };
 
+  // Same rule as the counts: reviewing a row invalidates this query, so a
+  // refetch in flight is the normal state after every decision. Only "no answer
+  // yet" and "the answer failed" hide the publish controls.
   const publicationUnavailable =
-    pendingPublicationQuery.isPending || pendingPublicationQuery.isFetching || pendingPublicationQuery.isError;
+    pendingPublicationQuery.isPending || pendingPublicationQuery.isError;
   const pendingPublication = publicationUnavailable
     ? []
     : (pendingPublicationQuery.data ?? []).filter(
@@ -912,8 +923,8 @@ export default function ValidationPage() {
     <>
       <PageHeader
         title="Link suggestions"
-        sub={`${pendingTotal === null ? "Pending count unavailable" : `${formatCount(pendingTotal)} pending`} across ${sites?.length ?? 0} ${
-          (sites?.length ?? 0) === 1 ? "site" : "sites"
+        sub={`${pendingTotal === null ? "Pending count unavailable" : `${formatCount(pendingTotal)} pending`} across ${ownedSiteCount} ${
+          ownedSiteCount === 1 ? "site" : "sites"
         } · queued links are not live until published`}
         badge="Hybrid"
       />
@@ -949,13 +960,13 @@ export default function ValidationPage() {
               }}
               acceptCount={acceptCount}
               rejectCount={rejectCount}
-               actionable={
-                 !bulkControlsBlocked &&
-                 (statusFilter === "all" || statusFilter === "pending")
-               }
-               confirmation={confirmation}
-               confirmationBlocked={bulkControlsBlocked}
-               onRequest={requestBulk}
+              actionable={
+                !bulkControlsBlocked &&
+                (statusFilter === "all" || statusFilter === "pending")
+              }
+              confirmation={confirmation}
+              confirmationBlocked={bulkControlsBlocked}
+              onRequest={requestBulk}
               onConfirm={confirmBulk}
               onCancel={() => setConfirmation(null)}
             />
@@ -1046,7 +1057,7 @@ export default function ValidationPage() {
               aria-live="polite"
               className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
             >
-              Refreshing publication status. Publishing is paused until it returns.
+              Loading publication status. Publishing is paused until it arrives.
             </div>
           )}
 
@@ -1095,8 +1106,8 @@ export default function ValidationPage() {
                           key={suggestion.id}
                           suggestion={suggestion}
                           siteName={siteName(suggestion.site_id)}
-                           selected={suggestion.id === selectedId}
-                           actionsDisabled={queueUpdating || actionMutationPending}
+                          selected={suggestion.id === selectedId}
+                          actionsDisabled={queueUpdating || actionMutationPending}
                           showSource={false}
                           containerRef={
                             suggestion.id === selectedId ? cursorRef : undefined
@@ -1115,14 +1126,14 @@ export default function ValidationPage() {
                     <button
                       type="button"
                       onClick={showMore}
-                       disabled={renderLimitReached || suggestionsQuery.isFetchingNextPage}
+                      disabled={renderLimitReached || suggestionsQuery.isFetchingNextPage}
                       className="btn btn-outline"
                     >
-                       {renderLimitReached
-                         ? "Render limit reached"
-                         : suggestionsQuery.isFetchingNextPage
-                           ? "Loading more..."
-                           : "Show more"}
+                      {renderLimitReached
+                        ? "Render limit reached"
+                        : suggestionsQuery.isFetchingNextPage
+                          ? "Loading more..."
+                          : "Show more"}
                     </button>
                     {/* Paging and filtering both change this line and nothing
                         else on screen, so it has to announce itself. Bare
@@ -1130,7 +1141,8 @@ export default function ValidationPage() {
                         the page's status region, and two of them would make
                         "the status message" ambiguous to a screen reader. */}
                     <span aria-live="polite" className="text-caption text-muted">
-                       Showing {formatCount(shown)} of {queueTotal === null ? "—" : formatCount(queueTotal)}
+                      Showing {formatCount(shown)} of{" "}
+                      {queueTotal === null ? "—" : formatCount(queueTotal)}
                       {queueAutoLoadPaused && (
                         <>
                           {" "}

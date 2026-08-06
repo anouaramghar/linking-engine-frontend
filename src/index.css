@@ -37,6 +37,124 @@
   src: url("@fontsource/inter/files/inter-latin-600-normal.woff2") format("woff2");
 }
 
+/**
+ * The palette, as the values behind the token names in `tailwind.config.ts`.
+ *
+ * Channels are space-separated rather than hex so `<alpha-value>` can compose
+ * on top of them: `bg-error/5` needs the channels, not the colour.
+ *
+ * DESIGN-elevenlabs.md describes a single light world — its `surface-dark`
+ * tokens are dark *bands inside* a light page (a hero, a featured pricing
+ * tier), not a theme. The dark palette below is therefore an extension rather
+ * than a transcription: same warm stone family, same roles, re-anchored so that
+ * "raised" keeps meaning "lighter than the page" once the page is ink.
+ */
+:root {
+  color-scheme: light;
+
+  --c-primary: 41 37 36;
+  --c-primary-active: 12 10 9;
+
+  --c-ink: 12 10 9;
+  --c-body: 78 78 78;
+  --c-body-strong: 41 37 36;
+  --c-muted: 112 106 98;
+  --c-muted-soft: 168 162 158;
+  --c-on-primary: 255 255 255;
+  --c-on-dark: 255 255 255;
+  --c-on-dark-soft: 168 162 158;
+
+  --c-hairline: 231 229 228;
+  --c-hairline-soft: 240 239 237;
+  --c-hairline-strong: 214 211 209;
+  --c-hairline-control: 146 140 132;
+
+  --c-canvas: 245 245 245;
+  --c-canvas-soft: 250 250 250;
+  --c-canvas-deep: 12 10 9;
+  --c-surface-card: 255 255 255;
+  --c-surface-strong: 240 239 237;
+  --c-surface-dark: 12 10 9;
+  --c-surface-dark-elevated: 28 25 23;
+
+  --c-orb-mint: 167 229 211;
+  --c-orb-peach: 244 197 168;
+  --c-orb-lavender: 200 184 224;
+  --c-orb-sky: 168 200 232;
+  --c-orb-rose: 232 184 196;
+
+  --c-success: 22 163 74;
+  --c-error: 220 38 38;
+  --c-error-active: 185 28 28;
+  --c-error-ink: 185 28 28;
+
+  --shadow-soft: 0.04;
+  --shadow-lift: 0.08;
+  --shadow-drawer: 0.16;
+}
+
+/**
+ * Set by `useTheme` on <html>, and by the pre-paint script in index.html before
+ * React runs. Contrast ratios quoted below are against the surface the token
+ * actually lands on in this app, not against pure black.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* The CTA inverts outright: a near-white pill carrying ink. */
+  --c-primary: 250 250 249;
+  --c-primary-active: 255 255 255;
+
+  --c-ink: 250 250 249; /* 18.9:1 on canvas */
+  --c-body: 214 211 209; /* 13.3:1 on canvas */
+  --c-body-strong: 240 239 237;
+  --c-muted: 168 162 158; /* 7.8:1 on canvas, 6.0:1 on surface-strong */
+  /* Disabled text. Deliberately quiet in both themes — it is the one token
+     that is *meant* to fail as running text. */
+  --c-muted-soft: 120 113 108;
+  --c-on-primary: 12 10 9;
+  /* Unchanged: rides the error fill and the raised notice, both still dark. */
+  --c-on-dark: 255 255 255;
+  --c-on-dark-soft: 214 211 209; /* 6.9:1 on the raised notice */
+
+  --c-hairline: 41 37 36;
+  --c-hairline-soft: 28 25 23;
+  --c-hairline-strong: 68 64 60;
+  --c-hairline-control: 120 113 108; /* 3.7:1 on surface-card, 4.1:1 on canvas */
+
+  /* Elevation, darkest page upward. */
+  --c-canvas: 12 10 9;
+  --c-canvas-soft: 23 20 18;
+  --c-surface-card: 28 25 23;
+  --c-surface-strong: 41 37 36;
+  /* A scrim stays a shadow: pure black, so the /40 it is drawn at still dims
+     a page that is already dark. */
+  --c-canvas-deep: 0 0 0;
+  /* The inverted band cannot invert again — it would become a white slab on an
+     ink page. It becomes a *raised* stone instead, keeping its white text and
+     buying separation from elevation rather than from inversion. */
+  --c-surface-dark: 68 64 60;
+  --c-surface-dark-elevated: 87 83 78;
+
+  --c-orb-mint: 167 229 211;
+  --c-orb-peach: 244 197 168;
+  --c-orb-lavender: 200 184 224;
+  --c-orb-sky: 168 200 232;
+  --c-orb-rose: 232 184 196;
+
+  /* Fills keep their hue — white on #dc2626 is 5.2:1 either way. Only the
+     text-carrying red has to move, and it moves a long way: #b91c1c on this
+     canvas is 2.8:1. */
+  --c-success: 34 197 94;
+  --c-error: 220 38 38;
+  --c-error-active: 239 68 68;
+  --c-error-ink: 248 113 113; /* 7.1:1 on canvas, 6.3:1 on surface-card */
+
+  --shadow-soft: 0.24;
+  --shadow-lift: 0.4;
+  --shadow-drawer: 0.56;
+}
+
 body {
   /* {colors.canvas} floor, {colors.body} running text. Headings opt into
      {colors.ink} rather than the other way round — that is the editorial
@@ -45,22 +163,40 @@ body {
   min-height: 100dvh;
 }
 
+/* Theme switches reveal through a circle grown from the control that was
+   activated (see `useTheme.setTheme`), not the browser's default cross-fade.
+   The old frame stays a static snapshot underneath; only the new frame is
+   animated, via a `clipPath` keyframe run in JS against
+   `::view-transition-new(root)`. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
 /* One visible focus indicator for every control, so keyboard position is never
    lost. Scoped to :focus-visible, so pointer users keep the clean look.
 
    The colour is a variable rather than a constant because the system defines
    dark surfaces too: an ink ring on {colors.surface-dark} is ink on ink, and
    the Undo button in a confirmation notice is exactly where a keyboard user
-   cannot afford to lose their place. Inverting surfaces set `--focus-ring`. */
+   cannot afford to lose their place. Inverting surfaces set `--focus-ring`.
+
+   Written as `rgb(var(--c-ink))` rather than `theme(colors.ink)` so the ring
+   tracks the active theme: `theme()` is resolved once at build time, which
+   would freeze the ring at whichever value the light palette happened to hold. */
 :focus-visible {
-  outline: 2px solid var(--focus-ring, theme(colors.ink));
+  outline: 2px solid var(--focus-ring, rgb(var(--c-ink)));
   outline-offset: 2px;
   border-radius: 2px;
 }
 
+/* The lavender ground is the same in both themes, so the text on it has to be
+   dark in both — this is the one place `ink` would be wrong, because in dark it
+   is near-white and would leave white on pastel at 1.7:1. */
 ::selection {
-  background: theme(colors.orb-lavender);
-  color: theme(colors.ink);
+  background: rgb(var(--c-orb-lavender));
+  color: #0c0a09;
 }
 
 /* Native number-input spinners clash with the pill styling */
@@ -124,9 +260,12 @@ input[type="number"] {
     @apply h-11 gap-1.5 px-4 text-caption sm:h-8;
   }
 
-  /* Any surface that inverts to ink and needs its focus ring to survive. */
+  /* Any surface that inverts to ink and needs its focus ring to survive.
+     Keyed to `on-dark`, not `on-primary`: both are white in light, but only
+     `on-dark` stays white in dark — and the grounds this class is used on (the
+     error fill, the raised notice) stay dark in both themes. */
   .focus-ring-inverse {
-    --focus-ring: theme(colors.on-primary);
+    --focus-ring: rgb(var(--c-on-dark));
   }
 
   /* {component.text-input} — 44px, {rounded.md}. The system draws this at
@@ -142,8 +281,8 @@ input[type="number"] {
      inset ring rather than a width change, so the field does not shift by a
      pixel as focus lands on it. */
   .field:focus {
-    border-color: theme(colors.ink);
-    box-shadow: inset 0 0 0 1px theme(colors.ink);
+    border-color: rgb(var(--c-ink));
+    box-shadow: inset 0 0 0 1px rgb(var(--c-ink));
   }
 
   /* {component.feature-card} — white on the off-white canvas, held by a
@@ -175,7 +314,7 @@ input[type="number"] {
   width: 0.3rem;
   height: 0.3rem;
   border-radius: 9999px;
-  background: theme(colors.primary);
+  background: rgb(var(--c-primary));
   animation: job-activity-thinking 1.2s ease-in-out infinite;
 }
 

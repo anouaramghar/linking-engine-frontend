@@ -42,7 +42,6 @@ import type { Site } from "../types/site";
 const GRID =
   "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
-const LOCAL_JOB_GUARD_MS = 20_000;
 
 const batchIdFromUrl = () => {
   const value = Number(new URLSearchParams(window.location.search).get("batch"));
@@ -81,8 +80,6 @@ interface TrackedJob {
   kind: JobKind;
   jobId: string;
 }
-
-type LocalJobKind = JobKind | "batch";
 
 function CurrentSiteStatus({
   site,
@@ -235,8 +232,6 @@ export default function SitesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<TrackedJob[]>([]);
-  const [recentJobKeys, setRecentJobKeys] = useState<Set<string>>(new Set());
-  const recentJobTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
@@ -255,10 +250,6 @@ export default function SitesPage() {
     window.addEventListener("popstate", syncBatchFromUrl);
     return () => window.removeEventListener("popstate", syncBatchFromUrl);
   }, []);
-  useEffect(
-    () => () => Object.values(recentJobTimers.current).forEach(clearTimeout),
-    [],
-  );
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
@@ -275,21 +266,6 @@ export default function SitesPage() {
   } = useIncrementalList(filteredSites ?? [], search, 50, 250);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
-  const trackedJobKey = (siteId: number, kind: LocalJobKind) => `${siteId}:${kind}`;
-  const hasRecentTrackedJob = (siteId: number, kind: LocalJobKind) =>
-    recentJobKeys.has(trackedJobKey(siteId, kind));
-  const guardRecentJob = (siteId: number, kind: LocalJobKind) => {
-    const trackedKey = trackedJobKey(siteId, kind);
-    clearTimeout(recentJobTimers.current[trackedKey]);
-    setRecentJobKeys((current) => new Set(current).add(trackedKey));
-    recentJobTimers.current[trackedKey] = setTimeout(() => {
-      setRecentJobKeys((current) => {
-        const next = new Set(current);
-        next.delete(trackedKey);
-        return next;
-      });
-    }, LOCAL_JOB_GUARD_MS);
-  };
   const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
   const selectedVisibleCount = visibleSiteIds.filter((id) => selectedSiteIds.has(id)).length;
   const allVisibleSelected =
@@ -300,9 +276,6 @@ export default function SitesPage() {
   const selectedActiveCount = [...selectedSiteIds].filter((id) =>
     hasActiveJob(id, "ingestion") ||
     hasActiveJob(id, "analysis") ||
-    hasRecentTrackedJob(id, "ingestion") ||
-    hasRecentTrackedJob(id, "analysis") ||
-    hasRecentTrackedJob(id, "batch") ||
     busy[busyKey(id, "Crawl")] ||
     busy[busyKey(id, "Generate suggestions")],
   ).length;
@@ -370,7 +343,6 @@ export default function SitesPage() {
     try {
       const batch = await createBatch.mutateAsync(batchSiteIds);
       showBatch(batch.id);
-      batchSiteIds.forEach((siteId) => guardRecentJob(siteId, "batch"));
       setSelectionMode(false);
       setSelectedSiteIds(new Set());
       setNotice({ message: `Batch #${batch.id} started for ${batch.total} sites.`, tone: "info" });
@@ -404,14 +376,7 @@ export default function SitesPage() {
     queuedMessage?: string,
   ) => {
     const key = busyKey(siteId, label);
-    if (
-      busy[key] ||
-      jobStatusUnavailable ||
-      hasRecentTrackedJob(siteId, kind) ||
-      hasActiveJob(siteId, kind)
-    ) {
-      return;
-    }
+    if (busy[key] || jobStatusUnavailable || hasActiveJob(siteId, kind)) return;
     setBusy((current) => ({ ...current, [key]: true }));
     setNotice(null);
     try {
@@ -421,7 +386,10 @@ export default function SitesPage() {
         ...current.filter((job) => !(job.siteId === siteId && job.label === label)),
         { siteId, label, kind, jobId: job_id },
       ]);
-      guardRecentJob(siteId, kind);
+      // Stay busy until the job list has caught up, so `hasActiveJob` — not a
+      // wall-clock guess — is what takes over guarding the button. A job that
+      // has already finished by then is legitimately runnable again.
+      await activeJobsQuery.refetch();
       setNotice({ message: queuedMessage ?? `${label} job queued.`, tone: "info" });
     } catch (error) {
       setNotice({
@@ -709,14 +677,13 @@ export default function SitesPage() {
                   disabled={
                     busy[busyKey(site.id, "Crawl")] ||
                     jobStatusUnavailable ||
-                    hasRecentTrackedJob(site.id, "ingestion") ||
                     hasActiveJob(site.id, "ingestion")
                   }
                   className="btn btn-outline btn-sm"
                 >
                   {busy[busyKey(site.id, "Crawl")]
                     ? "Queueing…"
-                    : hasActiveJob(site.id, "ingestion") || hasRecentTrackedJob(site.id, "ingestion")
+                    : hasActiveJob(site.id, "ingestion")
                       ? "Crawl active"
                       : "Crawl"}
                 </button>
@@ -736,7 +703,6 @@ export default function SitesPage() {
                               site.suggestion_slots_available === 0 ||
                               busy[busyKey(site.id, "Generate suggestions")] ||
                               jobStatusUnavailable ||
-                              hasRecentTrackedJob(site.id, "analysis") ||
                               hasActiveJob(site.id, "analysis"),
                             onSelect: () =>
                               void run(
@@ -752,7 +718,6 @@ export default function SitesPage() {
                             disabled:
                               busy[busyKey(site.id, "Publish approved")] ||
                               jobStatusUnavailable ||
-                              hasRecentTrackedJob(site.id, "publication") ||
                               hasActiveJob(site.id, "publication"),
                             onSelect: () =>
                               void run(

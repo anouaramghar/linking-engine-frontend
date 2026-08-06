@@ -56,6 +56,8 @@ const mocks = vi.hoisted(() => ({
     failed: number;
     total: number;
   } | null,
+  /** Models the background refetch every review mutation sets off. */
+  countsFetching: false,
   publicationPreview: {} as Record<string, unknown>,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
@@ -115,7 +117,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       },
       isPending: false,
       isError: false,
-      isFetching: false,
+      isFetching: mocks.countsFetching,
       refetch: vi.fn(),
     };
   },
@@ -137,7 +139,7 @@ vi.mock("../hooks/usePublish", () => ({
     data: mocks.pendingPublication,
     isPending: false,
     isError: false,
-    isFetching: false,
+    isFetching: mocks.countsFetching,
     refetch: vi.fn(),
   }),
   usePublicationDryRun: () => ({
@@ -251,11 +253,34 @@ beforeEach(() => {
   );
   mocks.sitesQuery = query();
   mocks.suggestionsQuery = query();
+  mocks.countsFetching = false;
 });
 
 afterEach(cleanup);
 
 describe("ValidationPage live review state", () => {
+  // Reviewing a row invalidates the counts and the publication summary, so
+  // every decision leaves them refetching. If that state paused the queue, an
+  // editor working down it with `a` would be locked out after every row.
+  it("keeps reviewing while the counts refetch behind a decision", () => {
+    mocks.countsFetching = true;
+    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 2 }];
+    renderQueue();
+
+    expect(
+      (screen.getByRole("button", {
+        name: /Accept suggestion from Example site: Source 1/,
+      }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: /^Accept ≥/ }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(screen.queryByText(/Review actions are paused/)).toBeNull();
+    // The publish banner is driven by the same invalidated query, so it has to
+    // survive the refetch too rather than blinking out to "nothing approved".
+    expect(screen.getByText(/2 approved suggestions/)).not.toBeNull();
+  });
+
   it("pauses review actions while filtered results are being replaced", () => {
     mocks.suggestionsQuery = query({ isPlaceholderData: true });
     renderQueue();

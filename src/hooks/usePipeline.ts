@@ -39,10 +39,14 @@ export const useCreatePipelineBatch = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createPipelineBatch,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["jobs", "active"] });
-      void queryClient.invalidateQueries({ queryKey: ["sites"] });
-    },
+    // Returned, not fired and forgotten: `mutateAsync` waits on this, so the
+    // caller's pending state covers the window where the batch exists but the
+    // job list has not caught up and would still report the sites as idle.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["jobs", "active"] }),
+        queryClient.invalidateQueries({ queryKey: ["sites"] }),
+      ]),
   });
 };
 

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   },
   activeJobs: {
     data: [] as unknown[],
+    refetch: vi.fn(),
   },
   batch: {
     data: undefined as unknown,

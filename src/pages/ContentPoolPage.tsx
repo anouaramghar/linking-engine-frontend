@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
@@ -24,7 +24,6 @@ import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
 
 type PoolFilter = "all" | "approved" | "not_approved" | "quarantined";
-const LOCAL_JOB_GUARD_MS = 20_000;
 
 const status = (site: Site): Exclude<PoolFilter, "all"> =>
   site.pool_source_quarantined
@@ -55,19 +54,12 @@ export default function ContentPoolPage() {
   const [search, setSearch] = useState("");
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
   const [crawlJobs, setCrawlJobs] = useState<Record<number, string>>({});
-  const [crawlGuardedIds, setCrawlGuardedIds] = useState<Set<number>>(new Set());
-  const crawlGuardTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const activeJobsQuery = useActiveJobs();
   const activeJobs = activeJobsQuery.data ?? [];
   const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
   const mutationPending =
     approve.isPending || revoke.isPending || reactivate.isPending || remove.isPending;
-
-  useEffect(
-    () => () => Object.values(crawlGuardTimers.current).forEach(clearTimeout),
-    [],
-  );
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -101,22 +93,15 @@ export default function ContentPoolPage() {
     const activeJob = activeJobs.find(
       (job) => job.site_id === site.id && job.kind === "ingestion",
     );
-    const recentLocalJob = crawlGuardedIds.has(site.id);
-    if (crawlingId !== null || activeJob || recentLocalJob || jobStatusUnavailable) return;
+    if (crawlingId !== null || activeJob || jobStatusUnavailable) return;
     setCrawlingId(site.id);
     setNotice(null);
     try {
       const job = await ingestSite(site.id);
       setCrawlJobs((current) => ({ ...current, [site.id]: job.job_id }));
-      clearTimeout(crawlGuardTimers.current[site.id]);
-      setCrawlGuardedIds((current) => new Set(current).add(site.id));
-      crawlGuardTimers.current[site.id] = setTimeout(() => {
-        setCrawlGuardedIds((current) => {
-          const next = new Set(current);
-          next.delete(site.id);
-          return next;
-        });
-      }, LOCAL_JOB_GUARD_MS);
+      // Hold the pending state until the job list has caught up, so the button
+      // is guarded by the running job itself rather than by a wall-clock timer.
+      await activeJobsQuery.refetch();
       setNotice({ message: `${site.name} crawl queued.`, tone: "info" });
     } catch (error) {
       setNotice({
@@ -226,18 +211,20 @@ export default function ContentPoolPage() {
           {visible.map((site) => (
             <article key={site.id} className="card p-4 sm:p-5">
               {(() => {
-                 const activeJob = activeJobs.find(
-                   (job) => job.site_id === site.id && job.kind === "ingestion",
-                 );
-                 const trackedJobId = crawlJobs[site.id];
-                 const recentLocalJob = crawlGuardedIds.has(site.id);
+                const activeJob = activeJobs.find(
+                  (job) => job.site_id === site.id && job.kind === "ingestion",
+                );
+                const trackedJobId = crawlJobs[site.id];
                 return (
               <div className="flex flex-wrap items-start gap-4">
                 <div className="min-w-56 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                     <h2 id={`pool-source-${site.id}`} className="text-body-md font-medium text-ink">
-                       {site.name}
-                     </h2>
+                    <h2
+                      id={`pool-source-${site.id}`}
+                      className="text-body-md font-medium text-ink"
+                    >
+                      {site.name}
+                    </h2>
                     <span className="badge">
                       <span
                         className={`dot ${
@@ -264,91 +251,107 @@ export default function ContentPoolPage() {
                       <JobStatusBadge jobId={trackedJobId} kind="ingestion" />
                     ) : null}
                   </div>
-                   <div className="mt-1 break-all text-caption text-muted">{site.base_url}</div>
+                  <div className="mt-1 break-all text-caption text-muted">{site.base_url}</div>
                   {site.pool_source_quarantine_reason && (
                     <div className="mt-2 text-caption text-error-ink">
                       {site.pool_source_quarantine_reason}
                     </div>
                   )}
                 </div>
-                 <dl className="grid grid-cols-3 gap-4 text-caption text-muted">
-                   <div>
-                     <dt className="sr-only">Articles</dt>
-                     <dd className="block text-ink">{formatCount(site.article_count ?? 0)}</dd>
-                     <span aria-hidden="true">Articles</span>
-                   </div>
-                   <div>
-                     <dt className="sr-only">Failures</dt>
-                     <dd className="block text-ink">{site.pool_source_consecutive_failures ?? 0}</dd>
-                     <span aria-hidden="true">Failures</span>
-                   </div>
-                   <div title={site.last_crawl_at ?? undefined}>
-                     <dt className="sr-only">Last crawl</dt>
-                     <dd className="block text-ink">
-                       {site.last_crawl_at ? (
-                         <time dateTime={site.last_crawl_at}>{timeAgo(site.last_crawl_at)}</time>
-                       ) : (
-                         "Never"
-                       )}
-                     </dd>
-                     <span aria-hidden="true">Last crawl</span>
-                   </div>
-                 </dl>
-                 <div className="flex flex-wrap gap-2">
-                   {site.pool_source_approved && !site.pool_source_quarantined && (
-                     <button
-                       type="button"
-                       aria-label={`Crawl ${site.name}`}
-                       className="btn btn-outline btn-sm"
-                       disabled={
-                         crawlingId === site.id ||
-                         Boolean(activeJob) ||
-                         recentLocalJob ||
-                         jobStatusUnavailable
-                       }
-                       onClick={() => void crawl(site)}
-                     >
-                       {crawlingId === site.id
-                         ? "Queueing…"
-                         : activeJob || recentLocalJob
-                           ? "Crawl active"
-                           : "Crawl"}
-                     </button>
-                   )}
-                   <ActionMenu
-                     label="Actions"
-                     ariaLabel={`Actions for ${site.name}`}
-                     items={[
-                       ...(!site.pool_source_approved
-                         ? [{
-                             label: "Approve",
-                             disabled: mutationPending,
-                             onSelect: () => void runAction(`${site.name} approval`, () => approve.mutateAsync(site.id)),
-                           }]
-                         : []),
-                       ...(site.pool_source_quarantined
-                         ? [{
-                             label: "Reactivate",
-                             disabled: mutationPending,
-                             onSelect: () => void runAction(`${site.name} reactivation`, () => reactivate.mutateAsync(site.id)),
-                           }]
-                         : []),
-                       ...(site.pool_source_approved
-                         ? [{
-                             label: "Revoke approval",
-                             disabled: mutationPending,
-                             onSelect: () => void runAction(`${site.name} approval revocation`, () => revoke.mutateAsync(site.id)),
-                           }]
-                         : []),
-                       { label: "View history", onSelect: () => setAuditSite(site) },
-                       {
-                         label: "Delete source",
-                         danger: true,
-                         disabled: mutationPending,
-                         onSelect: () => setDeleteSite(site),
-                       },
-                     ]}
-                   />
+                <dl className="grid grid-cols-3 gap-4 text-caption text-muted">
+                  <div>
+                    <dt className="sr-only">Articles</dt>
+                    <dd className="block text-ink">{formatCount(site.article_count ?? 0)}</dd>
+                    <span aria-hidden="true">Articles</span>
+                  </div>
+                  <div>
+                    <dt className="sr-only">Failures</dt>
+                    <dd className="block text-ink">
+                      {site.pool_source_consecutive_failures ?? 0}
+                    </dd>
+                    <span aria-hidden="true">Failures</span>
+                  </div>
+                  <div title={site.last_crawl_at ?? undefined}>
+                    <dt className="sr-only">Last crawl</dt>
+                    <dd className="block text-ink">
+                      {site.last_crawl_at ? (
+                        <time dateTime={site.last_crawl_at}>{timeAgo(site.last_crawl_at)}</time>
+                      ) : (
+                        "Never"
+                      )}
+                    </dd>
+                    <span aria-hidden="true">Last crawl</span>
+                  </div>
+                </dl>
+                <div className="flex flex-wrap gap-2">
+                  {site.pool_source_approved && !site.pool_source_quarantined && (
+                    <button
+                      type="button"
+                      aria-label={`Crawl ${site.name}`}
+                      className="btn btn-outline btn-sm"
+                      disabled={
+                        crawlingId === site.id ||
+                        Boolean(activeJob) ||
+                        jobStatusUnavailable
+                      }
+                      onClick={() => void crawl(site)}
+                    >
+                      {crawlingId === site.id
+                        ? "Queueing…"
+                        : activeJob
+                          ? "Crawl active"
+                          : "Crawl"}
+                    </button>
+                  )}
+                  <ActionMenu
+                    label="Actions"
+                    ariaLabel={`Actions for ${site.name}`}
+                    items={[
+                      ...(!site.pool_source_approved
+                        ? [
+                            {
+                              label: "Approve",
+                              disabled: mutationPending,
+                              onSelect: () =>
+                                void runAction(`${site.name} approval`, () =>
+                                  approve.mutateAsync(site.id),
+                                ),
+                            },
+                          ]
+                        : []),
+                      ...(site.pool_source_quarantined
+                        ? [
+                            {
+                              label: "Reactivate",
+                              disabled: mutationPending,
+                              onSelect: () =>
+                                void runAction(`${site.name} reactivation`, () =>
+                                  reactivate.mutateAsync(site.id),
+                                ),
+                            },
+                          ]
+                        : []),
+                      ...(site.pool_source_approved
+                        ? [
+                            {
+                              label: "Revoke approval",
+                              disabled: mutationPending,
+                              onSelect: () =>
+                                void runAction(`${site.name} approval revocation`, () =>
+                                  revoke.mutateAsync(site.id),
+                                ),
+                            },
+                          ]
+                        : []),
+                      { label: "View history", onSelect: () => setAuditSite(site) },
+                      {
+                        label: "Delete source",
+                        danger: true,
+                        disabled: mutationPending,
+                        onSelect: () => setDeleteSite(site),
+                      },
+                    ]}
+                  />
                 </div>
               </div>
                 );

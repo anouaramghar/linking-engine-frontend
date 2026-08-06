@@ -66,7 +66,7 @@ export default function SuggestionPreview({
       </div>
 
       <div className="eyebrow mb-2">Source article</div>
-       <div className="break-words font-serif text-display-sm text-ink">{s.source_article.title}</div>
+      <div className="break-words font-serif text-display-sm text-ink">{s.source_article.title}</div>
       <div className="mb-4 mt-2 text-caption text-muted">
         {siteName} &middot;{" "}
         <a
@@ -133,17 +133,22 @@ export default function SuggestionPreview({
 
       {s.status === "pending" ? (
         <div className="flex flex-col gap-2 sm:flex-row">
-           <button
-             type="button"
-             onClick={onAccept}
-             disabled={actionsDisabled}
-             className="btn btn-primary flex-1"
-           >
-             Accept & queue placement
-           </button>
-           <button type="button" onClick={onReject} disabled={actionsDisabled} className="btn btn-outline">
-             Reject
-           </button>
+          <button
+            type="button"
+            onClick={onAccept}
+            disabled={actionsDisabled}
+            className="btn btn-primary flex-1"
+          >
+            Accept & queue placement
+          </button>
+          <button
+            type="button"
+            onClick={onReject}
+            disabled={actionsDisabled}
+            className="btn btn-outline"
+          >
+            Reject
+          </button>
         </div>
       ) : (
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -152,14 +157,14 @@ export default function SuggestionPreview({
             {STATUS_META[s.status].label}
           </div>
           {isReversible(s.status) && (
-             <button
-               type="button"
-               onClick={onUndo}
-               disabled={actionsDisabled}
-               className="btn btn-outline"
-             >
-               Undo
-             </button>
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={actionsDisabled}
+              className="btn btn-outline"
+            >
+              Undo
+            </button>
           )}
         </div>
       )}
@@ -169,7 +174,7 @@ export default function SuggestionPreview({
           <div className="eyebrow">Publish status</div>
           <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
           {s.status === "failed" && s.publish_error && (
-             <div className="mt-2 break-words text-caption leading-normal text-error-ink">
+            <div className="mt-2 break-words text-caption leading-normal text-error-ink">
               {s.publish_error}
             </div>
           )}
