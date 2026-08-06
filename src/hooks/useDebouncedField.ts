@@ -16,6 +16,8 @@ export interface DebouncedField {
   change: (next: string) => void;
   /** Settle immediately — for blur, Enter, or anything that reads the value. */
   flush: () => void;
+  /** Cancel an in-flight commit and restore the committed value. */
+  cancel: () => void;
 }
 
 export function useDebouncedField<T>({
@@ -71,5 +73,10 @@ export function useDebouncedField<T>({
     else setDraft(format(value));
   };
 
-  return { draft, change, flush };
+  const cancel = () => {
+    clearTimeout(timer.current);
+    setDraft(format(value));
+  };
+
+  return { draft, change, flush, cancel };
 }

@@ -112,7 +112,10 @@ export default function ActionMenu({
     // A fixed pop-out cannot follow its trigger, so scrolling dismisses it
     // rather than leaving it stranded over unrelated rows. Restore focus to
     // the trigger so keyboard users do not lose their place.
-    const onViewportChange = () => close();
+    const onViewportChange = (event: Event) => {
+      if (menu.current?.contains(event.target as Node)) return;
+      close();
+    };
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);

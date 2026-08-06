@@ -272,6 +272,10 @@ export default function SitesPage() {
     showMore: showMoreSites,
   } = useIncrementalList(filteredSites ?? [], search, 50, 250);
 
+  const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
+  const trackedJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
+  const hasRecentTrackedJob = (siteId: number, kind: JobKind) =>
+    recentJobKeys.has(trackedJobKey(siteId, kind));
   const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
   const selectedVisibleCount = visibleSiteIds.filter((id) => selectedSiteIds.has(id)).length;
   const allVisibleSelected =
@@ -280,7 +284,12 @@ export default function SitesPage() {
   const selectedOutsideSearchCount = selectedSiteIds.size - selectedVisibleCount;
   const batchLimitReached = selectedSiteIds.size >= MAX_PIPELINE_BATCH_SITES;
   const selectedActiveCount = [...selectedSiteIds].filter((id) =>
-    hasActiveJob(id, "ingestion") || hasActiveJob(id, "analysis"),
+    hasActiveJob(id, "ingestion") ||
+    hasActiveJob(id, "analysis") ||
+    hasRecentTrackedJob(id, "ingestion") ||
+    hasRecentTrackedJob(id, "analysis") ||
+    busy[busyKey(id, "Crawl")] ||
+    busy[busyKey(id, "Generate suggestions")],
   ).length;
   const batchBlocked =
     jobStatusUnavailable || selectedActiveCount > 0 || selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES;
@@ -291,11 +300,6 @@ export default function SitesPage() {
       selectVisibleMobileRef.current.indeterminate = someVisibleSelected;
     }
   }, [someVisibleSelected]);
-
-  const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
-  const trackedJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
-  const hasRecentTrackedJob = (siteId: number, kind: JobKind) =>
-    recentJobKeys.has(trackedJobKey(siteId, kind));
 
   const toggleSelectedSite = (siteId: number) => {
     setSelectedSiteIds((current) => {
@@ -454,7 +458,7 @@ export default function SitesPage() {
         sub={`${sites?.length ?? 0} connected ${
           (sites?.length ?? 0) === 1 ? "source" : "sources"
         } · ${
-          totalArticles === null ? "Soon" : formatCount(totalArticles)
+          totalArticles === null ? "Article count unavailable" : formatCount(totalArticles)
         } active articles normalized via ContentConnector`}
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
@@ -637,20 +641,20 @@ export default function SitesPage() {
                 <SiteDetail
                   label="Articles"
                   value={
-                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                    site.article_count === undefined ? "Not available" : formatCount(site.article_count)
                   }
                 />
                 <SiteDetail
                   label="Int. links"
                   value={
                     site.internal_link_count === undefined
-                      ? "Soon"
+                      ? "Not available"
                       : formatCount(site.internal_link_count)
                   }
                 />
                 <SiteDetail
                   label="Last crawl"
-                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
+                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Never"}
                   title={site.last_crawl_at ?? undefined}
                   dateTime={site.last_crawl_at}
                 />
@@ -659,7 +663,7 @@ export default function SitesPage() {
                 <SiteDetail
                   label="Articles"
                   value={
-                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                    site.article_count === undefined ? "Not available" : formatCount(site.article_count)
                   }
                 />
               </div>
@@ -668,7 +672,7 @@ export default function SitesPage() {
                   label="Int. links"
                   value={
                     site.internal_link_count === undefined
-                      ? "Soon"
+                      ? "Not available"
                       : formatCount(site.internal_link_count)
                   }
                 />
@@ -676,7 +680,7 @@ export default function SitesPage() {
               <div className="hidden xl:block">
                 <SiteDetail
                   label="Last crawl"
-                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
+                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Never"}
                   title={site.last_crawl_at ?? undefined}
                   dateTime={site.last_crawl_at}
                 />

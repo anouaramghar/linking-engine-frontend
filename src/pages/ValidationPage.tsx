@@ -259,7 +259,7 @@ export default function ValidationPage() {
     review.isPending || bulkReview.isPending || filteredReview.isPending,
   );
   const bulkControlsBlocked =
-    queueUpdating || bulkCountQueryFailed || actionMutationPending;
+    failed || queueUpdating || bulkCountQueryFailed || actionMutationPending;
   const fetching = queueQueries.some((query) => query.isFetching);
   const retry = () => {
     void sitesQuery.refetch();
@@ -390,15 +390,36 @@ export default function ValidationPage() {
       }),
     [rejectCountsQuery.data, sourceSuggestions, statusOverrides, scope, threshold],
   );
+  const scopedCountsUnavailable =
+    scopedCountsQuery.isPending ||
+    scopedCountsQuery.isError ||
+    scopedCountsQuery.isPlaceholderData;
   const chips = [
-    ...CHIP_DEFS.map((chip) => ({ ...chip, count: scopedCounts[chip.key] })),
-    { key: "all", label: "All", count: scopedCounts.total },
+    ...CHIP_DEFS.map((chip) => ({
+      ...chip,
+      count: scopedCountsUnavailable ? "—" : scopedCounts[chip.key],
+    })),
+    {
+      key: "all",
+      label: "All",
+      count: scopedCountsUnavailable ? "—" : scopedCounts.total,
+    },
   ];
-  const pendingTotal = fleetCounts.pending;
-  const acceptCount = acceptCounts.pending;
-  const rejectCount = rejectCounts.pending;
+  const pendingTotal = fleetCountsQuery.isPending || fleetCountsQuery.isError
+    ? null
+    : fleetCounts.pending;
+  const acceptCount = acceptCountsQuery.isPending || acceptCountsQuery.isError
+    ? null
+    : acceptCounts.pending;
+  const rejectCount = rejectCountsQuery.isPending || rejectCountsQuery.isError
+    ? null
+    : rejectCounts.pending;
   const queueTotal =
-    effectiveStatus === "all" ? scopedCounts.total : scopedCounts[effectiveStatus];
+    scopedCountsQuery.isPending || scopedCountsQuery.isError
+      ? null
+      : effectiveStatus === "all"
+        ? scopedCounts.total
+        : scopedCounts[effectiveStatus];
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
     setStatusOverrides((current) => {
@@ -627,6 +648,7 @@ export default function ValidationPage() {
   const requestBulk = (action: BulkReviewAction) => {
     if (bulkControlsBlocked) return;
     const count = action === "approve" ? acceptCount : rejectCount;
+    if (count === null) return;
     setConfirmation({
       action,
       count,
@@ -878,7 +900,7 @@ export default function ValidationPage() {
     <>
       <PageHeader
         title="Link suggestions"
-        sub={`${pendingTotal} pending across ${sites?.length ?? 0} ${
+        sub={`${pendingTotal === null ? "Pending count unavailable" : `${formatCount(pendingTotal)} pending`} across ${sites?.length ?? 0} ${
           (sites?.length ?? 0) === 1 ? "site" : "sites"
         } · queued links are not live until published`}
         badge="Hybrid"
@@ -1075,7 +1097,7 @@ export default function ValidationPage() {
                         the page's status region, and two of them would make
                         "the status message" ambiguous to a screen reader. */}
                     <span aria-live="polite" className="text-caption text-muted">
-                      Showing {formatCount(shown)} of {formatCount(queueTotal)}
+                       Showing {formatCount(shown)} of {queueTotal === null ? "—" : formatCount(queueTotal)}
                       {queueAutoLoadPaused && (
                         <>
                           {" "}

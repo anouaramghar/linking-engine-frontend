@@ -39,7 +39,7 @@ function Brand() {
   );
 }
 
-function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobile?: boolean }) {
+function PrimaryNavigation({ pending, mobile = false }: { pending: number | null; mobile?: boolean }) {
   return (
     <nav
       aria-label={mobile ? "Mobile navigation" : "Primary navigation"}
@@ -68,7 +68,7 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
                     ? "Pool"
                     : item.label}
               </span>
-              {item.to === "/queue" && pending > 0 && (
+              {item.to === "/queue" && pending !== null && pending > 0 && (
                 <span
                   className={`rounded-pill px-2 py-0.5 text-caption-upper ${
                     isActive
@@ -93,7 +93,7 @@ export default function App() {
   const ownedSiteCount = ownedSites?.length ?? 0;
   const { data: counts } = useSuggestionCounts({}, Boolean(ownedSites?.length));
   const { isError: healthFailed, isPending: healthPending } = useHealth();
-  const pending = counts?.pending ?? 0;
+  const pending = counts?.pending ?? null;
   const healthLabel = healthPending
     ? "Checking engine"
     : healthFailed

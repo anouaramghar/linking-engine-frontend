@@ -15,7 +15,7 @@ const COMMIT_DELAY_MS = 250;
 interface Chip {
   key: string;
   label: string;
-  count: number;
+  count: number | string;
 }
 
 export interface BulkConfirmation {
@@ -32,8 +32,8 @@ interface Props {
   onSelect: (key: string) => void;
   threshold: number;
   onThresholdChange: (threshold: number) => void;
-  acceptCount: number;
-  rejectCount: number;
+  acceptCount: number | null;
+  rejectCount: number | null;
   /** False when the active status filter shows no pending suggestions to act on. */
   actionable: boolean;
   confirmation: BulkConfirmation | null;
@@ -103,6 +103,8 @@ export default function BulkActions({
       ? `at least ${confirmation.threshold}%`
       : `below ${confirmation?.threshold}%`;
   const verb = confirmation?.action === "approve" ? "Accept" : "Reject";
+  const acceptLabel = acceptCount === null ? "—" : String(acceptCount);
+  const rejectLabel = rejectCount === null ? "—" : String(rejectCount);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -176,24 +178,24 @@ export default function BulkActions({
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
-            aria-label={`Accept \u2265 ${threshold}% \u00b7 ${acceptCount}`}
-            disabled={!actionable || acceptCount === 0}
+            aria-label={`Accept \u2265 ${threshold}% \u00b7 ${acceptLabel}`}
+            disabled={!actionable || acceptCount === null || acceptCount === 0}
             onClick={() => onRequest("approve")}
             className="btn btn-primary btn-sm sm:min-w-[12rem]"
           >
             {/* "match", not "confidence": the score is cosine similarity between
                 two articles, and it is not the number Hybrid ranked the row by. */}
-            Accept {acceptCount} matches
+            Accept {acceptLabel} matches
             <span className="text-caption opacity-75">&ge; {threshold}%</span>
           </button>
           <button
             type="button"
-            aria-label={`Reject < ${threshold}% \u00b7 ${rejectCount}`}
-            disabled={!actionable || rejectCount === 0}
+            aria-label={`Reject < ${threshold}% \u00b7 ${rejectLabel}`}
+            disabled={!actionable || rejectCount === null || rejectCount === 0}
             onClick={() => onRequest("reject")}
             className="btn btn-outline btn-sm sm:min-w-[12rem]"
           >
-            Reject {rejectCount} matches
+            Reject {rejectLabel} matches
             <span className="text-caption text-muted">&lt; {threshold}%</span>
           </button>
         </div>
