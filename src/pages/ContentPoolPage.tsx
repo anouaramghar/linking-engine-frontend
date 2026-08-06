@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
@@ -24,6 +24,7 @@ import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
 
 type PoolFilter = "all" | "approved" | "not_approved" | "quarantined";
+const LOCAL_JOB_GUARD_MS = 10_000;
 
 const status = (site: Site): Exclude<PoolFilter, "all"> =>
   site.pool_source_quarantined
@@ -54,11 +55,19 @@ export default function ContentPoolPage() {
   const [search, setSearch] = useState("");
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
   const [crawlJobs, setCrawlJobs] = useState<Record<number, string>>({});
+  const [crawlGuardedIds, setCrawlGuardedIds] = useState<Set<number>>(new Set());
+  const crawlGuardTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const activeJobsQuery = useActiveJobs();
   const activeJobs = activeJobsQuery.data ?? [];
+  const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
   const mutationPending =
     approve.isPending || revoke.isPending || reactivate.isPending || remove.isPending;
+
+  useEffect(
+    () => () => Object.values(crawlGuardTimers.current).forEach(clearTimeout),
+    [],
+  );
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -92,12 +101,22 @@ export default function ContentPoolPage() {
     const activeJob = activeJobs.find(
       (job) => job.site_id === site.id && job.kind === "ingestion",
     );
-    if (crawlingId !== null || activeJob || activeJobsQuery.isError) return;
+    const recentLocalJob = crawlGuardedIds.has(site.id);
+    if (crawlingId !== null || activeJob || recentLocalJob || jobStatusUnavailable) return;
     setCrawlingId(site.id);
     setNotice(null);
     try {
       const job = await ingestSite(site.id);
       setCrawlJobs((current) => ({ ...current, [site.id]: job.job_id }));
+      clearTimeout(crawlGuardTimers.current[site.id]);
+      setCrawlGuardedIds((current) => new Set(current).add(site.id));
+      crawlGuardTimers.current[site.id] = setTimeout(() => {
+        setCrawlGuardedIds((current) => {
+          const next = new Set(current);
+          next.delete(site.id);
+          return next;
+        });
+      }, LOCAL_JOB_GUARD_MS);
       setNotice({ message: `${site.name} crawl queued.`, tone: "info" });
     } catch (error) {
       setNotice({
@@ -207,10 +226,11 @@ export default function ContentPoolPage() {
           {visible.map((site) => (
             <article key={site.id} className="card p-4 sm:p-5">
               {(() => {
-                const activeJob = activeJobs.find(
-                  (job) => job.site_id === site.id && job.kind === "ingestion",
-                );
-                const trackedJobId = crawlJobs[site.id];
+                 const activeJob = activeJobs.find(
+                   (job) => job.site_id === site.id && job.kind === "ingestion",
+                 );
+                 const trackedJobId = crawlJobs[site.id];
+                 const recentLocalJob = crawlGuardedIds.has(site.id);
                 return (
               <div className="flex flex-wrap items-start gap-4">
                 <div className="min-w-56 flex-1">
@@ -283,13 +303,14 @@ export default function ContentPoolPage() {
                        disabled={
                          crawlingId === site.id ||
                          Boolean(activeJob) ||
-                         activeJobsQuery.isError
+                         recentLocalJob ||
+                         jobStatusUnavailable
                        }
                        onClick={() => void crawl(site)}
                      >
                        {crawlingId === site.id
                          ? "Queueing…"
-                         : activeJob
+                         : activeJob || recentLocalJob
                            ? "Crawl active"
                            : "Crawl"}
                      </button>

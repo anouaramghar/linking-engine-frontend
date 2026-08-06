@@ -25,6 +25,7 @@ const invalidateSiteDependencies = (qc: ReturnType<typeof useQueryClient>) =>
     qc.invalidateQueries({ queryKey: ["suggestions"] }),
     qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
     qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
+    qc.invalidateQueries({ queryKey: ["pool-audit"] }),
   ]);
 
 export const useCreateSite = () => {

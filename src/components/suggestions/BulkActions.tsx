@@ -80,6 +80,11 @@ export default function BulkActions({
     commit.current = onThresholdChange;
   });
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    // A URL/back-navigation change invalidates the draft that the old timer
+    // captured, just like clearing the queue search does.
+    clearTimeout(timer.current);
+  }, [threshold]);
 
   const scheduleCommit = (value: string) => {
     clearTimeout(timer.current);

@@ -42,6 +42,7 @@ import type { Site } from "../types/site";
 const GRID =
   "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
+const LOCAL_JOB_GUARD_MS = 10_000;
 
 const batchIdFromUrl = () => {
   const value = Number(new URLSearchParams(window.location.search).get("batch"));
@@ -225,10 +226,15 @@ export default function SitesPage() {
       : null;
   const activeJobsQuery = useActiveJobs();
   const activeJobs = activeJobsQuery.data ?? [];
+  const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const hasActiveJob = (siteId: number, kind: JobKind) =>
+    activeJobs.some((job) => job.site_id === siteId && job.kind === kind);
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [jobs, setJobs] = useState<TrackedJob[]>([]);
+  const [recentJobKeys, setRecentJobKeys] = useState<Set<string>>(new Set());
+  const recentJobTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
@@ -247,6 +253,10 @@ export default function SitesPage() {
     window.addEventListener("popstate", syncBatchFromUrl);
     return () => window.removeEventListener("popstate", syncBatchFromUrl);
   }, []);
+  useEffect(
+    () => () => Object.values(recentJobTimers.current).forEach(clearTimeout),
+    [],
+  );
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
@@ -270,13 +280,10 @@ export default function SitesPage() {
   const selectedOutsideSearchCount = selectedSiteIds.size - selectedVisibleCount;
   const batchLimitReached = selectedSiteIds.size >= MAX_PIPELINE_BATCH_SITES;
   const selectedActiveCount = [...selectedSiteIds].filter((id) =>
-    activeJobs.some(
-      (job) =>
-        job.site_id === id && (job.kind === "ingestion" || job.kind === "analysis"),
-    ),
+    hasActiveJob(id, "ingestion") || hasActiveJob(id, "analysis"),
   ).length;
   const batchBlocked =
-    activeJobsQuery.isError || selectedActiveCount > 0 || selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES;
+    jobStatusUnavailable || selectedActiveCount > 0 || selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES;
 
   useEffect(() => {
     if (selectVisibleRef.current) selectVisibleRef.current.indeterminate = someVisibleSelected;
@@ -286,6 +293,9 @@ export default function SitesPage() {
   }, [someVisibleSelected]);
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
+  const trackedJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
+  const hasRecentTrackedJob = (siteId: number, kind: JobKind) =>
+    recentJobKeys.has(trackedJobKey(siteId, kind));
 
   const toggleSelectedSite = (siteId: number) => {
     setSelectedSiteIds((current) => {
@@ -330,7 +340,7 @@ export default function SitesPage() {
     if (
       selectedSiteIds.size === 0 ||
       selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES ||
-      activeJobsQuery.isError ||
+      jobStatusUnavailable ||
       selectedActiveCount > 0 ||
       createBatch.isPending
     ) {
@@ -375,8 +385,9 @@ export default function SitesPage() {
     const key = busyKey(siteId, label);
     if (
       busy[key] ||
-      activeJobsQuery.isError ||
-      activeJobs.some((job) => job.site_id === siteId && job.kind === kind)
+      jobStatusUnavailable ||
+      hasRecentTrackedJob(siteId, kind) ||
+      hasActiveJob(siteId, kind)
     ) {
       return;
     }
@@ -389,6 +400,16 @@ export default function SitesPage() {
         ...current.filter((job) => !(job.siteId === siteId && job.label === label)),
         { siteId, label, kind, jobId: job_id },
       ]);
+      const trackedKey = trackedJobKey(siteId, kind);
+      clearTimeout(recentJobTimers.current[trackedKey]);
+      setRecentJobKeys((current) => new Set(current).add(trackedKey));
+      recentJobTimers.current[trackedKey] = setTimeout(() => {
+        setRecentJobKeys((current) => {
+          const next = new Set(current);
+          next.delete(trackedKey);
+          return next;
+        });
+      }, LOCAL_JOB_GUARD_MS);
       setNotice({ message: queuedMessage ?? `${label} job queued.`, tone: "info" });
     } catch (error) {
       setNotice({
@@ -609,11 +630,7 @@ export default function SitesPage() {
               <div className="text-caption text-muted lg:text-body">
                 <span className="lg:hidden">Connector: </span>
                 <span className="font-medium text-ink lg:font-normal lg:text-body">
-                  {site.platform === "wordpress"
-                    ? "WP REST API"
-                    : site.platform === "pool"
-                      ? "Content pool"
-                      : "Sitemap crawl"}
+                  {sitePlatformLabel(site.platform)}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5 xl:hidden">
@@ -679,14 +696,15 @@ export default function SitesPage() {
                   aria-label={`Crawl ${site.name}`}
                   disabled={
                     busy[busyKey(site.id, "Crawl")] ||
-                    activeJobsQuery.isError ||
-                    activeJobs.some((job) => job.site_id === site.id && job.kind === "ingestion")
+                    jobStatusUnavailable ||
+                    hasRecentTrackedJob(site.id, "ingestion") ||
+                    hasActiveJob(site.id, "ingestion")
                   }
                   className="btn btn-outline btn-sm"
                 >
                   {busy[busyKey(site.id, "Crawl")]
                     ? "Queueing…"
-                    : activeJobs.some((job) => job.site_id === site.id && job.kind === "ingestion")
+                    : hasActiveJob(site.id, "ingestion") || hasRecentTrackedJob(site.id, "ingestion")
                       ? "Crawl active"
                       : "Crawl"}
                 </button>
@@ -705,10 +723,9 @@ export default function SitesPage() {
                             disabled:
                               site.suggestion_slots_available === 0 ||
                               busy[busyKey(site.id, "Generate suggestions")] ||
-                              activeJobsQuery.isError ||
-                              activeJobs.some(
-                                (job) => job.site_id === site.id && job.kind === "analysis",
-                              ),
+                              jobStatusUnavailable ||
+                              hasRecentTrackedJob(site.id, "analysis") ||
+                              hasActiveJob(site.id, "analysis"),
                             onSelect: () =>
                               void run(
                                 site.id,
@@ -722,10 +739,9 @@ export default function SitesPage() {
                             label: "Publish approved",
                             disabled:
                               busy[busyKey(site.id, "Publish approved")] ||
-                              activeJobsQuery.isError ||
-                              activeJobs.some(
-                                (job) => job.site_id === site.id && job.kind === "publication",
-                              ),
+                              jobStatusUnavailable ||
+                              hasRecentTrackedJob(site.id, "publication") ||
+                              hasActiveJob(site.id, "publication"),
                             onSelect: () =>
                               void run(
                                 site.id,

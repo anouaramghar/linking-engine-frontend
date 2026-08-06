@@ -82,6 +82,7 @@ const STATUS_OVERRIDE_LIMIT = 5_000;
 const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_PAGE_SIZE = 20;
+const SOURCE_SUGGESTION_AUTO_LOAD_LIMIT = 100;
 
 const EMPTY_COUNTS: SuggestionCounts = {
   pending: 0,
@@ -224,7 +225,7 @@ export default function ValidationPage() {
     scopedCountsQuery,
     acceptCountsQuery,
     rejectCountsQuery,
-  ].some((query) => query.isPlaceholderData);
+  ].some((query) => query.isPending || query.isFetching || query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
   const publicationPreview = usePublicationDryRun(previewSiteId);
   const review = useReview();
@@ -246,13 +247,19 @@ export default function ValidationPage() {
     sitesQuery.isPending ||
     (hasSites && suggestionsQuery.isPending);
   const failed = sitesQuery.isError || suggestionsQuery.isError;
-  const supportQueryFailed = [
+  const bulkCountQueryFailed = [
     fleetCountsQuery,
     scopedCountsQuery,
     acceptCountsQuery,
     rejectCountsQuery,
-    pendingPublicationQuery,
   ].some((query) => query.isError);
+  const supportQueryFailed =
+    bulkCountQueryFailed || pendingPublicationQuery.isError;
+  const actionMutationPending = Boolean(
+    review.isPending || bulkReview.isPending || filteredReview.isPending,
+  );
+  const bulkControlsBlocked =
+    queueUpdating || bulkCountQueryFailed || actionMutationPending;
   const fetching = queueQueries.some((query) => query.isFetching);
   const retry = () => {
     void sitesQuery.refetch();
@@ -536,7 +543,7 @@ export default function ValidationPage() {
   };
 
   const decide = (id: number, status: ReviewStatus) => {
-    if (queueUpdating || confirmation) return;
+    if (queueUpdating || confirmation || actionMutationPending) return;
     const message =
       status === "approved" ? "1 suggestion queued for publish." : "1 suggestion rejected.";
     // Deliberate tri-state: undefined leaves a non-cursor selection alone;
@@ -565,7 +572,7 @@ export default function ValidationPage() {
   };
 
   const undo = (ids: number[]) => {
-    if (queueUpdating || confirmation) return;
+    if (queueUpdating || confirmation || actionMutationPending) return;
     setNotice(null);
     bulkReview.mutate(
       { ids, status: "pending" },
@@ -618,7 +625,7 @@ export default function ValidationPage() {
   const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
 
   const requestBulk = (action: BulkReviewAction) => {
-    if (queueUpdating) return;
+    if (bulkControlsBlocked) return;
     const count = action === "approve" ? acceptCount : rejectCount;
     setConfirmation({
       action,
@@ -630,7 +637,7 @@ export default function ValidationPage() {
   };
 
   const confirmBulk = () => {
-    if (!confirmation || queueUpdating) return;
+    if (!confirmation || bulkControlsBlocked) return;
     const approving = confirmation.action === "approve";
     const status = approving ? "approved" : "rejected";
     const describe = (count: number) =>
@@ -732,14 +739,26 @@ export default function ValidationPage() {
     const currentGroup = renderedGroups.find((group) =>
       group.visibleSuggestions.some((item) => item.id === selectedId),
     );
+    const currentGroupLimit = currentGroup
+      ? groupLimits[currentGroup.key] ?? SOURCE_SUGGESTION_PAGE_SIZE
+      : 0;
     const groupHasMore = Boolean(
-      currentGroup && currentGroup.visibleSuggestions.length < currentGroup.suggestions.length,
+      currentGroup &&
+        currentGroup.visibleSuggestions.length < currentGroup.suggestions.length &&
+        currentGroupLimit < SOURCE_SUGGESTION_AUTO_LOAD_LIMIT,
     );
     if (
       delta > 0 &&
       current === navigableSuggestions.length - 1 &&
       (groupHasMore || suggestionsQuery.hasNextPage)
     ) {
+      if (!groupHasMore && autoLoadPaused) {
+        setNotice({
+          message: "More suggestions are available. Use Show more to keep loading.",
+          tone: "info",
+        });
+        return;
+      }
       if (
         suggestionsQuery.isFetchingNextPage ||
         pendingNavigationAfterId.current !== null
@@ -896,7 +915,10 @@ export default function ValidationPage() {
               }}
               acceptCount={acceptCount}
               rejectCount={rejectCount}
-               actionable={!queueUpdating && (statusFilter === "all" || statusFilter === "pending")}
+               actionable={
+                 !bulkControlsBlocked &&
+                 (statusFilter === "all" || statusFilter === "pending")
+               }
               confirmation={confirmation}
               onRequest={requestBulk}
               onConfirm={confirmBulk}
@@ -1023,7 +1045,7 @@ export default function ValidationPage() {
                           suggestion={suggestion}
                           siteName={siteName(suggestion.site_id)}
                            selected={suggestion.id === selectedId}
-                           actionsDisabled={queueUpdating}
+                           actionsDisabled={queueUpdating || actionMutationPending}
                           showSource={false}
                           containerRef={
                             suggestion.id === selectedId ? cursorRef : undefined
@@ -1102,7 +1124,7 @@ export default function ValidationPage() {
               error: placementQuery.error,
               onRetry: () => void placementQuery.refetch(),
             }}
-            actionsDisabled={queueUpdating}
+            actionsDisabled={queueUpdating || actionMutationPending}
             onClose={() => setSelectedId(null)}
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}

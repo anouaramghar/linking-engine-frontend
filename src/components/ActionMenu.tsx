@@ -75,8 +75,12 @@ export default function ActionMenu({
       below + box.height + MARGIN > window.innerHeight &&
       anchor.top - box.height - GAP > MARGIN;
 
+    const clampedBelow = Math.min(
+      below,
+      Math.max(MARGIN, window.innerHeight - box.height - MARGIN),
+    );
     setPosition({
-      top: flip ? anchor.top - box.height - GAP : below,
+      top: flip ? anchor.top - box.height - GAP : clampedBelow,
       // Right-aligned to the trigger, then held inside the window.
       left: Math.max(
         MARGIN,
