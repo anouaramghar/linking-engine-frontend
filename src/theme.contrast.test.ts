@@ -65,6 +65,9 @@ const PAIRS: Array<[string, string, number]> = [
   ["on-dark", "surface-dark", 4.5],
   ["on-dark", "error", 4.5],
   ["on-dark-soft", "surface-dark", 4.5],
+  // Selected text is still text. This pair is the reason selection has its own
+  // two tokens rather than borrowing the lavender orb, which travels.
+  ["selection-ink", "selection", 4.5],
   // WCAG 1.4.11: a control identified by its border, and a status dot, are
   // non-text contrast.
   ["hairline-control", "canvas", 3],

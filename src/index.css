@@ -46,7 +46,9 @@
  * DESIGN-elevenlabs.md describes a single light world — its `surface-dark`
  * tokens are dark *bands inside* a light page (a hero, a featured pricing
  * tier), not a theme. The dark palette below is therefore an extension rather
- * than a transcription: same warm stone family, same roles, re-anchored so that
+ * than a transcription. It is anchored so the extension stays inside the
+ * system: the dark theme takes the system's own `{colors.surface-dark}` for its
+ * page and climbs the same warm stone ramp the light theme descends, so
  * "raised" keeps meaning "lighter than the page" once the page is ink.
  */
 :root {
@@ -83,6 +85,13 @@
   --c-orb-sky: 168 200 232;
   --c-orb-rose: 232 184 196;
 
+  /* Selection borrows the lavender stop but is not one of them: the orbs are
+     decoration drawn at 28–45%, this is a ground carrying words at full
+     opacity. It has its own pair so the orbs can be re-anchored per theme
+     without dragging selected text into an unreadable contrast with them. */
+  --c-selection: 200 184 224;
+  --c-selection-ink: 12 10 9;
+
   --c-success: 22 163 74;
   --c-error: 220 38 38;
   --c-error-active: 185 28 28;
@@ -101,47 +110,68 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  /* The CTA inverts outright: a crisp bright pill carrying dark ink. */
-  --c-primary: 248 250 252;
+  /* The CTA inverts outright: a crisp bright pill carrying dark ink. Warm
+     white rather than blue-white, because it is the same pill as light's. */
+  --c-primary: 250 249 248;
   --c-primary-active: 255 255 255;
 
-  --c-ink: 248 250 252; /* Crisp bright heading ink */
-  --c-body: 218 225 235; /* Luminous, highly readable running body text */
-  --c-body-strong: 238 242 248;
-  --c-muted: 160 170 188; /* Elegant slate muted captions */
-  --c-muted-soft: 110 120 138;
-  --c-on-primary: 16 18 22;
+  --c-ink: 250 249 248;
+  /* Running text is held at ~10.8:1 rather than pushed to the ceiling. Light
+     runs its body at 7.5:1 and reserves the last of the range for headings;
+     matching that shape is what keeps a page of rows from reading as one
+     uniform block of bright text. */
+  --c-body: 196 190 184;
+  --c-body-strong: 227 223 219;
+  --c-muted: 154 147 140;
+  --c-muted-soft: 111 104 98;
+  --c-on-primary: 12 10 9;
   --c-on-dark: 255 255 255;
-  --c-on-dark-soft: 218 225 235;
+  --c-on-dark-soft: 214 211 209;
 
-  --c-hairline: 38 44 54;
-  --c-hairline-soft: 28 32 40;
-  --c-hairline-strong: 60 68 84;
-  --c-hairline-control: 115 128 152;
+  /* Lifted a rung above the obvious stone-800, because `hairline` has a second
+     job the light theme never notices: it is the *fill* behind a meter track,
+     and at 41 37 36 the unfilled remainder of a 3px score bar disappeared into
+     the card while the same bar read as 95-of-100 in light. Everything the
+     token draws — card edges, dividers, the rail seam — is steadier for it. */
+  --c-hairline: 51 46 44;
+  --c-hairline-soft: 34 31 29;
+  --c-hairline-strong: 72 66 62;
+  --c-hairline-control: 122 114 106;
 
-  /* Elevation: rich obsidian canvas upward to polished cards and strong surfaces. */
-  --c-canvas: 16 18 22;
-  --c-canvas-soft: 22 25 31;
-  --c-surface-card: 28 32 40;
-  --c-surface-strong: 40 46 58;
+  /* The elevation order survives the flip by reversing, so the page takes the
+     system's own darkest value and every surface above it climbs the stone
+     ramp: stone-950 page, stone-900 card, stone-800 chip. */
+  --c-canvas: 12 10 9;
+  --c-canvas-soft: 23 20 19;
+  --c-surface-card: 28 25 23;
+  --c-surface-strong: 45 41 39;
   --c-canvas-deep: 0 0 0;
-  --c-surface-dark: 60 68 84;
-  --c-surface-dark-elevated: 78 88 108;
+  --c-surface-dark: 45 41 39;
+  --c-surface-dark-elevated: 68 64 60;
 
-  --c-orb-mint: 167 229 211;
-  --c-orb-peach: 244 197 168;
-  --c-orb-lavender: 200 184 224;
-  --c-orb-sky: 168 200 232;
-  --c-orb-rose: 232 184 196;
+  /* Deep rather than pastel. These are drawn at 28–45% over their ground, and
+     a pastel at that opacity *adds* light: over a near-black page the five
+     stops stop being a wash and bloom into visible grey fog. Same five hues,
+     re-anchored below the canvas so the same opacities read as a low glow. */
+  --c-orb-mint: 34 94 79;
+  --c-orb-peach: 112 74 52;
+  --c-orb-lavender: 74 62 104;
+  --c-orb-sky: 48 78 116;
+  --c-orb-rose: 108 62 76;
+
+  --c-selection: 88 74 122;
+  --c-selection-ink: 250 249 248;
 
   --c-success: 34 197 94;
   --c-error: 220 38 38;
   --c-error-active: 239 68 68;
   --c-error-ink: 252 165 165;
 
-  --shadow-soft: 0.35;
-  --shadow-lift: 0.5;
-  --shadow-drawer: 0.65;
+  /* Black on near-black says little, so the shadow leans on depth rather than
+     darkness — the hairline and the card's top highlight carry the edge. */
+  --shadow-soft: 0.5;
+  --shadow-lift: 0.65;
+  --shadow-drawer: 0.8;
 }
 
 body {
@@ -180,12 +210,12 @@ body {
   border-radius: 2px;
 }
 
-/* The lavender ground is the same in both themes, so the text on it has to be
-   dark in both — this is the one place `ink` would be wrong, because in dark it
-   is near-white and would leave white on pastel at 1.7:1. */
+/* Lavender in both themes, but not the same lavender: light selects with the
+   pastel and dark with a deep violet, each carrying the ink that can be read on
+   it. A single ground here would put one of the two at ~1.7:1. */
 ::selection {
-  background: rgb(var(--c-orb-lavender));
-  color: #0c0a09;
+  background: rgb(var(--c-selection));
+  color: rgb(var(--c-selection-ink));
 }
 
 /* Native number-input spinners clash with the pill styling */
@@ -299,149 +329,35 @@ input[type="number"] {
   }
 }
 
-/* Dark mode specific component polish & subtle glow effects */
+/**
+ * What the dark theme needs beyond the palette swap, and nothing more.
+ *
+ * Light separates a card from the page with a shadow: the page is bright, so a
+ * little darkness under an edge is legible. On an ink page that shadow has
+ * almost nothing to darken, and the fill step from {colors.canvas} to
+ * {colors.surface-card} is one rung of the same stone ramp. So the edge is
+ * carried the way a real material carries it — a hairline of light along the
+ * top, where a raised surface would catch it — and the shadow keeps its offset
+ * and blur underneath rather than becoming a halo.
+ *
+ * Everything else the two themes had in common stays in common. A status is a
+ * neutral pill beside a coloured dot in both, because the tinted-and-glowing
+ * variant this file used to grow in dark made the same state look like two
+ * different severities depending on the time of day.
+ */
 :root[data-theme="dark"] .card {
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.045),
+    0 8px 24px -12px rgb(0 0 0 / 0.9);
 }
 
-:root[data-theme="dark"] .btn-outline {
-  background-color: rgba(255, 255, 255, 0.02);
-}
-
-:root[data-theme="dark"] .btn-outline:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.28);
-}
-
-:root[data-theme="dark"] .btn-success {
-  background-color: rgba(34, 197, 94, 0.18);
-  border-color: rgba(34, 197, 94, 0.45);
-  color: rgb(187, 247, 208);
-  box-shadow: 0 0 12px -2px rgba(34, 197, 94, 0.25);
-}
-
-:root[data-theme="dark"] .btn-success:hover:not(:disabled) {
-  background-color: rgba(34, 197, 94, 0.28);
-  border-color: rgba(34, 197, 94, 0.65);
-  color: rgb(220, 252, 231);
-  box-shadow: 0 0 16px 0px rgba(34, 197, 94, 0.35);
-}
-
-:root[data-theme="dark"] .btn-reject {
-  background-color: rgba(220, 38, 38, 0.15);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: rgb(254, 202, 202);
-  box-shadow: 0 0 12px -2px rgba(220, 38, 38, 0.25);
-}
-
-:root[data-theme="dark"] .btn-reject:hover:not(:disabled) {
-  background-color: rgba(220, 38, 38, 0.25);
-  border-color: rgba(239, 68, 68, 0.6);
-  color: rgb(254, 226, 226);
-  box-shadow: 0 0 16px 0px rgba(220, 38, 38, 0.35);
-}
-
-:root[data-theme="dark"] .field:focus {
-  box-shadow: inset 0 0 0 1px rgb(var(--c-ink)), 0 0 0 3px rgba(255, 255, 255, 0.08);
-}
-
+/* {component.badge-pill} sits on {colors.surface-strong}, one rung above the
+   card it lands on. That rung is wide enough to see on white and narrow on ink,
+   so the chip gets its own rim there. An inset ring rather than a border: a
+   border would make the badge 2px wider in dark than in light. */
 :root[data-theme="dark"] .badge {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  box-shadow: inset 0 0 0 1px rgb(var(--c-hairline-strong));
 }
-
-/* Luminous status dots & badges in dark mode */
-:root[data-theme="dark"] .dot {
-  position: relative;
-  transition: box-shadow 0.25s ease, transform 0.25s ease;
-}
-
-:root[data-theme="dark"] .dot.bg-success {
-  box-shadow: 0 0 8px 1px rgba(34, 197, 94, 0.7), 0 0 2px rgba(34, 197, 94, 0.9);
-}
-
-:root[data-theme="dark"] .dot.bg-error {
-  box-shadow: 0 0 8px 1px rgba(239, 68, 68, 0.75), 0 0 2px rgba(239, 68, 68, 0.9);
-}
-
-:root[data-theme="dark"] .dot.bg-primary {
-  box-shadow: 0 0 8px 1px rgba(248, 250, 252, 0.5);
-}
-
-:root[data-theme="dark"] .dot.bg-muted-soft {
-  box-shadow: 0 0 4px rgba(160, 170, 188, 0.3);
-}
-
-/* Enhanced status badges in dark mode */
-:root[data-theme="dark"] .badge:has(.bg-success) {
-  background-color: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.28);
-  color: rgb(220, 252, 231);
-}
-
-:root[data-theme="dark"] .badge:has(.bg-error) {
-  background-color: rgba(220, 38, 38, 0.12);
-  border-color: rgba(239, 68, 68, 0.32);
-  color: rgb(254, 226, 226);
-}
-
-:root[data-theme="dark"] .badge:has(.bg-primary) {
-  background-color: rgba(248, 250, 252, 0.08);
-  border-color: rgba(248, 250, 252, 0.22);
-}
-
-/* Soft pulsating glow for active status dots in dark mode */
-:root[data-theme="dark"] .dot.animate-pulse.bg-success {
-  animation: dot-pulse-success 1.8s ease-in-out infinite;
-}
-
-:root[data-theme="dark"] .dot.animate-pulse.bg-error {
-  animation: dot-pulse-error 1.8s ease-in-out infinite;
-}
-
-:root[data-theme="dark"] .dot.animate-pulse.bg-primary {
-  animation: dot-pulse-primary 1.8s ease-in-out infinite;
-}
-
-@keyframes dot-pulse-success {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.75), 0 0 2px rgba(34, 197, 94, 1);
-  }
-  50% {
-    opacity: 0.65;
-    transform: scale(0.9);
-    box-shadow: 0 0 3px 0px rgba(34, 197, 94, 0.35);
-  }
-}
-
-@keyframes dot-pulse-error {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.8), 0 0 2px rgba(239, 68, 68, 1);
-  }
-  50% {
-    opacity: 0.65;
-    transform: scale(0.9);
-    box-shadow: 0 0 3px 0px rgba(239, 68, 68, 0.35);
-  }
-}
-
-@keyframes dot-pulse-primary {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 0 8px 2px rgba(248, 250, 252, 0.6);
-  }
-  50% {
-    opacity: 0.65;
-    transform: scale(0.9);
-    box-shadow: 0 0 3px 0px rgba(248, 250, 252, 0.25);
-  }
-}
-
 
 .job-activity-dot {
   width: 0.3rem;
