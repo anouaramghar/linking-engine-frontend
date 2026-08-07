@@ -7,7 +7,7 @@ import {
   revokeDashboardUser,
   type DashboardUser,
 } from "../api/auth";
-import AccountControls, { UserAvatar } from "../components/AccountControls";
+import { UserAvatar } from "../components/AccountControls";
 import PageHeader from "../components/PageHeader";
 import { ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { useSession } from "../hooks/useSession";
