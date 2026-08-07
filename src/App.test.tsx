@@ -78,6 +78,7 @@ describe("App shell", () => {
       expect(nav.querySelector('a[href="/sites"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/content-pool"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/evaluation"]')).not.toBeNull();
+      expect(nav.querySelector('a[href="/access"]')).not.toBeNull();
     }
   });
 
@@ -102,17 +103,17 @@ describe("Rail collapse", () => {
 
     // Expanded, the label is the visible text. Collapsed, it is an `sr-only`
     // span and a tooltip — and only the first of those is a name. A rail that
-    // reads as four unlabelled links to a screen reader is not collapsed, it is
+    // reads as five unlabelled links to a screen reader is not collapsed, it is
     // broken, so this asserts the names survive the transition rather than
     // asserting which element carries them.
     await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
 
     // Scoped to the rail: jsdom applies no stylesheet, so the mobile row is in
     // the document too and "Sites" would match in both shells.
-    for (const name of ["Review queue", "Sites", "Content Pool", "Evaluation"]) {
+    for (const name of ["Review queue", "Sites", "Content Pool", "Evaluation", "Access"]) {
       expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
-    expect(rail().querySelectorAll("a")).toHaveLength(4);
+    expect(rail().querySelectorAll("a")).toHaveLength(5);
   });
 
   it("carries the pending count when the badge cannot show it", async () => {

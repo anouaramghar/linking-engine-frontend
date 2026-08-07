@@ -1,34 +1,15 @@
-import { NavLink } from "react-router-dom";
-
 import { describeUser, type DashboardUser } from "../api/auth";
 import { useLogout, useSession } from "../hooks/useSession";
 import RailTip from "./RailTip";
 
 /**
- * Who is signed in, and the two things they can do about it.
+ * Who is signed in, and the sign out action.
  *
- * Access lives here rather than in the primary nav: admitting a teammate is an
- * occasional errand, not a destination, and a fifth rail item would crowd the
- * mobile row for something most sessions never open.
- *
- * `layout` is explicit rather than a breakpoint, because the two shells that
- * render this are not distinguishable by viewport width: the expanded rail is
- * 224px wide *at* the widths where the mobile header is 375px and wider. A
- * `sm:` variant would resolve against the window and put the rail's cramped
- * case on the roomy one. The identity, the name and the two actions are the
- * same in all three; only the box they are packed into changes.
+ * Access now lives in primary navigation under Manage.
  */
 type Layout = "row" | "stack" | "compact";
 
 const ICON = {
-  /* A key: bow, stem, two teeth. Circles and 1.5px strokes, the same drawing
-     grammar as the Brand mark and the theme controls. */
-  access: (
-    <>
-      <circle cx="5" cy="6.5" r="3.25" />
-      <path d="M7.4 8.7 L13 14.3M10.4 11.7 L9 13.1M12 13.3 L10.6 14.7" />
-    </>
-  ),
   /* Leaving: a panel the arrow exits to the right. */
   signOut: (
     <>
@@ -64,9 +45,6 @@ const Mark = ({ d }: { d: keyof typeof ICON }) => (
 const initialOf = (user: DashboardUser) =>
   describeUser(user).replace(/^@/, "").trim().charAt(0).toUpperCase() || "?";
 
-/* Both actions are the same quiet pill; neither is primary, and "Sign out" must
-   never be the wider one by accident. `whitespace-nowrap` is the whole fix for
-   the two-line "Sign / out" the 224px rail used to produce. */
 const ACTION =
   "touch-target inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap " +
   "rounded-pill px-3 transition-colors sm:min-h-8";
@@ -83,9 +61,6 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
     return (
       <div className="flex flex-col items-center gap-1">
         <RailTip label={name}>
-          {/* Not a control. It is the answer to "whose session is this", which a
-              collapsed rail otherwise drops entirely — so it carries the name to
-              assistive tech and shows the initial to everyone else. */}
           <span
             className="flex h-8 w-8 flex-none items-center justify-center rounded-full
               bg-surface-strong text-caption font-medium text-ink"
@@ -93,23 +68,6 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
             <span aria-hidden="true">{initialOf(user)}</span>
             <span className="sr-only">Signed in as {name}</span>
           </span>
-        </RailTip>
-
-        <RailTip label="Access">
-          <NavLink
-            to="/access"
-            className={({ isActive }) =>
-              `touch-target flex h-11 w-11 items-center justify-center rounded-pill
-               transition-colors sm:h-9 sm:w-9 ${
-                 isActive
-                   ? "bg-primary text-on-primary"
-                   : "text-muted hover:bg-surface-strong hover:text-ink"
-               }`
-            }
-          >
-            <Mark d="access" />
-            <span className="sr-only">Access</span>
-          </NavLink>
         </RailTip>
 
         <RailTip label={logout.isPending ? "Signing out…" : "Sign out"}>
@@ -131,18 +89,6 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
 
   const actions = (
     <div className="flex items-center gap-1">
-      <NavLink
-        to="/access"
-        className={({ isActive }) =>
-          `${ACTION} ${
-            isActive
-              ? "bg-primary text-on-primary"
-              : "text-muted hover:bg-surface-strong hover:text-ink"
-          }`
-        }
-      >
-        Access
-      </NavLink>
       <button
         type="button"
         onClick={() => logout.mutate()}

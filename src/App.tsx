@@ -35,15 +35,15 @@ const QUEUE: NavItem = {
   short: "Queue",
   icon: (
     <>
-      <circle cx="5" cy="13" r="2.2" />
-      <circle cx="13" cy="5" r="2.2" />
-      <path d="M6.8 11.2 L11.2 6.8" strokeDasharray="2 2" />
+      <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <path d="m9 14 2 2 4-4" />
     </>
   ),
 };
 
 /**
- * The queue is the destination; these three are where you go between review
+ * The queue is the destination; these four are where you go between review
  * sessions. That is the whole hierarchy, and one label is enough to draw it —
  * an eyebrow over every group would be grammar rather than structure. It also
  * gives the collapsed rail the one thing it needs: a rule that survives when
@@ -58,10 +58,9 @@ const MANAGED: NavItem[] = [
     label: "Sites",
     icon: (
       <>
-        <circle cx="4.5" cy="9" r="2.1" />
-        <circle cx="13.5" cy="4.5" r="2.1" />
-        <circle cx="13.5" cy="13.5" r="2.1" />
-        <path d="M6.5 8.3 L11.6 5.4 M6.5 9.7 L11.6 12.6" />
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+        <path d="M2 12h20" />
       </>
     ),
   },
@@ -71,11 +70,9 @@ const MANAGED: NavItem[] = [
     short: "Pool",
     icon: (
       <>
-        <path
-          d="M2.5 4.5 C5.5 6 7.5 8 9.5 8.4 M2.5 13.5 C5.5 12 7.5 10 9.5 9.6"
-          strokeDasharray="2 2"
-        />
-        <circle cx="13.5" cy="9" r="2.6" />
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+        <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
       </>
     ),
   },
@@ -84,8 +81,20 @@ const MANAGED: NavItem[] = [
     label: "Evaluation",
     icon: (
       <>
-        <circle cx="9" cy="9" r="6" />
-        <path d="M6 9.3 L8.2 11.4 L12.3 6.6" />
+        <path d="M3 3v18h18" />
+        <path d="M18 17V9" />
+        <path d="M13 17V5" />
+        <path d="M8 17v-3" />
+      </>
+    ),
+  },
+  {
+    to: "/access",
+    label: "Access",
+    icon: (
+      <>
+        <path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z" />
+        <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
       </>
     ),
   },
@@ -98,10 +107,10 @@ const NavMark = ({ icon }: { icon: ReactNode }) => (
     aria-hidden="true"
     width="18"
     height="18"
-    viewBox="0 0 18 18"
+    viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.5"
+    strokeWidth="1.75"
     strokeLinecap="round"
     strokeLinejoin="round"
     className="flex-none"
@@ -252,10 +261,10 @@ function RailNavigation({ pending, collapsed }: { pending: number | null; collap
   );
 }
 
-/** The mobile row stays flat: four columns is already the grouping. */
+/** The mobile row stays flat: five columns is already the grouping. */
 function MobileNavigation({ pending }: { pending: number | null }) {
   return (
-    <nav aria-label="Mobile navigation" className="grid grid-cols-4 gap-1 px-2 pb-2">
+    <nav aria-label="Mobile navigation" className="grid grid-cols-5 gap-1 px-2 pb-2">
       {NAV.map((item) => (
         <NavLink
           key={item.to}
