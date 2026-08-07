@@ -18,10 +18,9 @@ const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: "sm" | 
   const dim = size === "sm" ? "h-7 w-7 text-xs" : "h-8 w-8 text-caption";
   return (
     <div
-      className={`relative flex ${dim} flex-none items-center justify-center rounded-full bg-primary/10 text-primary font-semibold ring-1 ring-primary/25 shadow-xs`}
+      className={`flex ${dim} flex-none items-center justify-center rounded-full bg-primary/10 text-primary font-semibold ring-1 ring-primary/25 shadow-xs`}
     >
       <span>{initial}</span>
-      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-canvas-soft" />
     </div>
   );
 };
@@ -79,10 +78,9 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
         <div className="flex min-w-0 items-center gap-2.5">
           <UserAvatar user={user} size="md" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-caption font-semibold leading-snug text-ink" title={name}>
+            <div className="truncate text-caption font-semibold text-ink" title={name}>
               {name}
             </div>
-            <div className="text-[11px] font-normal text-muted leading-none mt-0.5">Active Session</div>
           </div>
         </div>
         <button
@@ -119,10 +117,9 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
       <div className="flex min-w-0 items-center gap-2.5">
         <UserAvatar user={user} size="sm" />
         <div className="min-w-0">
-          <div className="truncate text-caption font-semibold leading-tight text-ink" title={name}>
+          <div className="truncate text-caption font-semibold text-ink" title={name}>
             {name}
           </div>
-          <div className="text-[11px] text-muted">Active Session</div>
         </div>
       </div>
       <button
