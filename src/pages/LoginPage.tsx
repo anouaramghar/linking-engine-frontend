@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { pollLogin, startLogin, type LoginState } from "../api/auth";
+import { pollLogin, startErrorMessage, startLogin, type LoginState } from "../api/auth";
 import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import { SESSION_QUERY_KEY } from "../hooks/useSession";
 
@@ -45,7 +45,7 @@ export default function LoginPage() {
   const deepLink = start.data?.deep_link;
   const waiting = nonce !== null && (state === undefined || state === "waiting");
   const finalState = state && state !== "waiting" && state !== "approved" ? state : null;
-  const unconfigured = start.error !== null && !start.isPending;
+  const startFailure = start.isPending ? null : startErrorMessage(start.error);
 
   return (
     <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden px-4 py-10">
@@ -67,20 +67,29 @@ export default function LoginPage() {
           back to this tab.
         </p>
 
-        {unconfigured ? (
-          <p role="alert" className="mt-6 rounded-lg bg-error px-4 py-3 text-caption text-on-dark">
-            Telegram sign-in is not configured on this deployment. Set TELEGRAM_BOT_TOKEN and
-            TELEGRAM_BOT_USERNAME on the API, then reload.
-          </p>
-        ) : nonce === null ? (
-          <button
-            type="button"
-            onClick={() => start.mutate()}
-            disabled={start.isPending}
-            className="btn btn-primary mt-6 w-full disabled:opacity-50"
-          >
-            {start.isPending ? "Preparing…" : "Sign in with Telegram"}
-          </button>
+        {nonce === null ? (
+          <>
+            {startFailure && (
+              <p
+                role="alert"
+                className="mt-6 rounded-lg bg-error px-4 py-3 text-caption leading-relaxed text-on-dark"
+              >
+                {startFailure}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => start.mutate()}
+              disabled={start.isPending}
+              className="btn btn-primary mt-6 w-full disabled:opacity-50"
+            >
+              {start.isPending
+                ? "Preparing…"
+                : startFailure
+                  ? "Try again"
+                  : "Sign in with Telegram"}
+            </button>
+          </>
         ) : (
           <div className="mt-6">
             {deepLink && !finalState && (

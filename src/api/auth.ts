@@ -1,3 +1,5 @@
+import { isAxiosError } from "axios";
+
 import { api } from "./client";
 
 export type DashboardUserStatus = "pending" | "approved" | "revoked";
@@ -51,6 +53,21 @@ export const approveDashboardUser = (id: number) =>
 
 export const revokeDashboardUser = (id: number) =>
   api.post<DashboardUser>(`/auth/users/${id}/revoke`).then((response) => response.data);
+
+/**
+ * 429 is the proxy rate-limiting login starts; 503 is the API saying Telegram
+ * sign-in was never configured. Both arrive at the same button, and telling an
+ * operator to go edit environment variables when they simply clicked twice is
+ * worse than saying nothing.
+ */
+export function startErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  const status = isAxiosError(error) ? error.response?.status : undefined;
+  if (status === 429) return "Too many sign-in attempts. Wait a moment and try again.";
+  if (status === 503)
+    return "Telegram sign-in is not configured on this deployment. Set TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME on the API, then reload.";
+  return "Could not start sign-in. Check that the engine is reachable and try again.";
+}
 
 /** How a person is named in the approval queue, best identifier first. */
 export const describeUser = (user: DashboardUser) =>
