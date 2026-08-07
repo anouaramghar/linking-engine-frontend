@@ -1,8 +1,11 @@
+import { useId, type ReactNode } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
+import RailTip from "./components/RailTip";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
+import { useRail } from "./hooks/useRail";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
 import { useTheme } from "./hooks/useTheme";
@@ -12,14 +15,102 @@ import ContentPoolPage from "./pages/ContentPoolPage";
 import SitesPage from "./pages/SitesPage";
 import ValidationPage from "./pages/ValidationPage";
 
-const NAV = [
-  { to: "/queue", label: "Review queue" },
-  { to: "/sites", label: "Sites" },
-  { to: "/content-pool", label: "Content Pool" },
-  { to: "/evaluation", label: "Evaluation" },
+/**
+ * Each nav mark is drawn from the same grammar as the Brand mark and the
+ * ThemeToggle's controls: circles and 1.5px strokes, so the rail reads as one
+ * drawing rather than a borrowed icon set. `short` is the label for the
+ * four-column mobile row *only* — the 224px rail has room for the real name,
+ * and "Pool" on its own does not say whose pool or of what.
+ */
+interface NavItem {
+  to: string;
+  label: string;
+  short?: string;
+  icon: ReactNode;
+}
+
+const QUEUE: NavItem = {
+  to: "/queue",
+  label: "Review queue",
+  short: "Queue",
+  icon: (
+    <>
+      <circle cx="5" cy="13" r="2.2" />
+      <circle cx="13" cy="5" r="2.2" />
+      <path d="M6.8 11.2 L11.2 6.8" strokeDasharray="2 2" />
+    </>
+  ),
+};
+
+/**
+ * The queue is the destination; these three are where you go between review
+ * sessions. That is the whole hierarchy, and one label is enough to draw it —
+ * an eyebrow over every group would be grammar rather than structure. It also
+ * gives the collapsed rail the one thing it needs: a rule that survives when
+ * the words do not.
+ *
+ * The order is the order the rail has always had. Grouping is allowed to add a
+ * seam; it is not allowed to move an operator's muscle memory.
+ */
+const MANAGED: NavItem[] = [
+  {
+    to: "/sites",
+    label: "Sites",
+    icon: (
+      <>
+        <circle cx="4.5" cy="9" r="2.1" />
+        <circle cx="13.5" cy="4.5" r="2.1" />
+        <circle cx="13.5" cy="13.5" r="2.1" />
+        <path d="M6.5 8.3 L11.6 5.4 M6.5 9.7 L11.6 12.6" />
+      </>
+    ),
+  },
+  {
+    to: "/content-pool",
+    label: "Content Pool",
+    short: "Pool",
+    icon: (
+      <>
+        <path
+          d="M2.5 4.5 C5.5 6 7.5 8 9.5 8.4 M2.5 13.5 C5.5 12 7.5 10 9.5 9.6"
+          strokeDasharray="2 2"
+        />
+        <circle cx="13.5" cy="9" r="2.6" />
+      </>
+    ),
+  },
+  {
+    to: "/evaluation",
+    label: "Evaluation",
+    icon: (
+      <>
+        <circle cx="9" cy="9" r="6" />
+        <path d="M6 9.3 L8.2 11.4 L12.3 6.6" />
+      </>
+    ),
+  },
 ];
 
-function Brand() {
+const NAV = [QUEUE, ...MANAGED];
+
+const NavMark = ({ icon }: { icon: ReactNode }) => (
+  <svg
+    aria-hidden="true"
+    width="18"
+    height="18"
+    viewBox="0 0 18 18"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="flex-none"
+  >
+    {icon}
+  </svg>
+);
+
+function Brand({ markOnly = false }: { markOnly?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <svg
@@ -34,52 +125,164 @@ function Brand() {
         <circle cx="20" cy="6" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" />
         <path d="M8.8 17.2 L17.2 8.8" stroke="currentColor" strokeWidth="1.5" />
       </svg>
-      <div>
-        <div className="font-serif text-display-sm leading-none text-ink">LinkMesh</div>
-        <div className="eyebrow mt-1.5">CMHW Domains</div>
-      </div>
+      {markOnly ? (
+        <span className="sr-only">LinkMesh · CMHW Domains</span>
+      ) : (
+        <div className="min-w-0">
+          <div className="font-serif text-display-sm leading-none text-ink">LinkMesh</div>
+          {/* The eyebrow is tracked at 0.96px, which is what pushed it onto a
+              second line once the collapse control claimed the end of this row.
+              It is a two-word mark, not a sentence: it breaks nowhere. */}
+          <div className="eyebrow mt-1.5 whitespace-nowrap">CMHW Domains</div>
+        </div>
+      )}
     </div>
   );
 }
 
-function PrimaryNavigation({ pending, mobile = false }: { pending: number | null; mobile?: boolean }) {
-  return (
-    <nav
-      aria-label={mobile ? "Mobile navigation" : "Primary navigation"}
-      className={mobile ? "grid grid-cols-4 gap-1 px-2 pb-2" : "flex flex-col gap-1"}
+function RailLink({
+  item,
+  pending,
+  collapsed,
+}: {
+  item: NavItem;
+  pending: number | null;
+  collapsed: boolean;
+}) {
+  const count = item.to === QUEUE.to && pending !== null && pending > 0 ? pending : null;
+
+  const link = (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) =>
+        `relative flex min-h-11 items-center rounded-pill text-nav-link transition-colors
+         duration-150 ${collapsed ? "h-11 w-11 justify-center" : "w-full gap-2.5 px-2.5"} ${
+           isActive
+             ? "bg-primary text-on-primary"
+             : "text-body hover:bg-surface-strong hover:text-ink"
+         }`
+      }
     >
+      {({ isActive }) => (
+        <>
+          {/* The marks are the same mesh geometry as the Brand, so at rest they
+              render in `text-body` rather than a borrowed chip colour, and the
+              label carries the item's meaning. */}
+          <NavMark icon={item.icon} />
+          <span className={collapsed ? "sr-only" : "min-w-0 flex-1 truncate text-left"}>
+            {item.label}
+          </span>
+          {count !== null &&
+            (collapsed ? (
+              // A number does not survive here. There is no room beside a 44px
+              // mark, so the pill has to sit *on* it — where the count either
+              // collides with the drawing or, on the active ink pill, renders as
+              // pale text floating on dark. An indicator says the one thing the
+              // collapsed rail owes the operator ("there is work"); the count
+              // itself rides in the tooltip and the accessible name, both of
+              // which are already there.
+              <>
+                <span
+                  aria-hidden="true"
+                  className={`absolute right-1.5 top-1.5 h-2 w-2 rounded-full ${
+                    isActive ? "bg-on-primary" : "bg-primary ring-2 ring-canvas-soft"
+                  }`}
+                />
+                <span className="sr-only">{count} pending</span>
+              </>
+            ) : (
+              <span
+                className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
+                  px-1.5 text-caption-upper tabular-nums ${
+                    isActive ? "bg-on-primary/20 text-on-primary" : "bg-surface-strong text-ink"
+                  }`}
+              >
+                <span aria-hidden="true">{count}</span>
+                <span className="sr-only">{count} pending</span>
+              </span>
+            ))}
+        </>
+      )}
+    </NavLink>
+  );
+
+  if (!collapsed) return link;
+
+  return (
+    <RailTip label={count === null ? item.label : `${item.label} · ${count} pending`}>
+      {link}
+    </RailTip>
+  );
+}
+
+/**
+ * The desktop rail's navigation.
+ *
+ * One `<nav>` holding two lists rather than two landmarks: the seam is a
+ * grouping inside primary navigation, not a second navigation, and announcing
+ * it as one would make the rail sound like two menus.
+ */
+function RailNavigation({ pending, collapsed }: { pending: number | null; collapsed: boolean }) {
+  const groupId = useId();
+
+  return (
+    <nav aria-label="Primary navigation" className="flex flex-col gap-1">
+      <ul>
+        <li>
+          <RailLink item={QUEUE} pending={pending} collapsed={collapsed} />
+        </li>
+      </ul>
+
+      <h2
+        id={groupId}
+        className={collapsed ? "sr-only" : "eyebrow mt-5 px-2.5 pb-1"}
+      >
+        Manage
+      </h2>
+      {collapsed && <hr aria-hidden="true" className="mx-3 my-3 border-t border-hairline" />}
+
+      <ul aria-labelledby={groupId} className="flex flex-col gap-1">
+        {MANAGED.map((item) => (
+          <li key={item.to}>
+            <RailLink item={item} pending={pending} collapsed={collapsed} />
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/** The mobile row stays flat: four columns is already the grouping. */
+function MobileNavigation({ pending }: { pending: number | null }) {
+  return (
+    <nav aria-label="Mobile navigation" className="grid grid-cols-4 gap-1 px-2 pb-2">
       {NAV.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
           className={({ isActive }) =>
-            `flex min-h-11 items-center rounded-pill text-nav-link ${
-              mobile ? "justify-center gap-1 px-3 text-center" : "w-full justify-between px-4"
-            } ${
-              isActive
-                ? "bg-primary text-on-primary"
-                : "text-body hover:bg-surface-strong hover:text-ink"
-            }`
+            `flex min-h-11 items-center justify-center gap-1 rounded-pill px-3 text-center
+             text-nav-link transition-colors duration-150 ${
+               isActive
+                 ? "bg-primary text-on-primary"
+                 : "text-body hover:bg-surface-strong hover:text-ink"
+             }`
           }
         >
           {({ isActive }) => (
             <>
-              <span>
-                {mobile && item.to === "/queue"
-                  ? "Queue"
-                  : mobile && item.to === "/content-pool"
-                    ? "Pool"
-                    : item.label}
-              </span>
-              {item.to === "/queue" && pending !== null && pending > 0 && (
+              <span>{item.short ?? item.label}</span>
+              {item.to === QUEUE.to && pending !== null && pending > 0 && (
                 <span
-                  className={`rounded-pill px-2 py-0.5 text-caption-upper ${
-                    isActive
-                      ? "bg-on-primary/20 text-on-primary"
-                      : "bg-surface-strong text-ink"
-                  }`}
+                  className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
+                    px-1.5 text-caption-upper tabular-nums ${
+                      isActive
+                        ? "bg-on-primary/20 text-on-primary"
+                        : "bg-surface-strong text-ink"
+                    }`}
                 >
-                  {pending}
+                  <span aria-hidden="true">{pending}</span>
+                  <span className="sr-only">{pending} pending</span>
                 </span>
               )}
             </>
@@ -87,6 +290,37 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number | null
         </NavLink>
       ))}
     </nav>
+  );
+}
+
+/** Pushed to the rail's left edge, mirrored to point back out when collapsed. */
+function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="touch-target flex h-8 w-8 flex-none items-center justify-center rounded-pill
+        text-muted transition-colors hover:bg-surface-strong hover:text-ink"
+    >
+      <svg
+        aria-hidden="true"
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={`transition-transform duration-200 motion-reduce:transition-none ${
+          collapsed ? "rotate-180" : ""
+        }`}
+      >
+        <path d="M11 5.5 L7.5 9 L11 12.5" />
+        <path d="M14 4.5 V13.5" />
+      </svg>
+      <span className="sr-only">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</span>
+    </button>
   );
 }
 
@@ -99,12 +333,20 @@ export default function App() {
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.
   const { preference, setTheme } = useTheme();
+  const { collapsed, toggle } = useRail();
   const pending = counts?.pending ?? null;
   const healthLabel = healthPending
     ? "Checking engine"
     : healthFailed
       ? "Engine unavailable"
       : "Engine ready";
+  const siteLabel =
+    ownedSiteCount === null
+      ? "Site count unavailable"
+      : `${ownedSiteCount} ${ownedSiteCount === 1 ? "site" : "sites"} connected`;
+  const healthDot = `dot ${
+    healthPending ? "bg-muted-soft" : healthFailed ? "bg-error" : "bg-success"
+  }`;
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
@@ -132,13 +374,10 @@ export default function App() {
               aria-atomic="true"
               className="flex items-center gap-2 text-caption text-muted"
             >
-              <span
-                aria-hidden="true"
-                className={`dot ${
-                  healthPending ? "bg-muted-soft" : healthFailed ? "bg-error" : "bg-success"
-                }`}
-              />
-              <span className="font-medium text-ink">{healthLabel}</span>
+              <span aria-hidden="true" className={healthDot} />
+              <span className={`font-medium ${healthFailed ? "text-error-ink" : "text-ink"}`}>
+                {healthLabel}
+              </span>
             </div>
             <ThemeToggle preference={preference} onChange={setTheme} />
           </div>
@@ -146,48 +385,87 @@ export default function App() {
             <AccountControls />
           </div>
         </div>
-        <PrimaryNavigation pending={pending} mobile />
+        <MobileNavigation pending={pending} />
       </header>
 
       {/* The system describes a marketing top-nav, not an app rail. The rail is
           built from the same parts: canvas-soft ground, a hairline seam, the
-          nav-link type, and the ink pill standing in for the active item. */}
-      <aside className="hidden h-full w-56 flex-none flex-col border-r border-hairline bg-canvas-soft px-4 py-6 lg:flex">
-        <div className="flex items-center gap-3 px-2 pb-6">
-          <Brand />
+          nav-link type, and the ink pill standing in for the active item.
+
+          `relative z-30` so a collapsed rail's tooltips paint over <main>, which
+          is a later sibling and would otherwise cover them.
+
+          The width snaps rather than animating: labels that stay in flow would
+          overflow a rail still in motion, and clipping them would take the
+          tooltips with it. A rail toggled once a week does not need the frame. */}
+      <aside
+        className={`relative z-30 hidden h-full flex-none flex-col border-r border-hairline
+          bg-canvas-soft py-6 lg:flex ${collapsed ? "w-16 px-2.5" : "w-60 px-4"}`}
+      >
+        {/* `px-2.5` matches the nav items' own inset, so the Brand mark and the
+            four nav marks share one optical left edge instead of missing it by
+            the two pixels that read as a wobble. */}
+        <div
+          className={`flex items-center gap-2 pb-6 ${
+            collapsed ? "flex-col px-0" : "justify-between px-2.5"
+          }`}
+        >
+          <Brand markOnly={collapsed} />
+          <CollapseToggle collapsed={collapsed} onToggle={toggle} />
         </div>
 
-        <PrimaryNavigation pending={pending} />
+        <RailNavigation pending={pending} collapsed={collapsed} />
 
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="mt-auto border-t border-hairline px-2 pt-4 text-caption leading-relaxed text-muted"
+        <footer className={`mt-auto ${collapsed ? "px-0" : "px-2"}`}>
+          {/* Engine down is not a caption. Nothing in this dashboard works while
+              it is true, so the block takes a tinted ground and the error ink
+              rather than reporting a failure in the same voice as success. */}
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className={`border-t border-hairline pt-4 text-caption leading-relaxed text-muted ${
+              collapsed ? "flex justify-center" : ""
+            }`}
           >
-            <div className="mb-0.5 flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={`dot ${
-                healthPending ? "bg-muted-soft" : healthFailed ? "bg-error" : "bg-success"
-              }`}
-            />
-            <span className="font-medium text-ink">{healthLabel}</span>
-            </div>
-           <div>
-             {ownedSiteCount === null
-               ? "Site count unavailable"
-               : `${ownedSiteCount} sites connected`}
-           </div>
+            {collapsed ? (
+              <RailTip label={`${healthLabel} · ${siteLabel}`}>
+                <span className="flex h-9 w-9 items-center justify-center">
+                  <span aria-hidden="true" className={healthDot} />
+                </span>
+                <span className="sr-only">
+                  {healthLabel}. {siteLabel}.
+                </span>
+              </RailTip>
+            ) : (
+              <div
+                className={`rounded-lg border px-2.5 py-2 ${
+                  healthFailed ? "border-error/30 bg-error/5" : "border-transparent"
+                }`}
+              >
+                <div className="mb-0.5 flex items-center gap-2">
+                  <span aria-hidden="true" className={healthDot} />
+                  <span className={`font-medium ${healthFailed ? "text-error-ink" : "text-ink"}`}>
+                    {healthLabel}
+                  </span>
+                </div>
+                <div>{siteLabel}</div>
+              </div>
+            )}
           </div>
 
-        <div className="mt-3 px-2">
-          <ThemeToggle preference={preference} onChange={setTheme} />
-        </div>
+          <div className={`mt-3 ${collapsed ? "flex justify-center" : "px-2.5"}`}>
+            <ThemeToggle
+              preference={preference}
+              onChange={setTheme}
+              orientation={collapsed ? "vertical" : "horizontal"}
+            />
+          </div>
 
-        <div className="mt-3 px-2">
-          <AccountControls />
-        </div>
+          <div className="mt-3 border-t border-hairline pt-3">
+            <AccountControls layout={collapsed ? "compact" : "stack"} />
+          </div>
+        </footer>
       </aside>
 
       <main
