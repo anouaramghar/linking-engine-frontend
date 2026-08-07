@@ -16,6 +16,11 @@ vi.mock("./hooks/useHealth", () => ({
   useHealth: () => ({ isError: false, isPending: false }),
 }));
 
+vi.mock("./hooks/useSession", () => ({
+  useSession: () => ({ data: { id: 1, telegram_id: 42, username: "amir", display_name: null } }),
+  useLogout: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock("./pages/ValidationPage", () => ({
   default: () => <div>Queue page</div>,
 }));

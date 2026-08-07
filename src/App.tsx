@@ -1,10 +1,12 @@
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
+import AccountControls from "./components/AccountControls";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
 import { useTheme } from "./hooks/useTheme";
+import AccessPage from "./pages/AccessPage";
 import EvaluationPage from "./pages/EvaluationPage";
 import ContentPoolPage from "./pages/ContentPoolPage";
 import SitesPage from "./pages/SitesPage";
@@ -140,6 +142,9 @@ export default function App() {
             </div>
             <ThemeToggle preference={preference} onChange={setTheme} />
           </div>
+          <div className="w-full">
+            <AccountControls />
+          </div>
         </div>
         <PrimaryNavigation pending={pending} mobile />
       </header>
@@ -179,6 +184,10 @@ export default function App() {
         <div className="mt-3 px-2">
           <ThemeToggle preference={preference} onChange={setTheme} />
         </div>
+
+        <div className="mt-3 px-2">
+          <AccountControls />
+        </div>
       </aside>
 
       <main
@@ -195,6 +204,7 @@ export default function App() {
           <Route path="/sites" element={<SitesPage />} />
           <Route path="/content-pool" element={<ContentPoolPage />} />
           <Route path="/evaluation" element={<EvaluationPage />} />
+          <Route path="/access" element={<AccessPage />} />
           <Route path="*" element={<Navigate to="/queue" replace />} />
         </Routes>
       </main>
