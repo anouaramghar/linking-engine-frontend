@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { getSession, logout } from "../api/auth";
 
@@ -18,12 +18,20 @@ export const useSession = () =>
     staleTime: 60_000,
   });
 
-export const useLogout = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
+/**
+ * Sign out, then reload.
+ *
+ * `queryClient.clear()` was here and did nothing visible: clearing destroys the
+ * cached queries without notifying the observers already mounted on them, so
+ * `useSession` above kept reporting the person who had just left and the screen
+ * never changed. Reloading is also the only thing that reliably leaves none of
+ * their data behind for whoever signs in next.
+ *
+ * `onSettled`, not `onSuccess`: if the request failed the cookie is still good,
+ * and landing back on the dashboard is the honest answer.
+ */
+export const useLogout = () =>
+  useMutation({
     mutationFn: logout,
-    // Everything cached was fetched under the session just ended, and the next
-    // person to sign in must not inherit it.
-    onSettled: () => queryClient.clear(),
+    onSettled: () => window.location.assign("/"),
   });
-};

@@ -1,4 +1,6 @@
-/** `badge` is opt-in: it describes the scoring method, which only the queue uses. */
+import ThemeToggle from "./ThemeToggle";
+
+/** `badge` is opt-in: it describes status or mode on specific pages. */
 export default function PageHeader({
   title,
   sub,
@@ -14,7 +16,10 @@ export default function PageHeader({
         <h1 className="font-serif text-display-sm text-ink sm:text-display-md">{title}</h1>
         <div className="mt-1 text-caption leading-relaxed text-muted">{sub}</div>
       </div>
-      {badge && <div className="badge">{badge}</div>}
+      <div className="flex items-center gap-3">
+        {badge && <div className="badge">{badge}</div>}
+        <ThemeToggle />
+      </div>
     </div>
   );
 }

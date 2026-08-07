@@ -926,7 +926,6 @@ export default function ValidationPage() {
         sub={`${pendingTotal === null ? "Pending count unavailable" : `${formatCount(pendingTotal)} pending`} across ${ownedSiteCount} ${
           ownedSiteCount === 1 ? "site" : "sites"
         } · queued links are not live until published`}
-        badge="Hybrid"
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">

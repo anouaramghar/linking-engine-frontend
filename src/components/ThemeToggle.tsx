@@ -1,6 +1,6 @@
 import { useId, useRef, type ReactNode } from "react";
 
-import { THEMES, type ThemePreference, type ThemeSwitchOrigin } from "../hooks/useTheme";
+import { THEMES, useThemeContext, type ThemePreference, type ThemeSwitchOrigin } from "../hooks/useTheme";
 
 /**
  * 16px marks at the Brand mark's stroke weight, so the control reads as part of
@@ -48,11 +48,14 @@ const LABEL: Record<ThemePreference, string> = {
  * presentational.
  */
 interface Props {
-  preference: ThemePreference;
-  onChange: (next: ThemePreference, origin?: ThemeSwitchOrigin) => void;
+  preference?: ThemePreference;
+  onChange?: (next: ThemePreference, origin?: ThemeSwitchOrigin) => void;
 }
 
-export default function ThemeToggle({ preference, onChange }: Props) {
+export default function ThemeToggle({ preference: propPref, onChange: propOnChange }: Props = {}) {
+  const context = useThemeContext();
+  const preference = propPref ?? context?.preference ?? "system";
+  const onChange = propOnChange ?? context?.setTheme ?? (() => {});
   const name = useId();
   // Keyed by theme rather than a single ref: the origin has to come from
   // whichever pill was actually activated, including by arrow key, not from

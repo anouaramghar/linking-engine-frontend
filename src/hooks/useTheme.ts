@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 
 import { useMediaQuery } from "./useMediaQuery";
@@ -135,3 +135,20 @@ export const useTheme = () => {
 
   return { preference, resolved, setTheme };
 };
+
+export interface ThemeContextValue {
+  preference: ThemePreference;
+  resolved: ResolvedTheme;
+  setTheme: (next: ThemePreference, origin?: ThemeSwitchOrigin) => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const value = useTheme();
+  return createElement(ThemeContext.Provider, { value }, children);
+}
+
+export function useThemeContext() {
+  return useContext(ThemeContext);
+}
