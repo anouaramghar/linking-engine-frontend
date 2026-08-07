@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { describeUser, type DashboardUser } from "../api/auth";
 import { useLogout, useSession } from "../hooks/useSession";
 import RailTip from "./RailTip";
@@ -13,9 +15,28 @@ type Layout = "row" | "stack" | "compact";
 const initialOf = (user: DashboardUser) =>
   describeUser(user).replace(/^@/, "").trim().charAt(0).toUpperCase() || "?";
 
-const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: "sm" | "md" }) => {
+const getUserAvatarUrl = (user: DashboardUser) => {
+  if (user.photo_url) return user.photo_url;
+  return `/api/v1/auth/users/${user.id}/avatar`;
+};
+
+export const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: "sm" | "md" }) => {
+  const [imgError, setImgError] = useState(false);
   const initial = initialOf(user);
   const dim = size === "sm" ? "h-7 w-7 text-xs" : "h-8 w-8 text-caption";
+  const avatarUrl = getUserAvatarUrl(user);
+
+  if (avatarUrl && !imgError) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={describeUser(user)}
+        onError={() => setImgError(true)}
+        className={`${dim} flex-none rounded-full object-cover ring-1 ring-primary/25 shadow-xs`}
+      />
+    );
+  }
+
   return (
     <div
       className={`flex ${dim} flex-none items-center justify-center rounded-full bg-primary/10 text-primary font-semibold ring-1 ring-primary/25 shadow-xs`}

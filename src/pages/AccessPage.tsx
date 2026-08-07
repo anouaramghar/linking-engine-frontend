@@ -7,6 +7,7 @@ import {
   revokeDashboardUser,
   type DashboardUser,
 } from "../api/auth";
+import AccountControls, { UserAvatar } from "../components/AccountControls";
 import PageHeader from "../components/PageHeader";
 import { ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { useSession } from "../hooks/useSession";
@@ -66,14 +67,17 @@ export default function AccessPage() {
                     key={user.id}
                     className="card flex flex-wrap items-center justify-between gap-4 px-5 py-4"
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-ink">{describeUser(user)}</span>
-                        {isSelf && <span className="badge">You</span>}
-                      </div>
-                      <div className="mt-1 text-caption text-muted">
-                        Requested {formatDate(user.requested_at)}
-                        {user.approved_by && ` · approved by ${user.approved_by}`}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <UserAvatar user={user} size="sm" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-ink">{describeUser(user)}</span>
+                          {isSelf && <span className="badge">You</span>}
+                        </div>
+                        <div className="mt-1 text-caption text-muted">
+                          Requested {formatDate(user.requested_at)}
+                          {user.approved_by && ` · approved by ${user.approved_by}`}
+                        </div>
                       </div>
                     </div>
 

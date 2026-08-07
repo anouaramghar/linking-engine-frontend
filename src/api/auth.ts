@@ -9,6 +9,7 @@ export interface DashboardUser {
   telegram_id: number;
   username: string | null;
   display_name: string | null;
+  photo_url?: string | null;
   status: DashboardUserStatus;
   requested_at: string;
   approved_at: string | null;
