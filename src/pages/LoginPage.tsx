@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { completeLogin, startErrorMessage, startLogin, type LoginState } from "../api/auth";
@@ -24,18 +24,22 @@ const NEON_ROUNDED_PCT = 9;
  * The ring's colour in light mode, where it composites normally rather than
  * additively (see `.login-neon` in {@link file://./../index.css}).
  *
- * It needs its own value because the two blend modes do different things to the
- * same hex. Additively over ink, Originkit's amber climbs its own channels until
- * the core burns out near white and only the falloff stays gold — the ring reads
- * far lighter than the colour that produced it. Composited normally over white,
- * that same amber is simply itself, which lands as a flat orange band. This is
- * the amber lifted toward what the dark ring actually looks like on screen.
+ * Light mode uses a soft golden yellow and a narrower glow so it stays visible
+ * on white without carrying the dark mode's full halo.
  *
  * The prop is a hex string parsed by the component, not a token: `withAlpha`
  * there reads hex or comma-form `rgb()`, and the palette's channels are
  * space-separated, which that parser falls back to black on.
  */
-const LIGHT_NEON = "#F0C68F";
+const LIGHT_NEON = "#E5BD70";
+const LIGHT_NEON_GLOW = 72;
+const HERO_LEAD = "Internal links,";
+const HERO_PREFIX = "proposed by ";
+const HERO_WORDS = ["meaning.", "context.", "intent."];
+const HERO_TITLE = `${HERO_LEAD} ${HERO_PREFIX}${HERO_WORDS[0]}`;
+const TYPEWRITER_DELAY_MS = 55;
+const TYPEWRITER_DELETE_MS = 35;
+const TYPEWRITER_PAUSE_MS = 1400;
 
 const EXPLANATION: Record<Exclude<LoginState, "approved">, string> = {
   revoked: "This account's access has been removed. Ask an approved teammate to restore it.",
@@ -57,135 +61,6 @@ function TelegramMark({ size = 18 }: { size?: number }) {
       <path
         fill="#ffffff"
         d="M5.49 11.66c3.5-1.53 5.84-2.53 7.01-3.02 3.34-1.39 4.03-1.63 4.48-1.64.1 0 .32.02.47.14.12.1.15.24.17.34.02.1.04.32.02.5-.18 1.9-.97 6.53-1.37 8.66-.17.9-.5 1.21-.82 1.24-.7.06-1.23-.46-1.9-.9-1.06-.7-1.66-1.13-2.69-1.81-1.19-.79-.42-1.22.26-1.93.18-.19 3.26-2.99 3.32-3.24.01-.03.01-.15-.06-.21-.07-.06-.17-.04-.25-.02-.11.02-1.8 1.14-5.09 3.36-.48.33-.92.49-1.31.48-.43-.01-1.26-.24-1.88-.44-.76-.25-1.36-.38-1.31-.8.03-.22.33-.44.9-.68z"
-      />
-    </svg>
-  );
-}
-
-/**
- * The product, drawn: articles as nodes, links as the arcs between them.
- *
- * The split is the point rather than decoration — the thin static arcs are
- * links that already exist, the three heavier moving ones are what the engine
- * is proposing, which is the only thing an operator signs in here to work on.
- * Node and link shapes are the logo's, scaled up.
- */
-const MESH_NODES = [
-  { x: 44, y: 62, r: 5 },
-  { x: 124, y: 28, r: 3.5 },
-  { x: 208, y: 66, r: 6 },
-  { x: 286, y: 34, r: 3.5 },
-  { x: 62, y: 148, r: 3.5 },
-  { x: 152, y: 128, r: 7 },
-  { x: 246, y: 156, r: 5 },
-  { x: 40, y: 226, r: 3.5 },
-  { x: 134, y: 216, r: 5 },
-  { x: 252, y: 238, r: 3.5 },
-];
-
-const MESH_EDGES: { from: number; to: number; proposed?: true }[] = [
-  { from: 0, to: 1 },
-  { from: 1, to: 2 },
-  { from: 2, to: 3 },
-  { from: 0, to: 4 },
-  { from: 4, to: 5 },
-  { from: 5, to: 2 },
-  { from: 5, to: 6 },
-  { from: 6, to: 3 },
-  { from: 4, to: 7 },
-  { from: 7, to: 8 },
-  { from: 8, to: 9 },
-  { from: 6, to: 9 },
-  { from: 5, to: 8, proposed: true },
-  { from: 2, to: 6, proposed: true },
-  { from: 8, to: 0, proposed: true },
-];
-
-/** Bowed, not straight: fifteen straight lines through ten points read as a
- *  lattice, and a link between two articles is a relation, not a girder. */
-function arc(a: (typeof MESH_NODES)[number], b: (typeof MESH_NODES)[number]) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  return `M${a.x} ${a.y} Q${(a.x + b.x) / 2 - dy * 0.12} ${(a.y + b.y) / 2 + dx * 0.12} ${b.x} ${b.y}`;
-}
-
-const LINKED = new Set(MESH_EDGES.filter((e) => e.proposed).flatMap((e) => [e.from, e.to]));
-
-/**
- * Each proposed arc's place in the stagger — counted among the proposed arcs,
- * not among all fifteen. They are the last three entries of MESH_EDGES, so a
- * delay taken from the MESH_EDGES index lands at 4.8s/5.2s/5.6s and the figure
- * sits dead still for five seconds after the page loads.
- *
- * The delay is applied negative: the arcs start already partway through the
- * dash cycle, which is what the stagger was for (three flows out of lockstep)
- * without anything waiting its turn to begin.
- */
-const PROPOSED_ORDER = new Map(
-  MESH_EDGES.map((edge, index) => [index, edge] as const)
-    .filter(([, edge]) => edge.proposed)
-    .map(([index], order) => [index, order]),
-);
-
-function MeshFigure() {
-  return (
-    <svg
-      viewBox="0 0 326 266"
-      role="img"
-      aria-label="A mesh of articles: thin arcs are links already published, three heavier arcs are links the engine is proposing."
-      className="h-auto w-full max-w-md"
-    >
-      {MESH_EDGES.map((edge, index) => (
-        <path
-          key={`${edge.from}-${edge.to}`}
-          d={arc(MESH_NODES[edge.from], MESH_NODES[edge.to])}
-          fill="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeWidth={edge.proposed ? 1.6 : 1}
-          opacity={edge.proposed ? 1 : 0.45}
-          className={edge.proposed ? "login-link-proposed text-ink" : "text-muted-soft"}
-          style={
-            edge.proposed
-              ? { animationDelay: `-${(PROPOSED_ORDER.get(index) ?? 0) * 0.4}s` }
-              : undefined
-          }
-        />
-      ))}
-      {MESH_NODES.map((node, index) =>
-        LINKED.has(index) ? (
-          <circle key={index} cx={node.x} cy={node.y} r={node.r} fill="currentColor" className="text-ink" />
-        ) : (
-          <circle
-            key={index}
-            cx={node.x}
-            cy={node.y}
-            r={node.r}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            opacity="0.7"
-            className="text-muted-soft"
-          />
-        ),
-      )}
-    </svg>
-  );
-}
-
-function LegendRule({ proposed = false }: { proposed?: boolean }) {
-  return (
-    <svg width="24" height="8" aria-hidden="true" className="flex-none">
-      <line
-        x1="1"
-        y1="4"
-        x2="23"
-        y2="4"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth={proposed ? 1.6 : 1}
-        strokeDasharray={proposed ? "3 3" : undefined}
-        className={proposed ? "text-ink" : "text-muted-soft"}
       />
     </svg>
   );
@@ -213,6 +88,43 @@ export default function LoginPage() {
    * this one is live.
    */
   const { resolved } = useTheme();
+  const [typedWord, setTypedWord] = useState(HERO_WORDS[0]);
+
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+
+    let wordIndex = 0;
+    let characterIndex = HERO_WORDS[0].length;
+    let deleting = true;
+    let timer = 0;
+
+    const tick = () => {
+      const word = HERO_WORDS[wordIndex];
+      if (deleting) {
+        characterIndex -= 1;
+        setTypedWord(word.slice(0, characterIndex));
+        if (characterIndex === 0) {
+          deleting = false;
+          wordIndex = (wordIndex + 1) % HERO_WORDS.length;
+        }
+        timer = window.setTimeout(tick, TYPEWRITER_DELETE_MS);
+        return;
+      }
+
+      characterIndex += 1;
+      setTypedWord(word.slice(0, characterIndex));
+      if (characterIndex === word.length) {
+        deleting = true;
+        timer = window.setTimeout(tick, TYPEWRITER_PAUSE_MS);
+        return;
+      }
+      timer = window.setTimeout(tick, TYPEWRITER_DELAY_MS);
+    };
+
+    timer = window.setTimeout(tick, TYPEWRITER_PAUSE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [prefersReducedMotion]);
 
   const start = useMutation({
     mutationFn: startLogin,
@@ -267,8 +179,27 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <h1 className="mt-8 max-w-lg text-balance font-serif text-display-md text-ink lg:text-display-xl">
-            Internal links, proposed by meaning.
+          <h1
+            aria-label={HERO_TITLE}
+            className="mt-8 max-w-lg text-balance font-serif text-display-md text-ink lg:text-display-xl"
+          >
+            <span className="grid">
+              <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                <span className="block">{HERO_LEAD}</span>
+                <span className="block">
+                  {HERO_PREFIX}
+                  {HERO_WORDS[0]}
+                </span>
+              </span>
+              <span aria-hidden="true" className="col-start-1 row-start-1">
+                <span className="block">{HERO_LEAD}</span>
+                <span className="block">
+                  {HERO_PREFIX}
+                  {prefersReducedMotion ? HERO_WORDS[0] : typedWord}
+                  {!prefersReducedMotion && <span className="typewriter-caret" />}
+                </span>
+              </span>
+            </span>
           </h1>
           <p className="mt-4 max-w-md text-body-md leading-relaxed text-body">
             LinkMesh reads every article across your sites, finds the pairs that belong
@@ -276,19 +207,6 @@ export default function LoginPage() {
             publishes.
           </p>
 
-          <div className="mt-10 hidden sm:block">
-            <MeshFigure />
-            <ul className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-caption-sm text-muted">
-              <li className="flex items-center gap-2">
-                <LegendRule />
-                Links already published
-              </li>
-              <li className="flex items-center gap-2">
-                <LegendRule proposed />
-                Waiting in the review queue
-              </li>
-            </ul>
-          </div>
         </section>
 
         <section className="card relative w-full px-6 py-8 sm:px-8 lg:justify-self-end">
@@ -306,6 +224,7 @@ export default function LoginPage() {
             <NeonBorder
               rounded={NEON_ROUNDED_PCT}
               color={resolved === "light" ? LIGHT_NEON : undefined}
+              glow={resolved === "light" ? LIGHT_NEON_GLOW : undefined}
               speed={prefersReducedMotion ? 0 : undefined}
             />
           </div>

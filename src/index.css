@@ -399,14 +399,6 @@ input[type="number"] {
   animation: logo-link-flow 1.4s ease-in-out infinite;
 }
 
-/* The login page's mesh. Only the proposed links move: the settled ones are
-   the ground the proposal is read against, and animating all fifteen arcs would
-   say nothing about which three matter. */
-.login-link-proposed {
-  stroke-dasharray: 3 5;
-  animation: login-link-flow 2.6s linear infinite;
-}
-
 /**
  * The sign-in card's neon ring, made legible on a light ground.
  *
@@ -425,6 +417,16 @@ input[type="number"] {
  */
 :root[data-theme="light"] .login-neon * {
   mix-blend-mode: normal !important;
+}
+
+.typewriter-caret {
+  display: inline-block;
+  width: 0.06em;
+  height: 0.85em;
+  margin-left: 0.08em;
+  background: currentColor;
+  vertical-align: -0.08em;
+  animation: typewriter-caret 0.9s steps(2, end) infinite;
 }
 
 .mobile-app-header {
@@ -487,9 +489,15 @@ input[type="number"] {
   }
 }
 
-@keyframes login-link-flow {
-  to {
-    stroke-dashoffset: -16;
+@keyframes typewriter-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  46%,
+  100% {
+    opacity: 0;
   }
 }
 
@@ -513,16 +521,9 @@ input[type="number"] {
   .logo-anim-node-solid,
   .logo-anim-node-hollow,
   .logo-anim-link,
-  .login-link-proposed,
   .animate-pulse,
   .animate-rowIn {
     animation: none;
-  }
-
-  /* The dashes are what tell a proposal from a published link, so they stay
-     once the motion is gone. */
-  .login-link-proposed {
-    stroke-dasharray: 3 3;
   }
 
   .job-activity-dot {
