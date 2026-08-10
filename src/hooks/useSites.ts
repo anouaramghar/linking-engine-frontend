@@ -6,10 +6,14 @@ import {
   createSite,
   deleteSite,
   listPoolAuditEvents,
+  getExternalLinkPolicy,
+  listExternalSourceEvaluations,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
+  updateExternalLinkPolicy,
 } from "../api/sites";
+import type { ExternalLinkPolicyUpdate } from "../types/site";
 
 export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
 
@@ -55,3 +59,30 @@ export const usePoolAuditEvents = (siteId: number | null) =>
     queryFn: () => listPoolAuditEvents(siteId!),
     enabled: siteId !== null,
   });
+
+export const useExternalLinkPolicy = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["external-link-policy", siteId],
+    queryFn: () => getExternalLinkPolicy(siteId!),
+    enabled: siteId !== null,
+  });
+
+export const useExternalSourceEvaluations = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["external-link-policy", siteId, "sources"],
+    queryFn: () => listExternalSourceEvaluations(siteId!),
+    enabled: siteId !== null,
+  });
+
+export const useUpdateExternalLinkPolicy = (siteId: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (policy: ExternalLinkPolicyUpdate) =>
+      updateExternalLinkPolicy({ siteId, policy }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["external-link-policy", siteId] });
+      void qc.invalidateQueries({ queryKey: ["suggestions"] });
+      void qc.invalidateQueries({ queryKey: ["suggestion-counts"] });
+    },
+  });
+};

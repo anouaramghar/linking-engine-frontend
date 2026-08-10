@@ -23,6 +23,7 @@ const EVENT_LABEL: Record<string, string> = {
   failed: "Publishing failed",
   expired: "Expired",
   status_changed: "Status changed",
+  policy_expired: "Blocked by external policy",
 };
 
 const eventLabel = (event: SuggestionEvent) => {
@@ -87,6 +88,7 @@ const timingStat = (suggestion: Suggestion, events: SuggestionEvent[] | undefine
 
 export default function SuggestionTraceCard({ suggestion, trace }: Props) {
   const bm25 = suggestion.score_components?.bm25_score;
+  const externalTrust = suggestion.score_components?.external_trust;
   const timing = timingStat(suggestion, trace.data);
 
   return (
@@ -104,6 +106,17 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
             {pct(suggestion.score)}
           </dd>
         </div>
+        {externalTrust && (
+          <div
+            className="rounded-lg bg-surface-strong px-3 py-2"
+            title={`External trust for ${externalTrust.domain}`}
+          >
+            <dt className="text-caption-sm text-muted">External trust</dt>
+            <dd className="mt-0.5 text-body-sm font-medium text-ink">
+              {externalTrust.score}/100
+            </dd>
+          </div>
+        )}
         <div className="rounded-lg bg-surface-strong px-3 py-2">
           <dt className="text-caption-sm text-muted">
             {suggestion.method === "hybrid_bm25" && bm25 !== undefined

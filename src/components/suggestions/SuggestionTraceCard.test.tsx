@@ -107,4 +107,29 @@ describe("SuggestionTraceCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("shows the policy-relative trust score for an external target", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={{
+          ...suggestion,
+          target_origin: "content_pool",
+          score_components: {
+            bm25_score: 12.4,
+            external_trust: {
+              domain: "wikipedia.org",
+              score: 95,
+              eligible: true,
+              reasons: [],
+              checks: { https: true },
+            },
+          },
+        }}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByText("External trust")).not.toBeNull();
+    expect(screen.getByText("95/100")).not.toBeNull();
+  });
 });

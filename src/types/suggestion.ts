@@ -39,6 +39,13 @@ export interface SuggestionScoreComponents {
   dense_rank?: number | null;
   lexical_rank?: number | null;
   semantic?: number;
+  external_trust?: {
+    domain: string;
+    score: number;
+    eligible: boolean;
+    reasons: string[];
+    checks: Record<string, boolean | number | string | null>;
+  };
 }
 
 /**

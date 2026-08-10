@@ -12,6 +12,7 @@ import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
+import ExternalLinkPolicyModal from "../components/sites/ExternalLinkPolicyModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import {
@@ -145,6 +146,7 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [policySite, setPolicySite] = useState<Site | null>(null);
   const [search, setSearch] = useState("");
   const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
   const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
@@ -482,6 +484,10 @@ export default function SitesPage() {
                               ),
                           },
                           {
+                            label: "External link policy",
+                            onSelect: () => setPolicySite(site),
+                          },
+                          {
                             label: "Publish approved",
                             disabled: busy[busyKey(site.id, "Publish approved")],
                             onSelect: () =>
@@ -523,6 +529,13 @@ export default function SitesPage() {
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+      {policySite && (
+        <ExternalLinkPolicyModal
+          site={policySite}
+          onClose={() => setPolicySite(null)}
+          onSaved={(message) => setNotice({ message, tone: "info" })}
+        />
+      )}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}

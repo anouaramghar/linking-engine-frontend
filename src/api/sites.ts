@@ -4,6 +4,9 @@ import type {
   Site,
   SiteCreate,
   PoolAuditEvent,
+  ExternalLinkPolicy,
+  ExternalLinkPolicyUpdate,
+  ExternalSourceEvaluation,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -66,3 +69,24 @@ export const listPoolAuditEvents = (id: number) =>
       params: { limit: 50, offset: 0 },
     })
     .then((r) => r.data);
+
+export const getExternalLinkPolicy = (siteId: number) =>
+  api.get<ExternalLinkPolicy>(`/sites/${siteId}/external-link-policy`).then((r) => r.data);
+
+export const updateExternalLinkPolicy = ({
+  siteId,
+  policy,
+}: {
+  siteId: number;
+  policy: ExternalLinkPolicyUpdate;
+}) =>
+  api
+    .put<ExternalLinkPolicy>(`/sites/${siteId}/external-link-policy`, policy)
+    .then((r) => r.data);
+
+export const listExternalSourceEvaluations = (siteId: number) =>
+  api
+    .get<{ items: ExternalSourceEvaluation[] }>(
+      `/sites/${siteId}/external-link-policy/sources`,
+    )
+    .then((r) => r.data.items);
