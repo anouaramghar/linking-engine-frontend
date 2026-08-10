@@ -6,15 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "./LoginPage";
 
 const startLogin = vi.fn();
-const pollLogin = vi.fn();
+const completeLogin = vi.fn();
 
 vi.mock("../api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/auth")>()),
   startLogin: () => startLogin(),
-  pollLogin: (nonce: string) => pollLogin(nonce),
+  completeLogin: (code: string) => completeLogin(code),
 }));
 
-const DEEP_LINK = "https://t.me/linkmeshbot?start=n1";
+const DEEP_LINK = "https://t.me/linkmeshbot?start=login";
 
 function renderLogin() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -36,8 +36,7 @@ describe("LoginPage", () => {
     const tab = { location: { href: "" }, close: vi.fn() };
     const open = vi.fn(() => tab);
     vi.stubGlobal("open", open);
-    startLogin.mockResolvedValue({ nonce: "n1", deep_link: DEEP_LINK, expires_in_seconds: 300 });
-    pollLogin.mockResolvedValue({ state: "waiting", user: null });
+    startLogin.mockResolvedValue({ deep_link: DEEP_LINK });
 
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
@@ -51,8 +50,7 @@ describe("LoginPage", () => {
 
   it("offers the link when the browser blocks the tab", async () => {
     vi.stubGlobal("open", vi.fn(() => null));
-    startLogin.mockResolvedValue({ nonce: "n1", deep_link: DEEP_LINK, expires_in_seconds: 300 });
-    pollLogin.mockResolvedValue({ state: "waiting", user: null });
+    startLogin.mockResolvedValue({ deep_link: DEEP_LINK });
 
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
@@ -71,5 +69,19 @@ describe("LoginPage", () => {
 
     await waitFor(() => expect(tab.close).toHaveBeenCalled());
     expect(await screen.findByRole("alert")).toBeTruthy();
+  });
+
+  it("redeems the one-time code Telegram gives the approved operator", async () => {
+    const tab = { location: { href: "" }, close: vi.fn() };
+    vi.stubGlobal("open", vi.fn(() => tab));
+    startLogin.mockResolvedValue({ deep_link: DEEP_LINK });
+    completeLogin.mockResolvedValue({ state: "approved", user: null });
+
+    renderLogin();
+    await userEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
+    await userEvent.type(await screen.findByLabelText(/one-time telegram code/i), "ABCD-EFGH-JKLM");
+    await userEvent.click(screen.getByRole("button", { name: /complete sign in/i }));
+
+    await waitFor(() => expect(completeLogin).toHaveBeenCalledWith("ABCD-EFGH-JKLM"));
   });
 });

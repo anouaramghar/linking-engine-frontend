@@ -18,19 +18,13 @@ export interface DashboardUser {
 }
 
 export interface LoginStart {
-  nonce: string;
   deep_link: string;
-  expires_in_seconds: number;
 }
 
-/**
- * `waiting` is the only state worth polling again. The endpoint answers 200 for
- * all of them on purpose: a 401 here would be indistinguishable from the proxy
- * refusing the request, and "not yet" is not a failure.
- */
-export type LoginState = "waiting" | "approved" | "pending" | "revoked" | "invalid";
+/** Every state is final for one Telegram-issued code. */
+export type LoginState = "approved" | "revoked" | "invalid";
 
-export interface LoginPoll {
+export interface LoginComplete {
   state: LoginState;
   user: DashboardUser | null;
 }
@@ -38,8 +32,8 @@ export interface LoginPoll {
 export const startLogin = () =>
   api.post<LoginStart>("/auth/login/start").then((response) => response.data);
 
-export const pollLogin = (nonce: string) =>
-  api.get<LoginPoll>(`/auth/login/${nonce}`).then((response) => response.data);
+export const completeLogin = (code: string) =>
+  api.post<LoginComplete>("/auth/login/complete", { code }).then((response) => response.data);
 
 export const getSession = () =>
   api.get<{ user: DashboardUser }>("/auth/session").then((response) => response.data.user);

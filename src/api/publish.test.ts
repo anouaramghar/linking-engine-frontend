@@ -4,12 +4,14 @@ import { getPublicationDryRun, listPendingPublication } from "./publish";
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
+  post: vi.fn(),
 }));
 
 vi.mock("./client", () => ({ api }));
 
 beforeEach(() => {
   api.get.mockReset();
+  api.post.mockReset();
 });
 
 describe("listPendingPublication", () => {
@@ -28,10 +30,10 @@ describe("listPendingPublication", () => {
 describe("getPublicationDryRun", () => {
   it("requests a bounded live preview with enough time for WordPress reads", async () => {
     const preview = { site_id: 3, articles: [] };
-    api.get.mockResolvedValue({ data: preview });
+    api.post.mockResolvedValue({ data: preview });
 
     await expect(getPublicationDryRun(3, 7)).resolves.toEqual(preview);
-    expect(api.get).toHaveBeenCalledWith("/publish/3/dry-run", {
+    expect(api.post).toHaveBeenCalledWith("/publish/3/dry-run", undefined, {
       params: { max_articles: 7 },
       timeout: 180_000,
     });

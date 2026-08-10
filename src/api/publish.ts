@@ -58,7 +58,7 @@ export const DRY_RUN_MAX_ARTICLES = 10;
 
 export const getPublicationDryRun = (siteId: number, maxArticles = DRY_RUN_MAX_ARTICLES) =>
   api
-    .get<PublicationDryRun>(`/publish/${siteId}/dry-run`, {
+    .post<PublicationDryRun>(`/publish/${siteId}/dry-run`, undefined, {
       params: { max_articles: maxArticles },
       // The backend reads live WordPress posts sequentially and may honour a
       // host's Retry-After. This preview is intentionally longer than a normal

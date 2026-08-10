@@ -22,32 +22,16 @@ beforeEach(() => {
   del.mockReset();
 });
 describe("listSites", () => {
-  it("loads every page instead of stopping at the API's default limit", async () => {
-    const firstPage = Array.from({ length: 1000 }, (_, index) => ({ id: index + 1 }));
-    const secondPage = [{ id: 1001 }];
-    get.mockResolvedValueOnce({ data: firstPage }).mockResolvedValueOnce({ data: secondPage });
+  it("loads one bounded server page with optional search", async () => {
+    const page = [{ id: 1001 }];
+    get.mockResolvedValue({ data: page });
 
-    const sites = await listSites();
+    const sites = await listSites(1000, "docs");
 
-    expect(sites).toHaveLength(1001);
-    expect(get).toHaveBeenNthCalledWith(1, "/sites", {
-      params: { limit: 1000, offset: 0 },
+    expect(sites).toEqual(page);
+    expect(get).toHaveBeenCalledWith("/sites", {
+      params: { limit: 1000, offset: 1000, search: "docs" },
     });
-    expect(get).toHaveBeenNthCalledWith(2, "/sites", {
-      params: { limit: 1000, offset: 1000 },
-    });
-  });
-
-  it("fails visibly when the API repeats a full page", async () => {
-    const repeatedPage = Array.from({ length: 1000 }, (_, index) => ({
-      id: index + 1,
-    }));
-    get.mockResolvedValue({ data: repeatedPage });
-
-    await expect(listSites()).rejects.toThrow(
-      "The sites API repeated a page instead of advancing its offset.",
-    );
-    expect(get).toHaveBeenCalledTimes(2);
   });
 });
 describe("bulkCreateSites", () => {

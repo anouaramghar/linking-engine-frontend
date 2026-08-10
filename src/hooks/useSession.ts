@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 
 import { getSession, logout } from "../api/auth";
 
@@ -13,7 +14,14 @@ export const SESSION_QUERY_KEY = ["session"];
 export const useSession = () =>
   useQuery({
     queryKey: SESSION_QUERY_KEY,
-    queryFn: () => getSession().catch(() => null),
+    queryFn: async () => {
+      try {
+        return await getSession();
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 401) return null;
+        throw error;
+      }
+    },
     retry: false,
     staleTime: 60_000,
   });

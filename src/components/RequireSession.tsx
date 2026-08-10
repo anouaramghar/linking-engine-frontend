@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useSession } from "../hooks/useSession";
 import LogoLoadingAnimation from "./LogoLoadingAnimation";
 import LoginPage from "../pages/LoginPage";
+import { ErrorPanel } from "./QueryState";
 
 /**
  * The dashboard's front door in the browser.
@@ -12,7 +13,7 @@ import LoginPage from "../pages/LoginPage";
  * exists so the app shows a login screen instead of a shell full of failures.
  */
 export default function RequireSession({ children }: { children: ReactNode }) {
-  const { data: user, isPending } = useSession();
+  const { data: user, isPending, isError, isFetching, refetch } = useSession();
 
   // Rendering the login screen before the session answers would flash it at
   // every already-signed-in operator on every reload.
@@ -21,6 +22,19 @@ export default function RequireSession({ children }: { children: ReactNode }) {
       <div className="flex min-h-[100dvh] items-center justify-center">
         <LogoLoadingAnimation size="lg" label="Checking your session" className="text-ink" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <main className="mx-auto flex min-h-[100dvh] max-w-2xl items-center px-4">
+        <ErrorPanel
+          title="The dashboard could not verify your session"
+          description="The engine may be unavailable. Your account has not been treated as signed out."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      </main>
     );
   }
 

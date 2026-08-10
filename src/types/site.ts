@@ -5,9 +5,6 @@ export interface Site {
   platform: "wordpress" | "html" | "pool";
   crawl_frequency: string;
   suggestion_method?: "hybrid_bm25";
-  suggestion_mode: "experimental";
-  suggestion_mode_managed: boolean;
-  suggestion_comparison_enabled: boolean;
   suggestion_slots_available: number;
   created_at: string;
   last_ingestion_status: string | null;

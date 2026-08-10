@@ -1,16 +1,43 @@
-import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { pollLogin, startErrorMessage, startLogin, type LoginState } from "../api/auth";
+import { completeLogin, startErrorMessage, startLogin, type LoginState } from "../api/auth";
 import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
+import NeonBorder from "../components/NeonBorder";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { SESSION_QUERY_KEY } from "../hooks/useSession";
+import { REDUCED_MOTION_QUERY, useTheme } from "../hooks/useTheme";
 
-const POLL_INTERVAL_MS = 2000;
+/**
+ * NeonBorder takes its corner radius as a percentage of half the shorter side,
+ * not in pixels, so the value that makes the ring sit flush against the card
+ * has to be solved for the card's real size: the card is `{rounded.xl}` = 16px,
+ * and the sign-in panel's shorter side runs about 330–384px across its two
+ * states and both breakpoints, so half of it is ~165–192px and 16px of that is
+ * ~8–10%. Nine splits the difference and leaves the ring within about a pixel
+ * of the corner in every state. It cannot be exact in all of them at once —
+ * that is the component's API, not a rounding mistake here.
+ */
+const NEON_ROUNDED_PCT = 9;
 
-/** Everything except `waiting` is final for one nonce, so polling stops there. */
-const EXPLANATION: Record<Exclude<LoginState, "waiting" | "approved">, string> = {
-  pending:
-    "Your request has been recorded. Everyone already on the dashboard has been told, and Telegram will message you the moment one of them admits you.",
+/**
+ * The ring's colour in light mode, where it composites normally rather than
+ * additively (see `.login-neon` in {@link file://./../index.css}).
+ *
+ * It needs its own value because the two blend modes do different things to the
+ * same hex. Additively over ink, Originkit's amber climbs its own channels until
+ * the core burns out near white and only the falloff stays gold — the ring reads
+ * far lighter than the colour that produced it. Composited normally over white,
+ * that same amber is simply itself, which lands as a flat orange band. This is
+ * the amber lifted toward what the dark ring actually looks like on screen.
+ *
+ * The prop is a hex string parsed by the component, not a token: `withAlpha`
+ * there reads hex or comma-form `rgb()`, and the palette's channels are
+ * space-separated, which that parser falls back to black on.
+ */
+const LIGHT_NEON = "#F0C68F";
+
+const EXPLANATION: Record<Exclude<LoginState, "approved">, string> = {
   revoked: "This account's access has been removed. Ask an approved teammate to restore it.",
   invalid: "That sign-in link expired or was already used. Start again to get a new one.",
 };
@@ -84,6 +111,22 @@ function arc(a: (typeof MESH_NODES)[number], b: (typeof MESH_NODES)[number]) {
 
 const LINKED = new Set(MESH_EDGES.filter((e) => e.proposed).flatMap((e) => [e.from, e.to]));
 
+/**
+ * Each proposed arc's place in the stagger — counted among the proposed arcs,
+ * not among all fifteen. They are the last three entries of MESH_EDGES, so a
+ * delay taken from the MESH_EDGES index lands at 4.8s/5.2s/5.6s and the figure
+ * sits dead still for five seconds after the page loads.
+ *
+ * The delay is applied negative: the arcs start already partway through the
+ * dash cycle, which is what the stagger was for (three flows out of lockstep)
+ * without anything waiting its turn to begin.
+ */
+const PROPOSED_ORDER = new Map(
+  MESH_EDGES.map((edge, index) => [index, edge] as const)
+    .filter(([, edge]) => edge.proposed)
+    .map(([index], order) => [index, order]),
+);
+
 function MeshFigure() {
   return (
     <svg
@@ -102,7 +145,11 @@ function MeshFigure() {
           strokeWidth={edge.proposed ? 1.6 : 1}
           opacity={edge.proposed ? 1 : 0.45}
           className={edge.proposed ? "login-link-proposed text-ink" : "text-muted-soft"}
-          style={edge.proposed ? { animationDelay: `${index * 0.4}s` } : undefined}
+          style={
+            edge.proposed
+              ? { animationDelay: `-${(PROPOSED_ORDER.get(index) ?? 0) * 0.4}s` }
+              : undefined
+          }
         />
       ))}
       {MESH_NODES.map((node, index) =>
@@ -146,47 +193,52 @@ function LegendRule({ proposed = false }: { proposed?: boolean }) {
 
 export default function LoginPage() {
   const queryClient = useQueryClient();
-  const [nonce, setNonce] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
+  const [code, setCode] = useState("");
   // Whether the hand-off tab actually opened. A blocked pop-up otherwise leaves
   // the operator watching a spinner that waits for something that never happened.
   const [handedOff, setHandedOff] = useState(true);
   const telegramTab = useRef<Window | null>(null);
+  /**
+   * `speed={0}` is how the neon ring honours this: the component's frame loop
+   * keeps running but stops advancing the arc, so the ring holds the position
+   * it was first rendered at instead of travelling the perimeter. The rest of
+   * the page's motion is stopped in CSS, at {@link file://./../index.css}.
+   */
+  const prefersReducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
+  /**
+   * Safe to call here even though `useTheme` writes `<html data-theme>` and that
+   * attribute may have only one writer: `RequireSession` renders this page or
+   * the app shell, never both, so App's copy of the hook is unmounted whenever
+   * this one is live.
+   */
+  const { resolved } = useTheme();
 
   const start = useMutation({
     mutationFn: startLogin,
     onSuccess: (data) => {
-      setNonce(data.nonce);
+      setStarted(true);
       if (telegramTab.current) telegramTab.current.location.href = data.deep_link;
     },
     // Do not leave a blank tab sitting there after a 429 or a 503.
     onError: () => telegramTab.current?.close(),
   });
 
-  const poll = useQuery({
-    queryKey: ["login", nonce],
-    queryFn: () => pollLogin(nonce!),
-    enabled: nonce !== null,
-    // The server decides when this is over: it answers `invalid` once the nonce
-    // expires, so the browser needs no timer of its own.
-    refetchInterval: (query) => (query.state.data?.state === "waiting" ? POLL_INTERVAL_MS : false),
-    retry: false,
+  const complete = useMutation({
+    mutationFn: completeLogin,
+    onSuccess: (result) => {
+      if (result.state === "approved") {
+        queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+      }
+    },
   });
-
-  const state = poll.data?.state;
-
-  useEffect(() => {
-    // The cookie arrived on the polling response. Re-asking who we are is what
-    // swaps this screen for the dashboard.
-    if (state === "approved") queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
-  }, [state, queryClient]);
 
   /**
    * The tab is opened here, inside the click, and pointed at Telegram once the
    * deep link comes back. It cannot be opened in the response callback instead:
    * the link only exists after the round-trip, and by then the browser no
    * longer counts the `window.open` as user-initiated and blocks it. Opening
-   * this tab rather than navigating away keeps the poll below running, which is
-   * what signs the operator in without a second visit.
+   * this tab rather than navigating away keeps the code form in place.
    */
   function signIn() {
     const tab = window.open("", "_blank");
@@ -196,8 +248,8 @@ export default function LoginPage() {
   }
 
   const deepLink = start.data?.deep_link;
-  const waiting = nonce !== null && (state === undefined || state === "waiting");
-  const finalState = state && state !== "waiting" && state !== "approved" ? state : null;
+  const state = complete.data?.state;
+  const finalState = state && state !== "approved" ? state : null;
   const startFailure = start.isPending ? null : startErrorMessage(start.error);
 
   return (
@@ -239,15 +291,33 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <section className="card w-full px-6 py-8 sm:px-8 lg:justify-self-end">
+        <section className="card relative w-full px-6 py-8 sm:px-8 lg:justify-self-end">
+          {/* NeonBorder takes no children — it measures the box it is stretched
+              across and paints the ring *outside* that box. So it is a filler
+              layer inside the card rather than a wrapper around it, which is
+              also why it never covers the content it sits on top of in paint
+              order. `.card` sets no overflow, so the glow is free to spill.
+
+              `.login-neon` is what makes the ring survive the light theme: the
+              component composites additively, which needs a dark ground, so the
+              rule behind that class composites it normally there instead. See
+              {@link file://./../index.css}. */}
+          <div aria-hidden="true" className="login-neon pointer-events-none absolute inset-0">
+            <NeonBorder
+              rounded={NEON_ROUNDED_PCT}
+              color={resolved === "light" ? LIGHT_NEON : undefined}
+              speed={prefersReducedMotion ? 0 : undefined}
+            />
+          </div>
+
           <div className="eyebrow">Sign in</div>
           <h2 className="mt-2 font-serif text-display-sm text-ink">Continue with Telegram</h2>
           <p className="mt-3 text-body-sm leading-relaxed text-muted">
-            Telegram opens in a new tab. Press Start there, and this tab signs you in on its
-            own — nothing to copy across.
+            Telegram opens in a new tab. Press Start there, then enter the one-time code it
+            gives you below. New accounts remain pending until a teammate approves them.
           </p>
 
-          {nonce === null ? (
+          {!started ? (
             <>
               {startFailure && (
                 <p
@@ -269,7 +339,7 @@ export default function LoginPage() {
             </>
           ) : (
             <div className="mt-6 flex flex-col gap-4">
-              {deepLink && !finalState && !handedOff && (
+              {deepLink && !handedOff && (
                 <>
                   <p role="alert" className="text-caption leading-relaxed text-error-ink">
                     Your browser blocked the new tab. Open Telegram from here instead.
@@ -281,18 +351,7 @@ export default function LoginPage() {
                 </>
               )}
 
-              {waiting && (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="flex items-center gap-2 text-caption text-muted"
-                >
-                  <LogoLoadingAnimation size="sm" aria-hidden="true" />
-                  <span>Waiting for you to press Start in Telegram…</span>
-                </div>
-              )}
-
-              {waiting && handedOff && deepLink && (
+              {handedOff && deepLink && (
                 <a
                   href={deepLink}
                   target="_blank"
@@ -303,19 +362,60 @@ export default function LoginPage() {
                 </a>
               )}
 
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  complete.mutate(code);
+                }}
+                className="flex flex-col gap-3"
+              >
+                <label htmlFor="telegram-code" className="text-caption font-medium text-ink">
+                  One-time Telegram code
+                </label>
+                <input
+                  id="telegram-code"
+                  value={code}
+                  onChange={(event) => {
+                    setCode(event.target.value);
+                    complete.reset();
+                  }}
+                  autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  required
+                  placeholder="ABCD-EFGH-JKLM"
+                  className="input font-mono uppercase tracking-widest"
+                />
+                <button
+                  type="submit"
+                  disabled={complete.isPending || !code.trim()}
+                  className="btn btn-primary w-full disabled:opacity-50"
+                >
+                  {complete.isPending ? "Signing in…" : "Complete sign in"}
+                </button>
+              </form>
+
+              {complete.isError && (
+                <p role="alert" className="text-caption leading-relaxed text-error-ink">
+                  Could not verify the code. Check that the engine is reachable and try again.
+                </p>
+              )}
+
               {finalState && (
                 <p role="status" className="text-body-sm leading-relaxed text-ink">
                   {EXPLANATION[finalState]}
                 </p>
               )}
 
-              {(finalState === "invalid" || poll.isError) && (
+              {finalState === "invalid" && (
                 <button
                   type="button"
                   onClick={() => {
-                    setNonce(null);
+                    setStarted(false);
+                    setCode("");
                     setHandedOff(true);
                     start.reset();
+                    complete.reset();
                   }}
                   className="btn btn-outline w-full"
                 >

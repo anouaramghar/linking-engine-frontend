@@ -407,6 +407,26 @@ input[type="number"] {
   animation: login-link-flow 2.6s linear infinite;
 }
 
+/**
+ * The sign-in card's neon ring, made legible on a light ground.
+ *
+ * NeonBorder composites its arc and all three glow layers with `plus-lighter`:
+ * they *add* light to whatever is behind them, which is what makes a ring read
+ * as neon over an ink page. A light canvas has no darkness left to add light
+ * to, so on white the same layers arrive as an amber wash with no arc in it.
+ * Compositing them normally paints the arc and its halo as ordinary colour,
+ * which white can show. Dark keeps `plus-lighter` — there the additive pass is
+ * the whole effect, and normal compositing would flatten the glow into a band.
+ *
+ * `!important` because the component sets the blend mode as an inline style,
+ * which no stylesheet rule outranks otherwise. The override lives out here
+ * rather than in the component: that file is vendored from Originkit and is
+ * kept diffable against upstream.
+ */
+:root[data-theme="light"] .login-neon * {
+  mix-blend-mode: normal !important;
+}
+
 .mobile-app-header {
   padding-top: max(0.75rem, env(safe-area-inset-top));
 }

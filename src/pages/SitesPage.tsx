@@ -216,7 +216,8 @@ function SiteIdentity({ site, index }: { site: Site; index: number }) {
 }
 
 export default function SitesPage() {
-  const sitesQuery = useSites();
+  const [search, setSearch] = useState("");
+  const sitesQuery = useSites(search);
   const sites = useMemo(
     () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
     [sitesQuery.data],
@@ -237,7 +238,6 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
-  const [search, setSearch] = useState("");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
   const selectVisibleRef = useRef<HTMLInputElement>(null);
@@ -263,9 +263,14 @@ export default function SitesPage() {
   }, [search, sites]);
   const {
     visible: visibleSites,
-    hasMore: hasMoreSites,
-    showMore: showMoreSites,
+    hasMore: hasMoreLoadedSites,
+    showMore: showMoreLoadedSites,
   } = useIncrementalList(filteredSites ?? [], search, 50, 250);
+  const hasMoreSites = hasMoreLoadedSites || Boolean(sitesQuery.hasNextPage);
+  const showMoreSites = () => {
+    if (hasMoreLoadedSites) showMoreLoadedSites();
+    else void sitesQuery.fetchNextPage();
+  };
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
   const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
@@ -748,8 +753,13 @@ export default function SitesPage() {
 
         {hasMoreSites && (
           <div className="flex flex-col items-center gap-2 py-4">
-            <button type="button" onClick={showMoreSites} className="btn btn-outline">
-              Show more sources
+            <button
+              type="button"
+              onClick={showMoreSites}
+              disabled={sitesQuery.isFetchingNextPage}
+              className="btn btn-outline"
+            >
+              {sitesQuery.isFetchingNextPage ? "Loading…" : "Show more sources"}
             </button>
             <span className="text-caption text-muted" aria-live="polite">
               Showing {visibleSites.length} of {filteredSites?.length ?? 0}

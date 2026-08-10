@@ -1,7 +1,6 @@
 import {
   useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 
@@ -13,11 +12,20 @@ import {
   listPoolAuditEvents,
   POOL_AUDIT_PAGE_SIZE,
   listSites,
+  SITE_PAGE_SIZE,
   reactivatePoolSource,
   revokePoolSource,
 } from "../api/sites";
 
-export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
+export const useSites = (search = "") =>
+  useInfiniteQuery({
+    queryKey: ["sites", search.trim()],
+    queryFn: ({ pageParam }) => listSites(pageParam, search),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === SITE_PAGE_SIZE ? pages.length * SITE_PAGE_SIZE : undefined,
+    select: (data) => data.pages.flat(),
+  });
 
 const invalidateSiteDependencies = (qc: ReturnType<typeof useQueryClient>) =>
   Promise.all([

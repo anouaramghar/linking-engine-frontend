@@ -3,12 +3,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useLogout } from "./useSession";
+import { useLogout, useSession } from "./useSession";
 
 const logout = vi.fn();
+const getSession = vi.fn();
 
 vi.mock("../api/auth", () => ({
-  getSession: vi.fn(),
+  getSession: () => getSession(),
   logout: () => logout(),
 }));
 
@@ -42,5 +43,25 @@ describe("useLogout", () => {
     result.current.mutate();
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+  });
+});
+
+describe("useSession", () => {
+  it("treats only a 401 as signed out", async () => {
+    getSession.mockRejectedValue({ isAxiosError: true, response: { status: 401 } });
+
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toBeNull());
+    expect(result.current.isError).toBe(false);
+  });
+
+  it("keeps a backend outage distinct from signed out", async () => {
+    getSession.mockRejectedValue({ isAxiosError: true, response: { status: 500 } });
+
+    const { result } = renderHook(() => useSession(), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
   });
 });
