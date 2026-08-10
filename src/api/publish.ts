@@ -19,6 +19,12 @@ export interface PendingPublicationSite {
   selected_suggestions: number;
   /** Exact artifacts a person approved. The only thing that may be queued. */
   approved_plans: number;
+  /**
+   * False when the site has no WordPress account, so preparation cannot read a
+   * single post for editing. Optional so an engine that predates the field is
+   * read as publishable rather than silently hiding the review button.
+   */
+  can_publish?: boolean;
 }
 
 export type LinkOutcome = "inserted" | "block" | "already_present";

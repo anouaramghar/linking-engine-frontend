@@ -21,6 +21,7 @@ import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
 import { useIncrementalList } from "../hooks/useIncrementalList";
+import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../hooks/useMediaQuery";
 import {
   useApprovePlans,
   usePendingPublication,
@@ -145,9 +146,9 @@ export default function ValidationPage() {
   // held as the exact plan ids that approval named. The approval stands, so the
   // only thing left to offer is a queue retry — and it has to name that same
   // subset, because queueing a plan the operator excluded is a 409.
-  const [approvedNotQueued, setApprovedNotQueued] = useState<Map<number, number[]>>(
-    () => new Map(),
-  );
+  const [approvedNotQueued, setApprovedNotQueued] = useState<
+    Map<number, number[] | undefined>
+  >(() => new Map());
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
@@ -155,6 +156,7 @@ export default function ValidationPage() {
   const focusAfterReview = useRef<number | "main" | null>(null);
 
   const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
+  const previewIsOverlaid = useMediaQuery(OVERLAY_PREVIEW_QUERY);
 
   const sitesQuery = useSites();
   // Every site, because this list is also what resolves a suggestion's site
@@ -750,6 +752,11 @@ export default function ValidationPage() {
     (total, entry) => total + entry.approved_plans,
     0,
   );
+  // A site with no WordPress account cannot be prepared at all: every source
+  // article would be one live request answered with the same 401. Only meaningful
+  // for a single site, which is the only shape that offers a review button.
+  const cannotPublish =
+    pendingPublication.length === 1 && pendingPublication[0].can_publish === false;
   const publishBusy = approvePlans.isPending || queuePlans.isPending;
 
   /**
@@ -1018,7 +1025,7 @@ export default function ValidationPage() {
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
           {/* Any filter change invalidates a confirmation in flight: the rule it
               describes was defined over the previous set of rows. */}
-          <div className="mb-5 flex flex-col gap-4">
+          <div className="card mb-4 flex flex-col gap-3 p-3 sm:p-4">
             <QueueFilters
               filters={filters}
               onChange={(patch) => {
@@ -1056,43 +1063,43 @@ export default function ValidationPage() {
               onConfirm={confirmBulk}
               onCancel={() => setConfirmation(null)}
             />
+            {/* The queue's fast path, said out loud. It was reachable but written
+                down nowhere, and a single unmodified key that files a review is
+                also one an editor has to be able to switch off. */}
+            <details className="border-t border-hairline pt-2 text-caption text-muted">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-strong">
+                <span aria-hidden="true">⌨</span>
+                <span className="font-medium text-ink">Keyboard shortcuts</span>
+                <span>({shortcutsEnabled ? "on" : "off"})</span>
+              </summary>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3">
+                {shortcutsEnabled ? (
+                  <span>
+                    <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
+                  </span>
+                ) : (
+                  <span>Keyboard shortcuts are off.</span>
+                )}
+                <button
+                  type="button"
+                  onClick={toggleShortcuts}
+                  aria-pressed={shortcutsEnabled}
+                  className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+                >
+                  {shortcutsEnabled ? "Turn off" : "Turn on"}
+                </button>
+              </div>
+            </details>
           </div>
-
-          {/* The queue's fast path, said out loud. It was reachable but written
-              down nowhere, and a single unmodified key that files a review is
-              also one an editor has to be able to switch off. */}
-          <details className="mb-4 text-caption text-muted">
-            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-strong">
-              <span aria-hidden="true">⌨</span>
-              <span className="font-medium text-ink">Keyboard shortcuts</span>
-              <span>({shortcutsEnabled ? "on" : "off"})</span>
-            </summary>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3">
-              {shortcutsEnabled ? (
-                <span>
-                  <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
-                </span>
-              ) : (
-                <span>Keyboard shortcuts are off.</span>
-              )}
-              <button
-                type="button"
-                onClick={toggleShortcuts}
-                aria-pressed={shortcutsEnabled}
-                className="font-medium text-ink underline underline-offset-2 hover:text-primary"
-              >
-                {shortcutsEnabled ? "Turn off" : "Turn on"}
-              </button>
-            </div>
-          </details>
 
           <PublishBanner
             selected={selectedCount}
             approvedPlans={approvedPlanCount}
             siteCount={awaitingPublish.length}
             busy={publishBusy}
+            cannotPublish={cannotPublish}
             onReview={
-              awaitingPublish.length === 1 && !publicationUnavailable
+              awaitingPublish.length === 1 && !publicationUnavailable && !cannotPublish
                 ? () => openPublicationReview(awaitingPublish[0])
                 : undefined
             }
@@ -1269,6 +1276,22 @@ export default function ValidationPage() {
             )}
           </div>
         </div>
+
+        {!previewIsOverlaid && !selected && (
+          <aside
+            aria-label="Suggestion detail"
+            className="flex h-full min-h-0 w-[410px] flex-none flex-col border-l border-hairline bg-canvas-soft"
+          >
+            <div className="flex flex-1 flex-col justify-center px-8 py-8">
+              <div className="eyebrow">Suggestion detail</div>
+              <h2 className="mt-2 font-serif text-display-sm text-ink">Select a suggestion</h2>
+              <p className="mt-3 max-w-xs text-body-sm leading-relaxed text-muted">
+                Choose a row to inspect its placement context, target article, match score, and
+                decision controls.
+              </p>
+            </div>
+          </aside>
+        )}
 
         {selected && (
           <SuggestionPreview

@@ -50,7 +50,7 @@ export default function SuggestionPreview({
   const onKeyDown = useFocusTrap(panel, onClose, overlaid);
 
   const panelClass =
-    "w-full flex-none overflow-y-auto border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
+    "h-full min-h-0 w-full flex-none overflow-y-auto border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
 
   const body = (
     <>

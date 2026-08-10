@@ -129,9 +129,9 @@ export default function BulkActions({
   const rejectLabel = rejectCount === null ? "—" : String(rejectCount);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <div aria-label="Suggestion status" className="min-w-0 overflow-x-auto">
-        <div className="flex min-w-max items-center gap-1 border-b border-hairline">
+        <div className="flex min-w-max items-center gap-1">
           {chips.map((chip) => (
             <button
               key={chip.key}
@@ -155,14 +155,12 @@ export default function BulkActions({
 
       <div
         aria-label="Bulk review controls"
-        className="card flex flex-col gap-4 p-4"
+        className="flex flex-col gap-3 border-t border-hairline pt-3"
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-body-sm font-medium text-ink">Bulk review</div>
-            <p className="mt-1 text-caption text-muted">
-              Apply one decision to pending suggestions based on their match score.
-            </p>
+            <p className="mt-0.5 text-caption text-muted">Apply decisions by match score.</p>
             {!actionable && (
               <p className="mt-1 text-caption text-muted">
                 Switch to Pending review or All to use bulk review.
@@ -170,58 +168,58 @@ export default function BulkActions({
             )}
           </div>
 
-          <label className="flex flex-none items-center gap-2 text-caption text-muted">
-            Decision threshold
-            {/* The ring lives on the field so the inner input can stay borderless. */}
-            <span className="touch-target flex h-11 items-center rounded-md border border-hairline-control bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink sm:h-10">
-              <input
-                aria-label="Score threshold"
-                type="number"
-                min={0}
-                max={100}
-                value={draft}
-                onChange={(event) => {
-                  // Keep the raw text while editing so clearing the field doesn't
-                  // snap to 0 and rewrite the rule under the user's cursor.
-                  setDraft(event.target.value);
-                  scheduleCommit(event.target.value);
-                }}
-                // Leaving the field settles it now rather than after the delay,
-                // so a click straight from the input to Accept uses what was typed.
-                onBlur={commitNow}
-                style={{ width: `${Math.max(draft.length, 1)}ch` }}
-                className="bg-transparent text-right text-caption font-medium text-ink outline-none"
-              />
-              <span className="text-caption text-muted">%</span>
-            </span>
-          </label>
-        </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <label className="flex flex-none items-center gap-2 text-caption text-muted">
+              Decision threshold
+              {/* The ring lives on the field so the inner input can stay borderless. */}
+              <span className="touch-target flex h-11 items-center rounded-md border border-hairline-control bg-surface-card px-3 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink sm:h-10">
+                <input
+                  aria-label="Score threshold"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={draft}
+                  onChange={(event) => {
+                    // Keep the raw text while editing so clearing the field doesn't
+                    // snap to 0 and rewrite the rule under the user's cursor.
+                    setDraft(event.target.value);
+                    scheduleCommit(event.target.value);
+                  }}
+                  // Leaving the field settles it now rather than after the delay,
+                  // so a click straight from the input to Accept uses what was typed.
+                  onBlur={commitNow}
+                  style={{ width: `${Math.max(draft.length, 1)}ch` }}
+                  className="bg-transparent text-right text-caption font-medium text-ink outline-none"
+                />
+                <span className="text-caption text-muted">%</span>
+              </span>
+            </label>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          <button
-            ref={acceptButton}
-            type="button"
-            aria-label={`Accept \u2265 ${threshold}% \u00b7 ${acceptLabel}`}
-            disabled={!actionable || acceptCount === null || acceptCount === 0}
-            onClick={() => onRequest("approve")}
-            className="btn btn-primary btn-sm sm:min-w-[12rem]"
-          >
-            {/* "match", not "confidence": the score is cosine similarity between
-                two articles, and it is not the number Hybrid ranked the row by. */}
-            Accept {acceptLabel} matches
-            <span className="text-caption opacity-75">&ge; {threshold}%</span>
-          </button>
-          <button
-            ref={rejectButton}
-            type="button"
-            aria-label={`Reject < ${threshold}% \u00b7 ${rejectLabel}`}
-            disabled={!actionable || rejectCount === null || rejectCount === 0}
-            onClick={() => onRequest("reject")}
-            className="btn btn-outline btn-sm sm:min-w-[12rem]"
-          >
-            Reject {rejectLabel} matches
-            <span className="text-caption text-muted">&lt; {threshold}%</span>
-          </button>
+            <button
+              ref={acceptButton}
+              type="button"
+              aria-label={`Accept \u2265 ${threshold}% \u00b7 ${acceptLabel}`}
+              disabled={!actionable || acceptCount === null || acceptCount === 0}
+              onClick={() => onRequest("approve")}
+              className="btn btn-primary btn-sm sm:min-w-[12rem]"
+            >
+              {/* "match", not "confidence": the score is cosine similarity between
+                  two articles, and it is not the number Hybrid ranked the row by. */}
+              Accept {acceptLabel} matches
+              <span className="text-caption opacity-75">&ge; {threshold}%</span>
+            </button>
+            <button
+              ref={rejectButton}
+              type="button"
+              aria-label={`Reject < ${threshold}% \u00b7 ${rejectLabel}`}
+              disabled={!actionable || rejectCount === null || rejectCount === 0}
+              onClick={() => onRequest("reject")}
+              className="btn btn-outline btn-sm sm:min-w-[12rem]"
+            >
+              Reject {rejectLabel} matches
+              <span className="text-caption text-muted">&lt; {threshold}%</span>
+            </button>
+          </div>
         </div>
       </div>
 

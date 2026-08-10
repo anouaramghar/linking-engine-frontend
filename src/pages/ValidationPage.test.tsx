@@ -19,6 +19,21 @@ const renderQueue = (initialEntry = "/") =>
     ),
   });
 
+const realMatchMedia = window.matchMedia;
+
+const setNarrowViewport = () => {
+  window.matchMedia = vi.fn().mockImplementation((media: string) => ({
+    matches: true,
+    media,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+};
+
 const SITE = {
   id: 1,
   name: "Example site",
@@ -49,6 +64,7 @@ const mocks = vi.hoisted(() => ({
     site_id: number;
     selected_suggestions: number;
     approved_plans: number;
+    can_publish?: boolean;
   }[],
   countsOverride: null as {
     pending: number;
@@ -264,7 +280,10 @@ beforeEach(() => {
   mocks.countsFetching = false;
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.matchMedia = realMatchMedia;
+});
 
 describe("ValidationPage live review state", () => {
   // Reviewing a row invalidates the counts and the publication summary, so
@@ -823,6 +842,20 @@ describe("ValidationPage publication approval", () => {
     expect(document.body.textContent).toContain("left out of this batch");
   });
 
+  it("says a site cannot publish instead of letting the review be opened", async () => {
+    const user = userEvent.setup();
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
+    ];
+    renderQueue();
+
+    expect(document.body.textContent).toContain("has no WordPress account");
+    expect(screen.queryByRole("button", { name: "Review publication changes" })).toBeNull();
+    // Nothing to click means nothing spends a live request per source article.
+    void user;
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
+  });
+
   it("ticks every prepared article, so the normal case is still one click", async () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN]);
     await openReview(userEvent.setup());
@@ -901,6 +934,21 @@ describe("ValidationPage publication approval", () => {
 });
 
 describe("ValidationPage keyboard review", () => {
+  it("reserves the desktop detail rail before a suggestion is selected", () => {
+    renderQueue();
+
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(preview).getByText("Select a suggestion")).not.toBeNull();
+    expect(within(preview).getByText(/placement context, target article/i)).not.toBeNull();
+  });
+
+  it("uses the overlay layout below the desktop rail breakpoint", () => {
+    setNarrowViewport();
+    renderQueue();
+
+    expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
+  });
+
   it("moves a cursor through the queue and decides without the mouse", async () => {
     const user = userEvent.setup();
     renderQueue();
@@ -994,7 +1042,11 @@ describe("ValidationPage keyboard review", () => {
     expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
+    expect(
+      within(screen.getByRole("complementary", { name: "Suggestion detail" })).getByText(
+        "Select a suggestion",
+      ),
+    ).not.toBeNull();
   });
 
   it("ignores shortcuts while a field has focus", async () => {

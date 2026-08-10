@@ -5,6 +5,12 @@ interface Props {
   approvedPlans: number;
   siteCount: number;
   busy: boolean;
+  /**
+   * The one site in view has no WordPress account, so preparing its edits cannot
+   * succeed. Said before the click, because the click costs a live request per
+   * source article and returns the same 401 for each of them.
+   */
+  cannotPublish?: boolean;
   /** Only offered for a single site: approval is per exact edit, not per fleet. */
   onReview?: () => void;
   /** Retry for edits that were approved when the job could not be started. */
@@ -22,6 +28,7 @@ export default function PublishBanner({
   approvedPlans,
   siteCount,
   busy,
+  cannotPublish = false,
   onReview,
   onQueueApproved,
 }: Props) {
@@ -41,9 +48,11 @@ export default function PublishBanner({
             : `${approvedPlans} approved ${approvedPlans === 1 ? "edit is" : "edits are"} waiting to be published`}
         </div>
         <div className="mt-1 text-caption text-body">
-          {selected > 0
-            ? "Selected links are not live, and are not scheduled. Review the exact edits for a site and approve them to publish."
-            : "These exact edits were approved but no publish job is running for them yet."}
+          {cannotPublish
+            ? "This site has no WordPress account, so its exact edits cannot be prepared. Add an application password for a user who can edit posts."
+            : selected > 0
+              ? "Selected links are not live, and are not scheduled. Review the exact edits for a site and approve them to publish."
+              : "These exact edits were approved but no publish job is running for them yet."}
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -57,7 +66,11 @@ export default function PublishBanner({
             {busy ? "Queueing…" : "Queue approved edits"}
           </button>
         )}
-        {onReview ? (
+        {cannotPublish ? (
+          // No button at all rather than a disabled one: the fix is not on this
+          // page, and a dead control invites the click the sentence just explained.
+          <span className="text-caption text-muted">Publication is unavailable</span>
+        ) : onReview ? (
           <button type="button" onClick={onReview} disabled={busy} className="btn btn-primary btn-sm">
             Review publication changes
           </button>
