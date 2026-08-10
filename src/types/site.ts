@@ -6,6 +6,13 @@ export interface Site {
   crawl_frequency: string;
   suggestion_method?: "hybrid_bm25";
   suggestion_slots_available: number;
+  /**
+   * Whether an account exists that could edit this site's posts. False means
+   * publication cannot even be prepared: reading a post for editing is refused
+   * anonymously. Optional so an engine that predates the field reads as
+   * credentialled rather than showing every site as broken.
+   */
+  has_wordpress_credentials?: boolean;
   created_at: string;
   last_ingestion_status: string | null;
   // Last finished analysis job — "Indexed" and "Analyzed" are different states.

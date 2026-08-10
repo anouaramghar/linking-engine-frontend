@@ -305,9 +305,9 @@ describe("ValidationPage live review state", () => {
       (screen.getByRole("button", { name: /^Select ≥/ }) as HTMLButtonElement).disabled,
     ).toBe(false);
     expect(screen.queryByText(/Review actions are paused/)).toBeNull();
-    // The publish banner is driven by the same invalidated query, so it has to
-    // survive the refetch too rather than blinking out to "nothing selected".
-    expect(screen.getByText(/2 selected suggestions/)).not.toBeNull();
+    // Publication review is opened from the selected suggestion detail, not a
+    // second toolbar attached to the queue.
+    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
   });
 
   it("pauses review actions while filtered results are being replaced", () => {
@@ -687,8 +687,10 @@ const preparedFor = (
 };
 
 const openReview = async (user: ReturnType<typeof userEvent.setup>) => {
-  renderQueue();
-  await user.click(screen.getByRole("button", { name: "Review Example site 1 link" }));
+  mocks.suggestions[0] = suggestion(1, { status: "approved" });
+  renderQueue("/?status=approved");
+  await user.click(screen.getByRole("button", { name: /Open suggestion: Source 1/ }));
+  await user.click(screen.getByRole("button", { name: "Review exact edit" }));
 };
 
 describe("ValidationPage publication approval", () => {
@@ -699,22 +701,21 @@ describe("ValidationPage publication approval", () => {
     expect(document.body.textContent).not.toContain("waiting to be published");
   });
 
-  it("offers no way to publish a site straight from the queue", () => {
+  it("keeps publication approval out of the queue chrome", () => {
     mocks.pendingPublication = [
       { site_id: 1, selected_suggestions: 24, approved_plans: 0 },
     ];
     renderQueue();
 
-    // Selecting rows is not consent to write to a customer's site. The only
-    // route on is the review that renders the exact edits.
+    // Selecting rows is not consent to write to a customer's site, and the
+    // queue should not present a second publication toolbar.
     expect(screen.queryByRole("button", { name: /^Publish \d+ site/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Publish this site" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Review Example site 24 links" })).not.toBeNull();
-    expect(document.body.textContent).toContain("ready for exact-edit review");
+    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
     expect(mocks.prepareMutate).not.toHaveBeenCalled();
   });
 
-  it("offers a review action for every site with selected work", () => {
+  it("does not add a fleet-wide publication toolbar", () => {
     mocks.pendingPublication = [
       { site_id: 1, selected_suggestions: 4, approved_plans: 0 },
       { site_id: 2, selected_suggestions: 9, approved_plans: 0 },
@@ -722,9 +723,7 @@ describe("ValidationPage publication approval", () => {
     renderQueue();
 
     expect(screen.queryByRole("button", { name: /^Publish \d+ site/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Review Example site 4 links" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Review site 2 9 links" })).not.toBeNull();
-    expect(document.body.textContent).not.toContain("Filter to one site");
+    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
   });
 
   it("selecting a suggestion never calls a publication endpoint", async () => {
@@ -850,8 +849,7 @@ describe("ValidationPage publication approval", () => {
     ];
     renderQueue();
 
-    expect(document.body.textContent).toContain("Connect a WordPress account before reviewing");
-    expect(screen.queryByRole("button", { name: /Review Example site/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
     // Nothing to click means nothing spends a live request per source article.
     void user;
     expect(mocks.prepareMutate).not.toHaveBeenCalled();

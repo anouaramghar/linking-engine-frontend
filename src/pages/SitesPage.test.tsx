@@ -36,11 +36,15 @@ const mocks = vi.hoisted(() => ({
     variables: undefined as { siteId: number } | undefined,
     mutateAsync: vi.fn(),
   },
+  setCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
+  clearCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetWordPressCredentials: () => mocks.setCredentials,
+  useClearWordPressCredentials: () => mocks.clearCredentials,
 }));
 
 vi.mock("../hooks/useJobs", () => ({
@@ -77,6 +81,8 @@ beforeEach(() => {
   mocks.createBatch.mutateAsync.mockReset();
   Object.assign(mocks.retryBatch, { isPending: false, variables: undefined });
   mocks.retryBatch.mutateAsync.mockReset();
+  mocks.setCredentials.mutate.mockReset();
+  mocks.clearCredentials.mutate.mockReset();
   window.history.replaceState({}, "", "/sites");
 });
 
@@ -515,5 +521,87 @@ describe("SitesPage publication", () => {
     fireEvent.click(screen.getByText("Review publication changes"));
 
     expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
+  });
+});
+
+describe("SitesPage WordPress account", () => {
+  const withCredentials = (has: boolean) => {
+    mocks.sites.data = [
+      {
+        id: 7,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        has_wordpress_credentials: has,
+      },
+    ];
+  };
+
+  it("says whether the site has an account before it is opened", () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    expect(screen.getByText("Add WordPress account")).not.toBeNull();
+
+    cleanup();
+    withCredentials(true);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    expect(screen.getByText("Replace WordPress account")).not.toBeNull();
+  });
+
+  it("attaches an account to a site that already exists", async () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Add WordPress account"));
+
+    fireEvent.change(screen.getByLabelText("WordPress username"), {
+      target: { value: "editor" },
+    });
+    fireEvent.change(screen.getByLabelText("Application password"), {
+      target: { value: "abcd efgh ijkl mnop" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
+
+    await waitFor(() =>
+      expect(mocks.setCredentials.mutate).toHaveBeenCalledWith(
+        {
+          id: 7,
+          credentials: { wp_username: "editor", wp_app_password: "abcd efgh ijkl mnop" },
+        },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("refuses half a credential without asking the engine", () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Add WordPress account"));
+
+    fireEvent.change(screen.getByLabelText("WordPress username"), {
+      target: { value: "editor" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
+
+    expect(document.body.textContent).toContain("Both the username and the application");
+    expect(mocks.setCredentials.mutate).not.toHaveBeenCalled();
+  });
+
+  it("asks before detaching an account, because it stops publication", () => {
+    withCredentials(true);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Replace WordPress account"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove this account" }));
+    expect(mocks.clearCredentials.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove account" }));
+    expect(mocks.clearCredentials.mutate).toHaveBeenCalledWith(7, expect.anything());
   });
 });

@@ -138,12 +138,14 @@ export default function ContentPoolPage() {
       <PageHeader
         title="Content Pool"
         sub={`${poolSources.length} external ${poolSources.length === 1 ? "source" : "sources"} available as read-only suggestion targets`}
+        actions={
+          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            + Connect pool source
+          </button>
+        }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            + Connect pool source
-          </button>
           <label className="min-w-48 flex-1 sm:max-w-sm">
             <span className="sr-only">Search pool sources</span>
             <input

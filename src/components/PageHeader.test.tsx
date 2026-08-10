@@ -21,6 +21,18 @@ describe("PageHeader", () => {
     expect(screen.getByText("Experimental")).toBeTruthy();
   });
 
+  it("renders page actions in the header band", () => {
+    render(
+      <PageHeader
+        title="Sites"
+        sub="3 connected"
+        actions={<button type="button">Connect source</button>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Connect source" })).toBeTruthy();
+  });
+
   it("carries no theme control", () => {
     // It used to. Rendered without props, it fell back to a `ThemeContext` that
     // no provider ever mounted, so it reported "Match system" on every page

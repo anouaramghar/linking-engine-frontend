@@ -34,6 +34,21 @@ export const ingestSite = (id: number) =>
 // having seen the resulting edit. Queueing now lives in api/publish.ts next to
 // the preparation and approval it must follow.
 
+/**
+ * Attach a WordPress account to a site that already exists, or replace the one
+ * it has. Setting and replacing are the same call: WordPress stores only a hash
+ * of an application password, so the old value cannot be proven, and it is
+ * being replaced precisely because it stopped working.
+ */
+export const setWordPressCredentials = (
+  id: number,
+  credentials: { wp_username: string; wp_app_password: string },
+) => api.put<Site>(`/sites/${id}/credentials`, credentials).then((r) => r.data);
+
+/** Detach the account. The site keeps crawling; it stops being publishable. */
+export const clearWordPressCredentials = (id: number) =>
+  api.delete<Site>(`/sites/${id}/credentials`).then((r) => r.data);
+
 export const approvePoolSource = (id: number) =>
   api.post<Site>(`/sites/${id}/pool-source/approval`).then((r) => r.data);
 

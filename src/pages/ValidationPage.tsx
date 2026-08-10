@@ -18,7 +18,6 @@ import { useQueueFilters } from "../hooks/useQueueFilters";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
-import PublishBanner from "../components/suggestions/PublishBanner";
 import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../hooks/useMediaQuery";
@@ -753,14 +752,6 @@ export default function ValidationPage() {
   const reviewablePublicationSites = publicationSites.filter(
     (site) => site.selectedSuggestions > 0 && site.canPublish !== false,
   );
-  const selectedCount = pendingPublication.reduce(
-    (total, entry) => total + entry.selected_suggestions,
-    0,
-  );
-  const approvedPlanCount = pendingPublication.reduce(
-    (total, entry) => total + entry.approved_plans,
-    0,
-  );
   const publishBusy = approvePlans.isPending || queuePlans.isPending;
 
   /**
@@ -1105,17 +1096,6 @@ export default function ValidationPage() {
               </div>
             </details>
           </div>
-
-          <PublishBanner
-            selected={selectedCount}
-            approvedPlans={approvedPlanCount}
-            sites={publicationSites}
-            busy={publishBusy}
-            onReview={openPublicationReview}
-            onQueueApproved={(siteId) =>
-              queueApproved(siteId, approvedNotQueued.get(siteId))
-            }
-          />
 
           {notice && (
             <Notice

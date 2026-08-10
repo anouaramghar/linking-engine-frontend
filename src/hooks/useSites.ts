@@ -7,11 +7,13 @@ import {
 import {
   approvePoolSource,
   bulkCreateSites,
+  clearWordPressCredentials,
   createSite,
   deleteSite,
   listPoolAuditEvents,
   POOL_AUDIT_PAGE_SIZE,
   listSites,
+  setWordPressCredentials,
   SITE_PAGE_SIZE,
   reactivatePoolSource,
   revokePoolSource,
@@ -57,6 +59,33 @@ export const useDeleteSite = () => {
   return useMutation({
     mutationFn: ({ id, confirmName }: { id: number; confirmName: string }) =>
       deleteSite(id, confirmName),
+    onSuccess: () => invalidateSiteDependencies(qc),
+  });
+};
+
+/**
+ * Both invalidate `publish/pending` through the shared helper, which is the
+ * point: attaching an account is what turns "this site cannot publish" on the
+ * queue back into a review button, and clearing one turns it off again.
+ */
+export const useSetWordPressCredentials = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      credentials,
+    }: {
+      id: number;
+      credentials: { wp_username: string; wp_app_password: string };
+    }) => setWordPressCredentials(id, credentials),
+    onSuccess: () => invalidateSiteDependencies(qc),
+  });
+};
+
+export const useClearWordPressCredentials = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => clearWordPressCredentials(id),
     onSuccess: () => invalidateSiteDependencies(qc),
   });
 };

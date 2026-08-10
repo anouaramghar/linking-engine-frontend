@@ -16,6 +16,7 @@ import SelectionControl from "../components/SelectionControl";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
+import SiteCredentialsModal from "../components/sites/SiteCredentialsModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
@@ -185,6 +186,7 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
   const selectVisibleRef = useRef<HTMLInputElement>(null);
@@ -390,23 +392,27 @@ export default function SitesPage() {
         } · ${
           totalArticles === null ? "Article count unavailable" : formatCount(totalArticles)
         } active articles normalized via ContentConnector`}
+        actions={
+          <>
+            <button type="button" onClick={() => setShowImport(true)} className="btn btn-primary">
+              Import CSV
+            </button>
+            <button type="button" onClick={() => setShowAdd(true)} className="btn btn-outline">
+              + Connect source
+            </button>
+            <button
+              type="button"
+              onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
+              aria-pressed={selectionMode}
+              className="btn btn-outline"
+            >
+              {selectionMode ? "Cancel selection" : "Select sites"}
+            </button>
+          </>
+        }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button onClick={() => setShowImport(true)} className="btn btn-primary">
-            Import CSV
-          </button>
-          <button onClick={() => setShowAdd(true)} className="btn btn-outline">
-            + Connect source
-          </button>
-          <button
-            type="button"
-            onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
-            aria-pressed={selectionMode}
-            className="btn btn-outline"
-          >
-            {selectionMode ? "Cancel selection" : "Select sites"}
-          </button>
           <label className="min-w-52 flex-1 sm:max-w-sm">
             <span className="sr-only">Search sources</span>
             <input
@@ -681,6 +687,16 @@ export default function SitesPage() {
                             onSelect: () =>
                               navigate(`/queue?site=${site.id}&status=approved`),
                           },
+                          {
+                            // The label carries the state, so the menu says
+                            // whether this site can publish at all without the
+                            // row needing another badge.
+                            label: site.has_wordpress_credentials
+                              ? "Replace WordPress account"
+                              : "Add WordPress account",
+                            disabled: false,
+                            onSelect: () => setCredentialsFor(site),
+                          },
                         ]),
                     {
                       label: "Delete site",
@@ -768,6 +784,13 @@ export default function SitesPage() {
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+      {credentialsFor && (
+        <SiteCredentialsModal
+          site={credentialsFor}
+          onClose={() => setCredentialsFor(null)}
+          onDone={(message) => setNotice({ message, tone: "info" })}
+        />
+      )}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}
