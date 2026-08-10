@@ -192,7 +192,7 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByRole("button", { name: /^Undo decision/ })).toBeNull();
   });
 
-  it("shows the Hybrid method on a current card", () => {
+  it("keeps method details out of the compact queue row", () => {
     render(
       <SuggestionCard
         suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
@@ -205,7 +205,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("hybrid BM25")).not.toBeNull();
+    expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
   it("identifies a content-pool target as an external link", () => {
@@ -285,7 +285,7 @@ describe("SuggestionPreview publication state", () => {
     );
   });
 
-  it("shows the origin on a queue card", () => {
+  it("keeps the target origin on a compact queue card", () => {
     render(
       <SuggestionCard
         suggestion={{
@@ -303,6 +303,6 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.getByText("External link · Content pool")).not.toBeNull();
-    expect(screen.getByText("Wikipedia")).not.toBeNull();
+    expect(screen.queryByText("Wikipedia")).toBeNull();
   });
 });

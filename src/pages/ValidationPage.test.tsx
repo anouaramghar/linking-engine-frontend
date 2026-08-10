@@ -1116,7 +1116,7 @@ describe("ValidationPage mixed-method queue", () => {
       ...overrides,
     });
 
-  it("lists baseline and hybrid rows side by side", () => {
+  it("lists baseline and hybrid rows without method metadata", () => {
     mocks.suggestions.splice(
       0,
       mocks.suggestions.length,
@@ -1127,8 +1127,8 @@ describe("ValidationPage mixed-method queue", () => {
 
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByText("Source 2")).not.toBeNull();
-    expect(screen.getByText("hybrid BM25")).not.toBeNull();
-    expect(screen.getByText("cosine")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("hybrid BM25");
+    expect(document.body.textContent).not.toContain("cosine");
   });
 
   it("counts a hybrid row in the status chips like any other", () => {
