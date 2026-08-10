@@ -37,7 +37,11 @@ const placement = {
   onRetry: vi.fn(),
 };
 
-const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
+const renderPreview = (
+  status: Suggestion["status"],
+  onUndo = vi.fn(),
+  onReviewPublication?: () => void,
+) =>
   render(
     <SuggestionPreview
       suggestion={suggestion(status)}
@@ -47,6 +51,7 @@ const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
       onAccept={vi.fn()}
       onReject={vi.fn()}
       onUndo={onUndo}
+      onReviewPublication={onReviewPublication}
     />,
   );
 
@@ -120,8 +125,18 @@ describe("SuggestionPreview publication state", () => {
   it("identifies a selected suggestion as chosen but not yet approved", () => {
     renderPreview("approved");
 
-    expect(screen.getByText("Selected")).not.toBeNull();
-    expect(screen.getByText(/Selected for publication/)).not.toBeNull();
+    expect(screen.getByText("Selected for review")).not.toBeNull();
+    expect(
+      screen.getByText("Selected for review. Not scheduled and not live until its exact edit is approved."),
+    ).not.toBeNull();
+  });
+
+  it("offers a direct exact-edit review action for a selected suggestion", () => {
+    const onReviewPublication = vi.fn();
+    renderPreview("approved", vi.fn(), onReviewPublication);
+
+    fireEvent.click(screen.getByRole("button", { name: "Review exact edit" }));
+    expect(onReviewPublication).toHaveBeenCalledTimes(1);
   });
 
   it("identifies an in-progress publication", () => {
@@ -170,7 +185,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Selected")).not.toBeNull();
+    expect(screen.getByText("Selected for review")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();

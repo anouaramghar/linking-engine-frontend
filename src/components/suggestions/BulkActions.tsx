@@ -124,7 +124,7 @@ export default function BulkActions({
     confirmation?.action === "approve"
       ? `at least ${confirmation.threshold}%`
       : `below ${confirmation?.threshold}%`;
-  const verb = confirmation?.action === "approve" ? "Accept" : "Reject";
+  const verb = confirmation?.action === "approve" ? "Select" : "Reject";
   const acceptLabel = acceptCount === null ? "—" : String(acceptCount);
   const rejectLabel = rejectCount === null ? "—" : String(rejectCount);
 
@@ -185,8 +185,8 @@ export default function BulkActions({
                     setDraft(event.target.value);
                     scheduleCommit(event.target.value);
                   }}
-                  // Leaving the field settles it now rather than after the delay,
-                  // so a click straight from the input to Accept uses what was typed.
+                   // Leaving the field settles it now rather than after the delay,
+                   // so a click straight from the input to Select uses what was typed.
                   onBlur={commitNow}
                   style={{ width: `${Math.max(draft.length, 1)}ch` }}
                   className="bg-transparent text-right text-caption font-medium text-ink outline-none"
@@ -198,14 +198,14 @@ export default function BulkActions({
             <button
               ref={acceptButton}
               type="button"
-              aria-label={`Accept \u2265 ${threshold}% \u00b7 ${acceptLabel}`}
+              aria-label={`Select \u2265 ${threshold}% \u00b7 ${acceptLabel}`}
               disabled={!actionable || acceptCount === null || acceptCount === 0}
               onClick={() => onRequest("approve")}
               className="btn btn-primary btn-sm sm:min-w-[12rem]"
             >
               {/* "match", not "confidence": the score is cosine similarity between
                   two articles, and it is not the number Hybrid ranked the row by. */}
-              Accept {acceptLabel} matches
+              Select {acceptLabel} matches
               <span className="text-caption opacity-75">&ge; {threshold}%</span>
             </button>
             <button
@@ -265,7 +265,7 @@ export default function BulkActions({
           >
             {confirmationBlocked
               ? "Updating…"
-              : `Confirm ${confirmation.action === "approve" ? "accept" : "reject"}`}
+              : `Confirm ${confirmation.action === "approve" ? "selection" : "rejection"}`}
           </button>
         </div>
       )}

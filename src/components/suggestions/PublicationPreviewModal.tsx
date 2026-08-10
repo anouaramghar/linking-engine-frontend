@@ -10,6 +10,14 @@ import SelectionControl from "../SelectionControl";
 
 interface Props {
   siteName: string;
+  siteOptions?: {
+    id: number;
+    name: string;
+    selectedSuggestions: number;
+    approvedPlans: number;
+  }[];
+  activeSiteId?: number;
+  onSiteChange?: (siteId: number) => void;
   data: PublicationPreparation | undefined;
   loading: boolean;
   error: boolean;
@@ -34,8 +42,59 @@ const outcomeLabel = {
   already_present: "Already present",
 } as const;
 
+const changeCopy = (
+  link: PublicationPlan["links"][number],
+  afterApproval: boolean,
+) => {
+  if (link.outcome === "already_present") {
+    return afterApproval
+      ? "Keep the existing link unchanged."
+      : "This link is already present in the article.";
+  }
+  if (link.outcome === "block") {
+    return afterApproval
+      ? `Add ${link.target_url} to the read-also block.`
+      : "No new read-also entry has been added yet.";
+  }
+  return afterApproval
+    ? `Add a link to ${link.target_url}${link.anchor_text ? ` on "${link.anchor_text}"` : ""}.`
+    : "No new in-text link has been added yet.";
+};
+
+function ChangeSummary({ plan }: { plan: PublicationPlan }) {
+  return (
+    <div className="mt-4 rounded-xl border border-hairline bg-canvas-soft p-4">
+      <div className="eyebrow">What will change</div>
+      <p className="mt-1 text-caption leading-normal text-body">
+        The source article stays untouched until these exact edits are approved.
+      </p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="rounded-lg bg-surface-card p-3">
+          <div className="text-caption font-medium text-muted">Before approval</div>
+          <ul className="mt-2 space-y-2 text-caption leading-normal text-body">
+            {plan.links.map((link) => (
+              <li key={link.suggestion_id}>{changeCopy(link, false)}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-lg bg-surface-card p-3">
+          <div className="text-caption font-medium text-ink">After approval</div>
+          <ul className="mt-2 space-y-2 text-caption leading-normal text-body">
+            {plan.links.map((link) => (
+              <li key={link.suggestion_id}>{changeCopy(link, true)}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PublicationPreviewModal({
   siteName,
+  siteOptions,
+  activeSiteId,
+  onSiteChange,
   data,
   loading,
   error,
@@ -93,7 +152,69 @@ export default function PublicationPreviewModal({
     setSelectedIds(allSelected ? new Set() : new Set(plans.map((plan) => plan.id)));
 
   return (
-    <Modal title={`Review exact edits · ${siteName}`} onClose={onClose} panelClassName="max-w-6xl">
+    <Modal title="Review exact edits" onClose={onClose} panelClassName="max-w-6xl">
+      <div
+        aria-label="Publication review progress"
+        className="mb-5 flex flex-wrap items-center gap-2 text-caption"
+      >
+        <span className="rounded-pill bg-surface-strong px-3 py-1.5 text-ink">
+          1. Select links
+        </span>
+        <span aria-hidden="true" className="text-muted">
+          &rarr;
+        </span>
+        <span
+          aria-current="step"
+          className="rounded-pill bg-primary px-3 py-1.5 font-medium text-on-primary"
+        >
+          2. Review exact edits
+        </span>
+        <span aria-hidden="true" className="text-muted">
+          &rarr;
+        </span>
+        <span className="rounded-pill bg-surface-strong px-3 py-1.5 text-muted">
+          3. Approve and queue
+        </span>
+      </div>
+
+      {siteOptions && siteOptions.length > 1 && onSiteChange && (
+        <div className="mb-5 border-b border-hairline pb-4">
+          <div className="eyebrow mb-2">Review selected links by site</div>
+          <div
+            role="group"
+            aria-label="Sites with selected links"
+            className="flex gap-2 overflow-x-auto pb-1"
+          >
+            {siteOptions.map((site) => (
+              <button
+                key={site.id}
+                type="button"
+                aria-pressed={site.id === activeSiteId}
+                aria-label={`Review ${site.name}, ${site.selectedSuggestions} selected`}
+                onClick={() => onSiteChange(site.id)}
+                className={`btn btn-sm flex-none ${
+                  site.id === activeSiteId ? "btn-primary" : "btn-outline"
+                }`}
+              >
+                {site.name}
+                <span className="text-caption opacity-75">
+                  {" "}
+                  {site.selectedSuggestions} selected
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-2 border-b border-hairline pb-4">
+        <div>
+          <div className="eyebrow">Step 2 of 3</div>
+          <div className="mt-1 text-body-md font-medium text-ink">{siteName}</div>
+        </div>
+        <span className="text-caption text-muted">Nothing is live yet</span>
+      </div>
+
       {loading && (
         <div role="status" className="py-12 text-center text-body-sm text-muted">
           Preparing the exact edits and reading the live WordPress articles…
@@ -202,7 +323,7 @@ export default function PublicationPreviewModal({
                       <label className="touch-target flex cursor-pointer items-start gap-3">
                         <span className="flex h-6 items-center">
                           <SelectionControl
-                            label={`Approve the edit to ${plan.source_url}`}
+                            label={`Include the edit to ${plan.source_url} in approval`}
                             checked={selected}
                             onChange={() => toggle(plan.id)}
                           />
@@ -224,14 +345,16 @@ export default function PublicationPreviewModal({
                         ))}
                       </ul>
 
+                      <ChangeSummary plan={plan} />
+
                       <details className="mt-3 pl-8">
                         <summary className="touch-target inline-flex cursor-pointer items-center text-caption font-medium text-ink underline underline-offset-2">
-                          Compare exact HTML
+                          View exact HTML (advanced)
                         </summary>
                         <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-2">
                           {[
-                            ["Current", plan.original_html],
-                            ["After publish", plan.updated_html],
+                            ["Before approval", plan.original_html],
+                            ["After approval", plan.updated_html],
                           ].map(([label, html]) => (
                             <div key={label} className="min-w-0">
                               <div className="mb-1 text-caption font-medium text-ink">{label}</div>
@@ -261,7 +384,7 @@ export default function PublicationPreviewModal({
             {excludedCount > 0 && (
               <p className="mr-auto text-caption text-muted" aria-live="polite">
                 {excludedCount} {excludedCount === 1 ? "article stays" : "articles stay"} unpublished
-                and selected for a later approval.
+                and can be reviewed later.
               </p>
             )}
             <button type="button" onClick={onClose} className="btn btn-outline">

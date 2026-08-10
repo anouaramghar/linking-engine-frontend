@@ -25,7 +25,7 @@ describe("BulkActions", () => {
     render(<BulkActions {...baseProps()} />);
 
     expect((screen.getByLabelText("Score threshold") as HTMLInputElement).value).toBe("80");
-    expect(screen.getByRole("button", { name: /Accept.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Select.*2/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Reject.*1/ })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "GNN" })).toBeNull();
   });
@@ -34,7 +34,7 @@ describe("BulkActions", () => {
     const props = baseProps();
     render(<BulkActions {...props} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Accept/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Select/ }));
 
     expect(props.onRequest).toHaveBeenCalledWith("approve");
   });
@@ -87,7 +87,7 @@ describe("BulkActions", () => {
     );
 
     expect(
-      (screen.getByRole("button", { name: /Accept/ }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: /Select/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
     const confirmation = screen.getByRole("region", { name: /3 pending suggestions/ });
     expect(confirmation.textContent).toContain("Example site");

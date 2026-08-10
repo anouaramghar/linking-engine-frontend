@@ -3,82 +3,98 @@ interface Props {
   selected: number;
   /** Artifacts already approved by a person, waiting only for a job. */
   approvedPlans: number;
-  siteCount: number;
+  sites: {
+    id: number;
+    name: string;
+    selectedSuggestions: number;
+    approvedPlans: number;
+    canPublish?: boolean;
+  }[];
   busy: boolean;
-  /**
-   * The one site in view has no WordPress account, so preparing its edits cannot
-   * succeed. Said before the click, because the click costs a live request per
-   * source article and returns the same 401 for each of them.
-   */
-  cannotPublish?: boolean;
-  /** Only offered for a single site: approval is per exact edit, not per fleet. */
-  onReview?: () => void;
-  /** Retry for edits that were approved when the job could not be started. */
-  onQueueApproved?: () => void;
+  onReview: (siteId: number) => void;
+  onQueueApproved: (siteId: number) => void;
 }
 
 /**
- * Selecting happens on this page, so this is where the backlog has to be
- * visible — but selecting is not approving, and this banner no longer offers a
- * way to publish straight from it. The only route on is to look at the exact
- * edits for one site and approve them.
+ * Selecting happens on this page, so the next safe step stays attached to the
+ * selection. Exact approval is still per site, but the editor no longer has to
+ * change the queue filter to find the review action.
  */
 export default function PublishBanner({
   selected,
   approvedPlans,
-  siteCount,
+  sites,
   busy,
-  cannotPublish = false,
   onReview,
   onQueueApproved,
 }: Props) {
   if (selected === 0 && approvedPlans === 0) return null;
 
-  const noun = selected === 1 ? "suggestion" : "suggestions";
-  const scope = siteCount === 1 ? "1 site" : `${siteCount} sites`;
+  const reviewableSites = sites.filter(
+    (site) => site.selectedSuggestions > 0 && site.canPublish !== false,
+  );
+  const unavailableSites = sites.filter(
+    (site) => site.selectedSuggestions > 0 && site.canPublish === false,
+  );
 
   return (
-    // Raised on {colors.surface-strong} rather than tinted: the system carries
-    // no warning hue, and the ink pill beside it is already the loud part.
-    <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-strong px-4 py-3">
+    <div className="sticky top-0 z-20 mb-3 rounded-xl border border-hairline-strong bg-surface-strong px-4 py-3 shadow-soft sm:px-5">
       <div className="min-w-0 flex-1">
         <div className="text-body-sm font-medium text-ink">
-          {selected > 0
-            ? `${selected} selected ${noun} across ${scope} ${selected === 1 ? "is" : "are"} waiting for review`
-            : `${approvedPlans} approved ${approvedPlans === 1 ? "edit is" : "edits are"} waiting to be published`}
+          {selected > 0 ? (
+            <>
+              {selected} selected {selected === 1 ? "suggestion is" : "suggestions are"} ready for
+              exact-edit review
+            </>
+          ) : (
+            <>
+              {approvedPlans} approved {approvedPlans === 1 ? "edit is" : "edits are"} ready to queue
+            </>
+          )}
         </div>
         <div className="mt-1 text-caption text-body">
-          {cannotPublish
-            ? "This site has no WordPress account, so its exact edits cannot be prepared. Add an application password for a user who can edit posts."
-            : selected > 0
-              ? "Selected links are not live, and are not scheduled. Review the exact edits for a site and approve them to publish."
-              : "These exact edits were approved but no publish job is running for them yet."}
+          {selected > 0
+            ? "Review the exact change for each site before approving it. Selected links are not live or scheduled."
+            : "These exact edits were approved, but no publish job is running for them yet."}
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {approvedPlans > 0 && onQueueApproved && (
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline-strong pt-3">
+        {reviewableSites.map((site, index) => (
           <button
+            key={site.id}
             type="button"
-            onClick={onQueueApproved}
+            onClick={() => onReview(site.id)}
             disabled={busy}
-            className="btn btn-outline btn-sm"
+            aria-label={`Review ${site.name} ${site.selectedSuggestions} ${site.selectedSuggestions === 1 ? "link" : "links"}`}
+            className={`btn btn-sm ${index === 0 ? "btn-primary" : "btn-outline"}`}
           >
-            {busy ? "Queueing…" : "Queue approved edits"}
+            Review {site.name}
+            <span className="text-caption opacity-75">
+              {" "}
+              {site.selectedSuggestions} {site.selectedSuggestions === 1 ? "link" : "links"}
+            </span>
           </button>
-        )}
-        {cannotPublish ? (
-          // No button at all rather than a disabled one: the fix is not on this
-          // page, and a dead control invites the click the sentence just explained.
-          <span className="text-caption text-muted">Publication is unavailable</span>
-        ) : onReview ? (
-          <button type="button" onClick={onReview} disabled={busy} className="btn btn-primary btn-sm">
-            Review publication changes
-          </button>
-        ) : (
-          // Several sites have work. Approval names exact edits on exact
-          // articles, so there is nothing honest a fleet-wide button could do.
+        ))}
+
+        {sites
+          .filter((site) => site.approvedPlans > 0)
+          .map((site) => (
+            <button
+              key={`queue-${site.id}`}
+              type="button"
+              onClick={() => onQueueApproved(site.id)}
+              disabled={busy}
+              className="btn btn-outline btn-sm"
+            >
+              {busy ? "Queueing…" : `Queue approved edits · ${site.name}`}
+            </button>
+          ))}
+
+        {unavailableSites.length > 0 && (
           <span className="text-caption text-muted">
-            Filter to one site to review its changes
+            Publication unavailable for {unavailableSites.map((site) => site.name).join(", ")}. Connect
+            a WordPress account before reviewing.
           </span>
         )}
       </div>

@@ -87,7 +87,7 @@ function SuggestionCard({
         </button>
       </div>
       {/* Keep the decision column stable so row content never shifts when a
-          status badge or Undo action replaces Accept and Reject. */}
+          status badge or Undo action replaces Select and Reject. */}
       <div className="flex w-full flex-none flex-wrap items-center justify-end gap-2 lg:w-[220px]">
         {s.status === "pending" ? (
           <>
@@ -97,11 +97,11 @@ function SuggestionCard({
                 event.stopPropagation();
                 onAccept(s.id);
               }}
-              aria-label={`Accept suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+              aria-label={`Select suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
               disabled={actionsDisabled}
               className="btn btn-primary btn-sm"
             >
-              Accept
+              Select
             </button>
             <button
               type="button"

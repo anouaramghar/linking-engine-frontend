@@ -225,7 +225,7 @@ describe("bulk rule preview", () => {
     // editor asks to accept by it.
     expect(mocks.queueFilters?.minPercent).toBe(10);
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
 
     await waitFor(() => expect(mocks.queueFilters?.minPercent).toBe(80));
     expect(mocks.queueFilters?.status).toBe("pending");
@@ -245,7 +245,7 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue("/?min=10");
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
     await waitFor(() => expect(mocks.queueFilters?.minPercent).toBe(80));
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -257,8 +257,8 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue("/?q=hooks&origin=content_pool&unique=1");
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     expect(mocks.filteredBulkMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -276,13 +276,13 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
-    expect(screen.queryByRole("button", { name: "Confirm accept" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    expect(screen.queryByRole("button", { name: "Confirm selection" })).not.toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Target filter"), "content_pool");
 
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Confirm accept" })).toBeNull(),
+      expect(screen.queryByRole("button", { name: "Confirm selection" })).toBeNull(),
     );
   });
 

@@ -93,8 +93,8 @@ function Body({ placement }: Props) {
         <Highlighted context={data.placement_context} anchor={data.anchor_text} />
       </blockquote>
       <div className="mt-3 text-caption leading-normal text-muted">
-        Quoted from the source article. Accepting queues the link; it is not
-        written in-text yet.
+        Quoted from the source article. Selecting this suggestion starts the
+        review flow; it is not written in-text yet.
       </div>
     </>
   );

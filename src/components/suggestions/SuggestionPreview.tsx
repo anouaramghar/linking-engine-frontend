@@ -23,6 +23,7 @@ interface Props {
   onAccept: () => void;
   onReject: () => void;
   onUndo: () => void;
+  onReviewPublication?: () => void;
   actionsDisabled?: boolean;
 }
 
@@ -34,6 +35,7 @@ export default function SuggestionPreview({
   onAccept,
   onReject,
   onUndo,
+  onReviewPublication,
   actionsDisabled = false,
 }: Props) {
   const slug = s.target_article.url.replace(/^https?:\/\/[^/]+/, "") || s.target_article.url;
@@ -139,7 +141,7 @@ export default function SuggestionPreview({
             disabled={actionsDisabled}
             className="btn btn-primary flex-1"
           >
-            Accept & select for publication
+            Select for review
           </button>
           <button
             type="button"
@@ -151,21 +153,33 @@ export default function SuggestionPreview({
           </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex h-10 flex-1 items-center justify-center gap-2 rounded-pill bg-surface-strong px-4 text-caption-upper uppercase text-ink">
+        <div className="flex flex-col gap-2">
+          <div className="flex min-h-10 items-center justify-center gap-2 rounded-pill bg-surface-strong px-4 text-caption-upper uppercase text-ink">
             <span className={`dot ${STATUS_META[s.status].dot}`} />
             {STATUS_META[s.status].label}
           </div>
-          {isReversible(s.status) && (
-            <button
-              type="button"
-              onClick={onUndo}
-              disabled={actionsDisabled}
-              className="btn btn-outline"
-            >
-              Undo
-            </button>
-          )}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {s.status === "approved" && onReviewPublication && (
+              <button
+                type="button"
+                onClick={onReviewPublication}
+                disabled={actionsDisabled}
+                className="btn btn-primary flex-1"
+              >
+                Review exact edit
+              </button>
+            )}
+            {isReversible(s.status) && (
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={actionsDisabled}
+                className="btn btn-outline"
+              >
+                Undo
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -183,7 +197,7 @@ export default function SuggestionPreview({
 
       {s.status === "pending" && (
         <div className="mt-3 text-caption leading-normal text-muted">
-          Accepting selects this suggestion. It is not queued and not scheduled —
+          Selecting this suggestion adds it to the review tray. It is not queued and not scheduled —
           the exact edit it produces still has to be reviewed and approved.
         </div>
       )}

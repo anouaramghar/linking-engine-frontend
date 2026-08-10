@@ -51,10 +51,9 @@ export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
  */
 export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string }> = {
   pending: { label: "Pending review", dot: "bg-muted-soft" },
-  // "Selected", not "Queued for publish": the wire value stays `approved`, but
-  // nothing is queued and nothing will be published until the exact edit this
-  // row belongs to has been prepared and approved by a person.
-  approved: { label: "Selected", dot: "bg-primary" },
+  // The wire value stays `approved`, but the editor still has to approve the
+  // exact publication edit before anything is queued or written to the site.
+  approved: { label: "Selected for review", dot: "bg-primary" },
   rejected: { label: "Rejected", dot: "bg-error" },
   applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
   applied: { label: "Published live", dot: "bg-success" },
@@ -71,7 +70,7 @@ export const isReversible = (status: SuggestionStatus) =>
   status === "approved" || status === "rejected" || status === "failed";
 
 export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
-  approved: "Selected for publication. Not scheduled and not live until its exact edit is approved.",
+  approved: "Selected for review. Not scheduled and not live until its exact edit is approved.",
   applying: "Publishing is in progress.",
   applied: "Published to the live article.",
   failed: "Publishing failed repeatedly and stopped retrying. Undo to try again.",

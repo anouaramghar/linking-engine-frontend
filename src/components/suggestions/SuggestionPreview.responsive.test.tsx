@@ -140,7 +140,7 @@ describe("overlaying the list", () => {
 
     expect(screen.getByText("Source")).not.toBeNull();
     expect(screen.getByText("Target")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Accept & select for publication" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Select for review" })).not.toBeNull();
   });
 
   it("owns Escape, because the page shortcuts stand down inside a dialog", () => {

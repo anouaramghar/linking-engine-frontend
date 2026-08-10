@@ -67,7 +67,7 @@ import type {
 
 const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "pending", label: "Pending review" },
-  { key: "approved", label: "Selected" },
+  { key: "approved", label: "Selected for review" },
   { key: "applying", label: "Publishing" },
   { key: "applied", label: "Published live" },
   { key: "failed", label: "Publishing failed" },
@@ -590,7 +590,7 @@ export default function ValidationPage() {
     if (queueUpdating || confirmation || actionMutationPending) return;
     const message =
       status === "approved"
-        ? "1 suggestion selected for preparation."
+        ? "1 suggestion selected for exact-edit review."
         : "1 suggestion rejected.";
     // Deliberate tri-state: undefined leaves a non-cursor selection alone;
     // null clears a cursor whose removed row has no successor.
@@ -689,7 +689,7 @@ export default function ValidationPage() {
     const status = approving ? "approved" : "rejected";
     const describe = (count: number) =>
       approving
-        ? `${count} ${plural(count)} selected for preparation.`
+        ? `${count} ${plural(count)} selected for exact-edit review.`
         : `${count} ${plural(count)} rejected.`;
     setNotice(null);
     focusAfterReview.current = "main";
@@ -743,7 +743,16 @@ export default function ValidationPage() {
     : (pendingPublicationQuery.data ?? []).filter(
         (entry) => siteFilter === 0 || entry.site_id === siteFilter,
       );
-  const awaitingPublish = pendingPublication.map((entry) => entry.site_id);
+  const publicationSites = pendingPublication.map((entry) => ({
+    id: entry.site_id,
+    name: siteName(entry.site_id),
+    selectedSuggestions: entry.selected_suggestions,
+    approvedPlans: entry.approved_plans,
+    canPublish: entry.can_publish,
+  }));
+  const reviewablePublicationSites = publicationSites.filter(
+    (site) => site.selectedSuggestions > 0 && site.canPublish !== false,
+  );
   const selectedCount = pendingPublication.reduce(
     (total, entry) => total + entry.selected_suggestions,
     0,
@@ -752,11 +761,6 @@ export default function ValidationPage() {
     (total, entry) => total + entry.approved_plans,
     0,
   );
-  // A site with no WordPress account cannot be prepared at all: every source
-  // article would be one live request answered with the same 401. Only meaningful
-  // for a single site, which is the only shape that offers a review button.
-  const cannotPublish =
-    pendingPublication.length === 1 && pendingPublication[0].can_publish === false;
   const publishBusy = approvePlans.isPending || queuePlans.isPending;
 
   /**
@@ -851,6 +855,16 @@ export default function ValidationPage() {
 
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
+
+  const selectedCanOpenPublicationReview = Boolean(
+    selected &&
+      publicationSites.some(
+        (site) =>
+          site.id === selected.site_id &&
+          site.selectedSuggestions > 0 &&
+          site.canPublish !== false,
+      ),
+  );
 
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.
@@ -1095,18 +1109,11 @@ export default function ValidationPage() {
           <PublishBanner
             selected={selectedCount}
             approvedPlans={approvedPlanCount}
-            siteCount={awaitingPublish.length}
+            sites={publicationSites}
             busy={publishBusy}
-            cannotPublish={cannotPublish}
-            onReview={
-              awaitingPublish.length === 1 && !publicationUnavailable && !cannotPublish
-                ? () => openPublicationReview(awaitingPublish[0])
-                : undefined
-            }
-            onQueueApproved={
-              awaitingPublish.length === 1 && !publicationUnavailable
-                ? () => queueApproved(awaitingPublish[0])
-                : undefined
+            onReview={openPublicationReview}
+            onQueueApproved={(siteId) =>
+              queueApproved(siteId, approvedNotQueued.get(siteId))
             }
           />
 
@@ -1310,12 +1317,20 @@ export default function ValidationPage() {
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}
             onUndo={() => undo([selected.id])}
+            onReviewPublication={
+              selectedCanOpenPublicationReview
+                ? () => openPublicationReview(selected.site_id)
+                : undefined
+            }
           />
         )}
 
         {previewSiteId !== null && (
           <PublicationPreviewModal
             siteName={siteName(previewSiteId)}
+            siteOptions={reviewablePublicationSites}
+            activeSiteId={previewSiteId}
+            onSiteChange={openPublicationReview}
             data={preparePlans.data}
             loading={preparePlans.isPending}
             error={preparePlans.isError}
