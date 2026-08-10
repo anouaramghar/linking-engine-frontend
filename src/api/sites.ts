@@ -7,6 +7,8 @@ import type {
   ExternalLinkPolicy,
   ExternalLinkPolicyUpdate,
   ExternalSourceEvaluation,
+  EditorialRankingPolicy,
+  EditorialRankingPolicyUpdate,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -90,3 +92,19 @@ export const listExternalSourceEvaluations = (siteId: number) =>
       `/sites/${siteId}/external-link-policy/sources`,
     )
     .then((r) => r.data.items);
+
+export const getEditorialRankingPolicy = (siteId: number) =>
+  api
+    .get<EditorialRankingPolicy>(`/sites/${siteId}/editorial-ranking-policy`)
+    .then((response) => response.data);
+
+export const updateEditorialRankingPolicy = ({
+  siteId,
+  policy,
+}: {
+  siteId: number;
+  policy: EditorialRankingPolicyUpdate;
+}) =>
+  api
+    .put<EditorialRankingPolicy>(`/sites/${siteId}/editorial-ranking-policy`, policy)
+    .then((response) => response.data);

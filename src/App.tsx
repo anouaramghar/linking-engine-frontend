@@ -7,12 +7,14 @@ import EvaluationPage from "./pages/EvaluationPage";
 import ContentPoolPage from "./pages/ContentPoolPage";
 import SitesPage from "./pages/SitesPage";
 import ValidationPage from "./pages/ValidationPage";
+import TraceabilityPage from "./pages/TraceabilityPage";
 
 const NAV = [
   { to: "/queue", label: "Review queue" },
   { to: "/sites", label: "Sites" },
   { to: "/content-pool", label: "Content Pool" },
   { to: "/evaluation", label: "Evaluation" },
+  { to: "/traceability", label: "Traceability" },
 ];
 
 function Brand() {
@@ -42,7 +44,7 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
   return (
     <nav
       aria-label={mobile ? "Mobile navigation" : "Primary navigation"}
-      className={mobile ? "grid grid-cols-4 gap-1 px-2 pb-2" : "flex flex-col gap-1"}
+      className={mobile ? "grid grid-cols-5 gap-1 px-2 pb-2" : "flex flex-col gap-1"}
     >
       {NAV.map((item) => (
         <NavLink
@@ -65,6 +67,8 @@ function PrimaryNavigation({ pending, mobile = false }: { pending: number; mobil
                   ? "Queue"
                   : mobile && item.to === "/content-pool"
                     ? "Pool"
+                    : mobile && item.to === "/traceability"
+                      ? "Trace"
                     : item.label}
               </span>
               {item.to === "/queue" && pending > 0 && (
@@ -175,6 +179,7 @@ export default function App() {
           <Route path="/sites" element={<SitesPage />} />
           <Route path="/content-pool" element={<ContentPoolPage />} />
           <Route path="/evaluation" element={<EvaluationPage />} />
+          <Route path="/traceability" element={<TraceabilityPage />} />
           <Route path="*" element={<Navigate to="/queue" replace />} />
         </Routes>
       </main>

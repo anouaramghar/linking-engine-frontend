@@ -76,6 +76,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       rejected: 0,
       applying: 0,
       applied: 0,
+      failed: 0,
       expired: 0,
       total: 1,
     },
@@ -90,6 +91,8 @@ vi.mock("../hooks/useSuggestions", () => ({
     mutate: mocks.filteredBulkMutate,
     isPending: false,
   }),
+  useFilteredBulkUndo: () => ({ mutate: vi.fn(), isPending: false }),
+  useAllFilteredSuggestionIds: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("../hooks/useSites", () => ({

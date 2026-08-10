@@ -31,6 +31,10 @@ const mocks = vi.hoisted(() => ({
     variables: undefined as { siteId: number } | undefined,
     mutateAsync: vi.fn(),
   },
+  cancelBatch: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -50,6 +54,7 @@ vi.mock("../hooks/usePipeline", () => ({
   },
   useCreatePipelineBatch: () => mocks.createBatch,
   useRetryPipelineSite: () => mocks.retryBatch,
+  useCancelPipelineBatch: () => mocks.cancelBatch,
 }));
 
 beforeEach(() => {
@@ -71,6 +76,8 @@ beforeEach(() => {
   mocks.createBatch.mutateAsync.mockReset();
   Object.assign(mocks.retryBatch, { isPending: false, variables: undefined });
   mocks.retryBatch.mutateAsync.mockReset();
+  Object.assign(mocks.cancelBatch, { isPending: false });
+  mocks.cancelBatch.mutateAsync.mockReset();
   window.history.replaceState({}, "", "/sites");
 });
 

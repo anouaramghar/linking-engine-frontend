@@ -19,6 +19,7 @@ const EVENT_LABEL: Record<string, string> = {
   reviewed: "Reviewed",
   restored: "Restored to pending",
   publishing: "Publishing started",
+  publish_attempt_failed: "Publishing attempt failed",
   applied: "Published",
   failed: "Publishing failed",
   expired: "Expired",
@@ -37,6 +38,12 @@ const eventLabel = (event: SuggestionEvent) => {
 const eventDetail = (event: SuggestionEvent) => {
   const outcome = event.details.publish_outcome;
   if (typeof outcome === "string") return `Outcome: ${outcome.replaceAll("_", " ")}`;
+  if (event.event_type === "publish_attempt_failed") {
+    const attempt = event.details.attempt;
+    const reason = event.details.reason;
+    const prefix = typeof attempt === "number" ? `Attempt ${attempt}: ` : "";
+    return typeof reason === "string" ? `${prefix}${reason}` : null;
+  }
   const toStatus = event.details.to_status;
   if (typeof toStatus === "string" && event.event_type === "status_changed") {
     return `Status: ${toStatus.replaceAll("_", " ")}`;

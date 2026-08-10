@@ -20,6 +20,7 @@ const batch: PipelineBatch = {
   active: 0,
   succeeded: 1,
   failed: 1,
+  cancelled: 0,
   created_at: "2026-08-04T08:00:00Z",
   started_at: "2026-08-04T08:00:01Z",
   finished_at: "2026-08-04T08:01:00Z",
@@ -62,6 +63,8 @@ it("shows progress, errors, retry, and the filtered suggestions link", () => {
         sites={sites}
         retryingSiteId={null}
         onRetry={retry}
+        cancelling={false}
+        onCancel={vi.fn()}
       />
     </MemoryRouter>,
   );

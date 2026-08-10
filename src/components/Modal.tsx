@@ -8,9 +8,18 @@ interface Props {
   children: React.ReactNode;
   /** Sizing and layout for the panel; the chrome is owned by this component. */
   panelClassName?: string;
+  role?: "dialog" | "alertdialog";
+  ariaLabel?: string;
 }
 
-export default function Modal({ title, onClose, children, panelClassName = "" }: Props) {
+export default function Modal({
+  title,
+  onClose,
+  children,
+  panelClassName = "",
+  role = "dialog",
+  ariaLabel,
+}: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -27,9 +36,10 @@ export default function Modal({ title, onClose, children, panelClassName = "" }:
     >
       <div
         ref={panel}
-        role="dialog"
+        role={role}
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabel ? undefined : titleId}
         tabIndex={-1}
         onKeyDown={onKeyDown}
         className={`flex max-h-[85vh] w-full flex-col rounded-xl border border-hairline bg-canvas-soft p-5 focus:outline-none sm:p-8 ${panelClassName}`}

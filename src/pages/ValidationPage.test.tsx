@@ -33,7 +33,9 @@ const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
+  allFilteredMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
+  filteredUndoMutate: vi.fn(),
   publishMutate: vi.fn(),
   /** Ids the engine reports it could not review, as a live publish would. */
   bulkSkipped: [] as number[],
@@ -128,8 +130,16 @@ vi.mock("../hooks/useSuggestions", () => ({
   },
   useReview: () => ({ mutate: mocks.reviewMutate }),
   useBulkReview: () => ({ mutate: mocks.bulkMutate, isPending: false }),
+  useAllFilteredSuggestionIds: () => ({
+    mutate: mocks.allFilteredMutate,
+    isPending: false,
+  }),
   useFilteredBulkReview: () => ({
     mutate: mocks.filteredBulkMutate,
+    isPending: false,
+  }),
+  useFilteredBulkUndo: () => ({
+    mutate: mocks.filteredUndoMutate,
     isPending: false,
   }),
 }));
@@ -190,7 +200,9 @@ beforeEach(() => {
   );
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
+  mocks.allFilteredMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
+  mocks.filteredUndoMutate.mockReset();
   mocks.publishMutate.mockReset();
   mocks.bulkSkipped = [];
   mocks.filteredReviewedIds = undefined;
@@ -215,6 +227,13 @@ beforeEach(() => {
         status: variables.status,
       });
     },
+  );
+  mocks.allFilteredMutate.mockImplementation((_filters, options) =>
+    options?.onSuccess?.(
+      mocks.suggestions
+        .filter((item) => item.status === "pending")
+        .map((item) => item.id),
+    ),
   );
   mocks.filteredBulkMutate.mockImplementation(
     (
@@ -252,9 +271,18 @@ beforeEach(() => {
           targets.length - mocks.bulkSkipped.length,
         skipped: mocks.bulkSkipped.length,
         reviewed_ids: reviewedIds,
+        undo_operation_id: "operation-1",
         status: variables.status,
       });
     },
+  );
+  mocks.filteredUndoMutate.mockImplementation((_operationId, options) =>
+    options?.onSuccess?.({
+      restored: mocks.filteredReviewedCount ?? 0,
+      skipped: 0,
+      status: "pending",
+      already_undone: false,
+    }),
   );
   mocks.sitesQuery = query();
   mocks.suggestionsQuery = query();
@@ -575,7 +603,7 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
   });
 
-  it("refetches a large rule result without offering impossible undo", async () => {
+  it("offers exact server-side undo for a rule larger than one API page", async () => {
     const user = userEvent.setup();
     mocks.suggestions.splice(
       0,
@@ -590,14 +618,21 @@ describe("ValidationPage live review state", () => {
 
     await user.click(screen.getByRole("button", { name: /Accept.*1001/ }));
     expect(screen.getByRole("alertdialog").textContent).toContain(
-      "too large to undo in one step",
+      "The decision can be undone",
     );
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     expect(screen.getByRole("status").textContent).toContain(
-      "This change was too large to undo in one step",
+      "exact server-side cohort can be undone in one step",
     );
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(mocks.filteredUndoMutate).toHaveBeenCalledWith(
+      "operation-1",
+      expect.any(Object),
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "1001 suggestions restored to pending review",
+    );
   });
 
   it("never targets suggestions hidden by the active status filter", async () => {

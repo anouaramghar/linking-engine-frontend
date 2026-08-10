@@ -5,7 +5,6 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { BulkReviewChunkError } from "../api/suggestions";
-import { ENGINE_PAGE_LIMIT } from "../api/engineLimits";
 import type {
   SuggestionCounts,
   SuggestionQueueFilters,
@@ -19,6 +18,8 @@ import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import SelectionActions from "../components/suggestions/SelectionActions";
 import type { SelectionConfirmation } from "../components/suggestions/SelectionActions";
+import BulkRecoveryPanel from "../components/suggestions/BulkRecoveryPanel";
+import type { BulkRecovery } from "../components/suggestions/BulkRecoveryPanel";
 import PublishBanner from "../components/suggestions/PublishBanner";
 import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
 import { useIncrementalList } from "../hooks/useIncrementalList";
@@ -34,7 +35,9 @@ import {
 } from "../hooks/useQueueShortcuts";
 import {
   useBulkReview,
+  useAllFilteredSuggestionIds,
   useFilteredBulkReview,
+  useFilteredBulkUndo,
   usePlacement,
   useReview,
   useSuggestionCounts,
@@ -75,8 +78,8 @@ const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
 ];
 
 interface BatchFailure {
-  failed: number;
-  notAttempted: number;
+  failedIds: number[];
+  notAttemptedIds: number[];
 }
 
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
@@ -141,6 +144,8 @@ export default function ValidationPage() {
   const [selectionConfirmation, setSelectionConfirmation] =
     useState<SelectionConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [bulkRecovery, setBulkRecovery] = useState<BulkRecovery | null>(null);
+  const [selectedAllFilterKey, setSelectedAllFilterKey] = useState<string | null>(null);
   const [previewSiteId, setPreviewSiteId] = useState<number | null>(null);
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
@@ -222,6 +227,8 @@ export default function ValidationPage() {
   const review = useReview();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
+  const filteredUndo = useFilteredBulkUndo();
+  const allFilteredIds = useAllFilteredSuggestionIds();
   const publish = usePublishSites();
 
   // The suggestions query stays disabled until sites arrive, so it reports
@@ -257,12 +264,18 @@ export default function ValidationPage() {
   // disappears from the selection as soon as the server or a local override
   // says it is no longer pending.
   const activeSelectedSuggestionIds = useMemo(() => {
-    const reviewable = new Set(
-      resolvedSuggestions
-        .filter((suggestion) => suggestion.status === "pending")
-        .map((suggestion) => suggestion.id),
+    const loaded = new Map(
+      resolvedSuggestions.map((suggestion) => [suggestion.id, suggestion.status]),
     );
-    return new Set([...selectedSuggestionIds].filter((id) => reviewable.has(id)));
+    return new Set(
+      [...selectedSuggestionIds].filter((id) => {
+        const status = loaded.get(id);
+        // An id loaded specifically by "select all filtered" may not be in the
+        // incremental render cache yet. Keep it until a server response says it
+        // is no longer pending.
+        return status === undefined || status === "pending";
+      }),
+    );
   }, [resolvedSuggestions, selectedSuggestionIds]);
 
   const suggestions = useMemo(
@@ -348,11 +361,13 @@ export default function ValidationPage() {
     // The ids shown in a confirmation are a snapshot. Any selection change
     // invalidates it so the editor can never confirm a different set by accident.
     setSelectionConfirmation(null);
+    setSelectedAllFilterKey(null);
   }, []);
 
   const clearSuggestionSelection = useCallback(() => {
     setSelectedSuggestionIds(new Set());
     setSelectionConfirmation(null);
+    setSelectedAllFilterKey(null);
   }, []);
 
   const removeSelectedSuggestionIds = useCallback((ids: number[]) => {
@@ -374,6 +389,7 @@ export default function ValidationPage() {
       return next;
     });
     setSelectionConfirmation(null);
+    setSelectedAllFilterKey(null);
   };
 
   // Names are looked up per rendered row, so the linear scan is hoisted into a
@@ -429,6 +445,41 @@ export default function ValidationPage() {
   const rejectCount = rejectCounts.pending;
   const queueTotal =
     effectiveStatus === "all" ? scopedCounts.total : scopedCounts[effectiveStatus];
+  const filteredSelectableCount =
+    effectiveStatus === "pending" || effectiveStatus === "all" ? scopedCounts.pending : 0;
+  const selectionFilters = useMemo<SuggestionQueueFilters>(
+    () => ({ ...scope, ...scoreWindow, status: "pending" }),
+    [scope, scoreWindow],
+  );
+  const selectionFilterKey = JSON.stringify(selectionFilters);
+  const allFilteredSelected =
+    selectedAllFilterKey === selectionFilterKey &&
+    activeSelectedSuggestionIds.size === filteredSelectableCount &&
+    filteredSelectableCount > 0;
+
+  const toggleFilteredSelection = () => {
+    if (allFilteredSelected) {
+      clearSuggestionSelection();
+      return;
+    }
+    setNotice(null);
+    allFilteredIds.mutate(selectionFilters, {
+      onSuccess: (ids) => {
+        setSelectedSuggestionIds(new Set(ids));
+        setSelectedAllFilterKey(selectionFilterKey);
+        setSelectionConfirmation(null);
+        setNotice({
+          message: `${ids.length} filtered ${plural(ids.length)} selected.`,
+          tone: "info",
+        });
+      },
+      onError: () =>
+        setNotice({
+          message: "All filtered suggestions could not be selected. Please try again.",
+          tone: "error",
+        }),
+    });
+  };
 
   const applyStatuses = (ids: number[], status: ReviewStatus, notice: NoticeState) => {
     if (status !== "pending") removeSelectedSuggestionIds(ids);
@@ -478,8 +529,8 @@ export default function ValidationPage() {
     const failureMessage = failure
       ? [
           `${confirmedCount} ${confirmedCount === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
-          `${failure.failed} ${plural(failure.failed)} in the failed request could not be confirmed.`,
-          `${failure.notAttempted} later ${plural(failure.notAttempted)} ${failure.notAttempted === 1 ? "was" : "were"} not attempted.`,
+          `${failure.failedIds.length} ${plural(failure.failedIds.length)} in the failed request could not be confirmed.`,
+          `${failure.notAttemptedIds.length} later ${plural(failure.notAttemptedIds.length)} ${failure.notAttemptedIds.length === 1 ? "was" : "were"} not attempted.`,
         ].join(" ")
       : "";
     const legacyMessage = unknownIdCount
@@ -529,18 +580,89 @@ export default function ValidationPage() {
     describe: (count: number) => string,
   ) => {
     if (!(error instanceof BulkReviewChunkError)) return false;
+    const recovery = {
+      status,
+      failedIds: error.failedIds,
+      notAttemptedIds: error.notAttemptedIds,
+    } satisfies BulkRecovery;
+    setBulkRecovery(recovery);
     applyBatch(
       error.completed.reviewed,
       status,
       error.completed.skipped,
       describe,
       {
-        failed: error.failedIds.length,
-        notAttempted: error.notAttemptedIds.length,
+        failedIds: error.failedIds,
+        notAttemptedIds: error.notAttemptedIds,
       },
       error.completed.reviewedCount,
     );
     return true;
+  };
+
+  const runRecovery = (ids: number[], preserve: BulkRecovery) => {
+    if (!ids.length) return;
+    setNotice(null);
+    bulkReview.mutate(
+      { ids, status: preserve.status },
+      {
+        onSuccess: ({ reviewed, reviewedCount, skipped }) => {
+          removeSelectedSuggestionIds(ids);
+          const next = {
+            ...preserve,
+            failedIds: preserve.failedIds.filter((id) => !ids.includes(id)),
+            notAttemptedIds: preserve.notAttemptedIds.filter((id) => !ids.includes(id)),
+          };
+          setBulkRecovery(
+            next.failedIds.length || next.notAttemptedIds.length ? next : null,
+          );
+          applyBatch(
+            reviewed,
+            preserve.status,
+            skipped,
+            (count) => `${count} retried ${plural(count)} saved.`,
+            undefined,
+            reviewedCount,
+          );
+        },
+        onError: (error) => {
+          if (!(error instanceof BulkReviewChunkError)) {
+            setNotice({
+              message: "The recovery request failed. The exact IDs remain below.",
+              tone: "error",
+            });
+            return;
+          }
+          const untouchedFailed = preserve.failedIds.filter((id) => !ids.includes(id));
+          const untouchedLater = preserve.notAttemptedIds.filter((id) => !ids.includes(id));
+          const next = {
+            status: preserve.status,
+            failedIds: [...untouchedFailed, ...error.failedIds],
+            notAttemptedIds: [...untouchedLater, ...error.notAttemptedIds],
+          } satisfies BulkRecovery;
+          setBulkRecovery(next);
+          applyBatch(
+            error.completed.reviewed,
+            preserve.status,
+            error.completed.skipped,
+            (count) => `${count} retried ${plural(count)} saved.`,
+            {
+              failedIds: error.failedIds,
+              notAttemptedIds: error.notAttemptedIds,
+            },
+            error.completed.reviewedCount,
+          );
+        },
+      },
+    );
+  };
+
+  const retryFailedOnly = () => {
+    if (bulkRecovery) runRecovery(bulkRecovery.failedIds, bulkRecovery);
+  };
+
+  const continueNotAttempted = () => {
+    if (bulkRecovery) runRecovery(bulkRecovery.notAttemptedIds, bulkRecovery);
   };
 
   /**
@@ -641,7 +763,7 @@ export default function ValidationPage() {
       count,
       threshold,
       siteLabel: siteFilter === 0 ? "All sites" : siteName(siteFilter),
-      undoAvailable: count <= ENGINE_PAGE_LIMIT,
+      undoAvailable: true,
     });
     setSelectionConfirmation(null);
   };
@@ -667,7 +789,12 @@ export default function ValidationPage() {
         thresholdPercent: confirmation.threshold,
       },
       {
-        onSuccess: ({ reviewed, skipped, reviewed_ids: reviewedIds }) => {
+        onSuccess: ({
+          reviewed,
+          skipped,
+          reviewed_ids: reviewedIds,
+          undo_operation_id: undoOperationId,
+        }) => {
           if (reviewedIds !== null) {
             applyBatch(reviewedIds, status, skipped, describe);
             return;
@@ -679,11 +806,12 @@ export default function ValidationPage() {
               skipped
                 ? `${skipped} ${plural(skipped)} could not be changed because publishing had already claimed them or they had expired.`
                 : "",
-              "This change was too large to undo in one step. The queue has been refreshed.",
+              "The exact server-side cohort can be undone in one step.",
             ]
               .filter(Boolean)
               .join(" "),
             tone: skipped ? "error" : "info",
+            ...(undoOperationId ? { undoOperationId } : {}),
           });
         },
         onError: () =>
@@ -693,6 +821,32 @@ export default function ValidationPage() {
           }),
       },
     );
+  };
+
+  const undoFiltered = (operationId: string) => {
+    setNotice(null);
+    filteredUndo.mutate(operationId, {
+      onSuccess: ({ restored, skipped }) => {
+        setSelectedId(null);
+        setNotice({
+          message: [
+            `${restored} ${plural(restored)} restored to pending review.`,
+            skipped
+              ? `${skipped} ${plural(skipped)} had changed or entered publishing and were left untouched.`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          tone: skipped ? "error" : "info",
+        });
+      },
+      onError: () =>
+        setNotice({
+          message: "That filtered bulk undo could not be saved. Please try again.",
+          tone: "error",
+          undoOperationId: operationId,
+        }),
+    });
   };
 
   const requestSelectedReview = (action: BulkReviewAction) => {
@@ -952,8 +1106,28 @@ export default function ValidationPage() {
             <Notice
               notice={notice}
               onDismiss={() => setNotice(null)}
-              onUndo={notice.undoIds ? () => undo(notice.undoIds!) : undefined}
-              undoPending={bulkReview.isPending || filteredReview.isPending}
+              onUndo={
+                notice.undoIds
+                  ? () => undo(notice.undoIds!)
+                  : notice.undoOperationId
+                    ? () => undoFiltered(notice.undoOperationId!)
+                    : undefined
+              }
+              undoPending={
+                bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending
+              }
+              onRetry={bulkRecovery?.failedIds.length ? retryFailedOnly : undefined}
+              retryPending={bulkReview.isPending}
+            />
+          )}
+
+          {bulkRecovery && (
+            <BulkRecoveryPanel
+              recovery={bulkRecovery}
+              busy={bulkReview.isPending}
+              onRetryFailed={retryFailedOnly}
+              onContinue={continueNotAttempted}
+              onDismiss={() => setBulkRecovery(null)}
             />
           )}
 
@@ -961,10 +1135,14 @@ export default function ValidationPage() {
             <SelectionActions
               selectedCount={activeSelectedSuggestionIds.size}
               visibleCount={selectableVisibleIds.length}
+              filteredCount={filteredSelectableCount}
               allVisibleSelected={allVisibleSelected}
+              allFilteredSelected={allFilteredSelected}
+              loadingFiltered={allFilteredIds.isPending}
               confirmation={selectionConfirmation}
-              busy={bulkReview.isPending}
+              busy={bulkReview.isPending || allFilteredIds.isPending}
               onToggleVisible={toggleVisibleSelection}
+              onToggleFiltered={toggleFilteredSelection}
               onClear={clearSuggestionSelection}
               onRequest={requestSelectedReview}
               onConfirm={confirmSelectedReview}

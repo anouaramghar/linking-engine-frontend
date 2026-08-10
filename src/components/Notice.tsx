@@ -7,6 +7,8 @@ export interface NoticeState {
   tone: NoticeTone;
   /** Suggestions this notice can walk back, when the action is reversible. */
   undoIds?: number[];
+  /** Server-side cohort used when a filtered operation is too large to return IDs. */
+  undoOperationId?: string;
 }
 
 /**
@@ -29,10 +31,20 @@ interface Props {
   onDismiss: () => void;
   onUndo?: () => void;
   undoPending?: boolean;
+  onRetry?: () => void;
+  retryPending?: boolean;
 }
 
-export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props) {
-  const canUndo = !!onUndo && !!notice.undoIds?.length;
+export default function Notice({
+  notice,
+  onDismiss,
+  onUndo,
+  undoPending,
+  onRetry,
+  retryPending,
+}: Props) {
+  const canUndo =
+    !!onUndo && (!!notice.undoIds?.length || !!notice.undoOperationId);
 
   // Held in a ref so an inline parent callback can't restart the countdown on
   // every re-render — the timer belongs to this notice, not to this render.
@@ -65,6 +77,16 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
           className="inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
         >
           {undoPending ? "Undoing…" : "Undo"}
+        </button>
+      )}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retryPending}
+          className="inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
+        >
+          {retryPending ? "Retrying…" : "Retry failed only"}
         </button>
       )}
       <button

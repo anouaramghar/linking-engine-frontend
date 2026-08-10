@@ -48,4 +48,18 @@ describe("Notice toast", () => {
 
     expect(screen.getByRole("alert").className).toContain("bg-error");
   });
+
+  it("offers a retry for a recoverable failed operation", async () => {
+    const onRetry = vi.fn();
+    render(
+      <Notice
+        notice={{ message: "Some suggestions failed.", tone: "error" }}
+        onDismiss={vi.fn()}
+        onRetry={onRetry}
+      />,
+    );
+
+    screen.getByRole("button", { name: "Retry failed only" }).click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });

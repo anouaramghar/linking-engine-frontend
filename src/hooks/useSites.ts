@@ -7,13 +7,15 @@ import {
   deleteSite,
   listPoolAuditEvents,
   getExternalLinkPolicy,
+  getEditorialRankingPolicy,
   listExternalSourceEvaluations,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
   updateExternalLinkPolicy,
+  updateEditorialRankingPolicy,
 } from "../api/sites";
-import type { ExternalLinkPolicyUpdate } from "../types/site";
+import type { EditorialRankingPolicyUpdate, ExternalLinkPolicyUpdate } from "../types/site";
 
 export const useSites = () => useQuery({ queryKey: ["sites"], queryFn: listSites });
 
@@ -83,6 +85,25 @@ export const useUpdateExternalLinkPolicy = (siteId: number) => {
       void qc.invalidateQueries({ queryKey: ["external-link-policy", siteId] });
       void qc.invalidateQueries({ queryKey: ["suggestions"] });
       void qc.invalidateQueries({ queryKey: ["suggestion-counts"] });
+    },
+  });
+};
+
+export const useEditorialRankingPolicy = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["editorial-ranking-policy", siteId],
+    queryFn: () => getEditorialRankingPolicy(siteId!),
+    enabled: siteId !== null,
+  });
+
+export const useUpdateEditorialRankingPolicy = (siteId: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (policy: EditorialRankingPolicyUpdate) =>
+      updateEditorialRankingPolicy({ siteId, policy }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["editorial-ranking-policy", siteId] });
+      void qc.invalidateQueries({ queryKey: ["sites"] });
     },
   });
 };

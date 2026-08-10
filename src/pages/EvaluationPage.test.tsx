@@ -102,6 +102,18 @@ const metrics: EvaluationMetrics = {
       average_semantic_score: 0.76,
     },
   ],
+  score_ranges: [
+    {
+      label: "80-89%",
+      minimum: 80,
+      maximum: 89,
+      suggestions: 40,
+      pending: 10,
+      accepted: 24,
+      rejected: 6,
+      acceptance_rate: 0.8,
+    },
+  ],
   sites: [
     {
       site_id: 1,

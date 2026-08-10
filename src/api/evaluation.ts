@@ -60,6 +60,17 @@ export interface MethodMetrics {
   average_semantic_score: number | null;
 }
 
+export interface ScoreRangeMetrics {
+  label: string;
+  minimum: number;
+  maximum: number;
+  suggestions: number;
+  pending: number;
+  accepted: number;
+  rejected: number;
+  acceptance_rate: number | null;
+}
+
 export interface SiteEvaluationMetrics {
   site_id: number;
   site_name: string;
@@ -109,6 +120,7 @@ export interface EvaluationMetrics {
   trend: EvaluationTrendPoint[];
   orphan_trend: OrphanTrendPoint[];
   methods: MethodMetrics[];
+  score_ranges: ScoreRangeMetrics[];
   sites: SiteEvaluationMetrics[];
 }
 

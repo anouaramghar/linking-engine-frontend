@@ -27,7 +27,21 @@ export interface Site {
   pool_source_last_reactivated_at?: string | null;
   pool_source_last_reactivated_by?: string | null;
   domain_registered_at?: string | null;
+  editorial_feedback_enabled?: boolean;
+  editorial_min_score_percent?: number;
+  editorial_feedback_weight?: number;
+  editorial_feedback_min_samples?: number;
 }
+
+export interface EditorialRankingPolicy {
+  site_id: number;
+  enabled: boolean;
+  min_score_percent: number;
+  feedback_weight: number;
+  min_samples: number;
+}
+
+export type EditorialRankingPolicyUpdate = Omit<EditorialRankingPolicy, "site_id">;
 
 export interface PoolAuditEvent {
   id: number;

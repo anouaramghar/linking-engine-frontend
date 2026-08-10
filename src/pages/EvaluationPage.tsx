@@ -7,6 +7,7 @@ import {
   type EvaluationMetric,
   type EvaluationMetrics,
   type MethodMetrics,
+  type ScoreRangeMetrics,
 } from "../api/evaluation";
 import EvaluationDrilldown from "../components/evaluation/EvaluationDrilldown";
 import {
@@ -243,6 +244,43 @@ function MethodComparison({ methods }: { methods: MethodMetrics[] }) {
   );
 }
 
+function ScoreRangePerformance({ ranges }: { ranges: ScoreRangeMetrics[] }) {
+  return (
+    <section className="card mt-4 overflow-hidden">
+      <div className="border-b border-hairline px-4 py-4 sm:px-6">
+        <h2 className="font-serif text-display-sm text-ink">Editor acceptance by semantic score</h2>
+        <p className="mt-1 text-caption leading-normal text-muted">
+          Real accepted and rejected decisions grouped by the score editors saw.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[620px] text-left">
+          <thead className="bg-surface-strong text-caption text-muted">
+            <tr>
+              <th className="px-4 py-3 font-medium sm:px-6">Score range</th>
+              <th className="px-4 py-3 text-right font-medium">Suggestions</th>
+              <th className="px-4 py-3 text-right font-medium">Decisions</th>
+              <th className="px-4 py-3 text-right font-medium">Accepted</th>
+              <th className="px-4 py-3 text-right font-medium sm:pr-6">Acceptance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-hairline text-body-sm">
+            {ranges.map((range) => (
+              <tr key={range.label}>
+                <td className="px-4 py-4 font-medium text-ink sm:px-6">{range.label}</td>
+                <td className="px-4 py-4 text-right text-body">{formatCount(range.suggestions)}</td>
+                <td className="px-4 py-4 text-right text-body">{formatCount(range.accepted + range.rejected)}</td>
+                <td className="px-4 py-4 text-right text-body">{formatCount(range.accepted)}</td>
+                <td className="px-4 py-4 text-right text-body sm:pr-6">{formatRate(range.acceptance_rate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function SitesBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
   return (
     <section className="card mt-4 overflow-hidden">
@@ -467,6 +505,7 @@ function DashboardBody({
       </div>
 
       <MethodComparison methods={metrics.methods} />
+      <ScoreRangePerformance ranges={metrics.score_ranges} />
       <SitesBreakdown metrics={metrics} />
       <MetricDefinitions cohortDefinition={metrics.cohort_definition} />
     </>

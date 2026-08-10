@@ -12,8 +12,10 @@ import {
   countSuggestions,
   getPlacement,
   getSuggestionEvents,
+  listAllSuggestionIds,
   listSuggestionPage,
   reviewSuggestion,
+  undoFilteredBulkReview,
 } from "../api/suggestions";
 import type {
   SuggestionCursor,
@@ -124,3 +126,14 @@ export const useFilteredBulkReview = () => {
     onSettled: invalidate,
   });
 };
+
+export const useFilteredBulkUndo = () => {
+  const invalidate = useInvalidateQueue();
+  return useMutation({
+    mutationFn: undoFilteredBulkReview,
+    onSettled: invalidate,
+  });
+};
+
+export const useAllFilteredSuggestionIds = () =>
+  useMutation({ mutationFn: listAllSuggestionIds });

@@ -10,13 +10,27 @@ const STATUS_LABELS: Record<PipelineSiteRun["status"], string> = {
   analysis_running: "Generating suggestions",
   succeeded: "Completed",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 const batchLabel = (batch: PipelineBatch) => {
   if (batch.status === "partial_failed") return "Completed with failures";
   if (batch.status === "succeeded") return "Completed";
   if (batch.status === "failed") return "Failed";
+  if (batch.status === "cancelled") return "Cancelled";
   return "Running";
+};
+
+const etaLabel = (batch: PipelineBatch) => {
+  if (["succeeded", "failed", "partial_failed", "cancelled"].includes(batch.status)) {
+    return null;
+  }
+  const completed = batch.succeeded + batch.failed + batch.cancelled;
+  if (!batch.started_at || completed === 0) return "ETA calculating";
+  const elapsed = Math.max(1, Date.now() - new Date(batch.started_at).getTime());
+  const remainingMs = (elapsed / completed) * Math.max(0, batch.total - completed);
+  const minutes = Math.max(1, Math.round(remainingMs / 60_000));
+  return minutes < 60 ? `ETA ${minutes}m` : `ETA ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 };
 
 export default function BatchPipelinePanel({
@@ -24,14 +38,20 @@ export default function BatchPipelinePanel({
   sites,
   retryingSiteId,
   onRetry,
+  cancelling,
+  onCancel,
 }: {
   batch: PipelineBatch;
   sites: Site[];
   retryingSiteId: number | null;
   onRetry: (siteId: number) => void;
+  cancelling: boolean;
+  onCancel: () => void;
 }) {
   const names = new Map(sites.map((site) => [site.id, site.name]));
-  const completed = batch.succeeded + batch.failed;
+  const completed = batch.succeeded + batch.failed + batch.cancelled;
+  const eta = etaLabel(batch);
+  const active = !["succeeded", "failed", "partial_failed", "cancelled"].includes(batch.status);
 
   return (
     <section className="card mb-4 p-4 sm:p-5" aria-label={`Batch ${batch.id} progress`}>
@@ -40,8 +60,14 @@ export default function BatchPipelinePanel({
           <div className="eyebrow">Batch pipeline #{batch.id}</div>
           <h2 className="mt-1 text-body-md font-medium text-ink">{batchLabel(batch)}</h2>
         </div>
-        <div className="text-caption text-muted" aria-live="polite">
-          {completed}/{batch.total} finished · {batch.succeeded} succeeded · {batch.failed} failed
+        <div className="flex flex-wrap items-center justify-end gap-2 text-caption text-muted" aria-live="polite">
+          <span>{completed}/{batch.total} finished · {batch.succeeded} succeeded · {batch.failed} failed{batch.cancelled ? ` · ${batch.cancelled} cancelled` : ""}</span>
+          {eta && <span className="badge">{eta}</span>}
+          {active && (
+            <button type="button" className="btn btn-outline btn-sm" disabled={cancelling} onClick={onCancel}>
+              {cancelling ? "Cancelling…" : "Cancel batch"}
+            </button>
+          )}
         </div>
       </div>
 
