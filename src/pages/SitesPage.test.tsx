@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
 
+const navigate = vi.hoisted(() => vi.fn());
+
+vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
+
 const mocks = vi.hoisted(() => ({
   sites: {
     data: [] as unknown[],
@@ -54,6 +58,7 @@ vi.mock("../hooks/usePipeline", () => ({
 }));
 
 beforeEach(() => {
+  navigate.mockReset();
   Object.assign(mocks.sites, {
     data: [],
     isPending: false,
@@ -188,6 +193,10 @@ describe("SitesPage batch pipeline", () => {
     expect(screen.queryByRole("region", { name: "Batch selection" })).toBeNull();
   });
 
+  // Renders 101 site rows and expands the list twice, which is by far the
+  // heaviest render in the suite. It sits close to the default 5s timeout on
+  // its own and crosses it whenever the runner is busy with other files, so the
+  // limit is raised rather than left to fail intermittently.
   it("caps batch selection at the engine limit", () => {
     mocks.sites.data = Array.from({ length: 101 }, (_, index) => ({
       id: index + 1,
@@ -215,7 +224,7 @@ describe("SitesPage batch pipeline", () => {
     expect((screen.getByRole("button", { name: "Run batch (100)" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
-  });
+  }, 20_000);
 
   it("restores batch monitoring from the page URL", () => {
     window.history.replaceState({}, "", "/sites?batch=27");
@@ -473,5 +482,38 @@ describe("SitesPage source controls", () => {
     render(<SitesPage />);
 
     expect((screen.getByRole("button", { name: "Crawl Docs" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("SitesPage publication", () => {
+  const ownedSite = () => {
+    mocks.sites.data = [
+      {
+        id: 7,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+  };
+
+  it("has no action that publishes a site directly", () => {
+    ownedSite();
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    // "Publish approved" lived here and published every selected suggestion
+    // with nobody having seen the resulting edit.
+    expect(screen.queryByText("Publish approved")).toBeNull();
+    expect(document.body.textContent).not.toContain("Publish approved");
+  });
+
+  it("routes to the review that shows the exact edits instead", () => {
+    ownedSite();
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Review publication changes"));
+
+    expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
   });
 });

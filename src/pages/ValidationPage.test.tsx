@@ -34,7 +34,10 @@ const mocks = vi.hoisted(() => ({
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
-  publishMutate: vi.fn(),
+  prepareMutate: vi.fn(),
+  prepareReset: vi.fn(),
+  approveMutate: vi.fn(),
+  queueMutate: vi.fn(),
   /** Ids the engine reports it could not review, as a live publish would. */
   bulkSkipped: [] as number[],
   /** Undefined derives ids from the rule; null models a result over the cap. */
@@ -44,7 +47,8 @@ const mocks = vi.hoisted(() => ({
   filteredBulkError: null as unknown,
   pendingPublication: [] as {
     site_id: number;
-    awaiting_publication: number;
+    selected_suggestions: number;
+    approved_plans: number;
   }[],
   countsOverride: null as {
     pending: number;
@@ -58,7 +62,7 @@ const mocks = vi.hoisted(() => ({
   } | null,
   /** Models the background refetch every review mutation sets off. */
   countsFetching: false,
-  publicationPreview: {} as Record<string, unknown>,
+  publicationPlans: {} as Record<string, unknown>,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
@@ -134,7 +138,6 @@ vi.mock("../hooks/useSites", () => ({
 }));
 
 vi.mock("../hooks/usePublish", () => ({
-  usePublishSites: () => ({ mutate: mocks.publishMutate, isPending: false }),
   usePendingPublication: () => ({
     data: mocks.pendingPublication,
     isPending: false,
@@ -142,14 +145,16 @@ vi.mock("../hooks/usePublish", () => ({
     isFetching: mocks.countsFetching,
     refetch: vi.fn(),
   }),
-  usePublicationDryRun: () => ({
+  usePreparePublicationPlans: () => ({
     data: undefined,
     isPending: false,
     isError: false,
-    isFetching: false,
-    refetch: vi.fn(),
-    ...mocks.publicationPreview,
+    mutate: mocks.prepareMutate,
+    reset: mocks.prepareReset,
+    ...mocks.publicationPlans,
   }),
+  useApprovePlans: () => ({ mutate: mocks.approveMutate, isPending: false }),
+  useQueueApprovedPlans: () => ({ mutate: mocks.queueMutate, isPending: false }),
 }));
 
 const query = (overrides: Record<string, unknown> = {}) => ({
@@ -186,7 +191,10 @@ beforeEach(() => {
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
-  mocks.publishMutate.mockReset();
+  mocks.prepareMutate.mockReset();
+  mocks.prepareReset.mockReset();
+  mocks.approveMutate.mockReset();
+  mocks.queueMutate.mockReset();
   mocks.bulkSkipped = [];
   mocks.filteredReviewedIds = undefined;
   mocks.filteredReviewedCount = undefined;
@@ -194,7 +202,7 @@ beforeEach(() => {
   mocks.filteredBulkError = null;
   mocks.pendingPublication = [];
   mocks.countsOverride = null;
-  mocks.publicationPreview = {};
+  mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
@@ -264,7 +272,9 @@ describe("ValidationPage live review state", () => {
   // editor working down it with `a` would be locked out after every row.
   it("keeps reviewing while the counts refetch behind a decision", () => {
     mocks.countsFetching = true;
-    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 2 }];
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 2, approved_plans: 0 },
+    ];
     renderQueue();
 
     expect(
@@ -277,8 +287,8 @@ describe("ValidationPage live review state", () => {
     ).toBe(false);
     expect(screen.queryByText(/Review actions are paused/)).toBeNull();
     // The publish banner is driven by the same invalidated query, so it has to
-    // survive the refetch too rather than blinking out to "nothing approved".
-    expect(screen.getByText(/2 approved suggestions/)).not.toBeNull();
+    // survive the refetch too rather than blinking out to "nothing selected".
+    expect(screen.getByText(/2 selected suggestions/)).not.toBeNull();
   });
 
   it("pauses review actions while filtered results are being replaced", () => {
@@ -421,8 +431,8 @@ describe("ValidationPage live review state", () => {
       { siteId: undefined, status: "approved", thresholdPercent: 80 },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
-    expect(screen.getByRole("status").textContent).toContain("1 suggestion queued for publish");
-    await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
+    expect(screen.getByRole("status").textContent).toContain("1 suggestion selected for preparation");
+    await user.click(screen.getByRole("button", { name: /Selected.*1/ }));
     expect(screen.getByText("Source 1")).not.toBeNull();
   });
 
@@ -438,7 +448,7 @@ describe("ValidationPage live review state", () => {
       { id: 1, status: "approved" },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
-    await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
+    await user.click(screen.getByRole("button", { name: /Selected.*1/ }));
     expect(screen.getByText("Source 1")).not.toBeNull();
   });
 
@@ -451,7 +461,7 @@ describe("ValidationPage live review state", () => {
 
     expect(screen.queryByRole("region", { name: /pending suggestion/ })).toBeNull();
     expect(screen.getByText("Source 1")).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*0/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*0/ })).not.toBeNull();
     expect(mocks.filteredBulkMutate).not.toHaveBeenCalled();
   });
 
@@ -484,13 +494,13 @@ describe("ValidationPage live review state", () => {
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     const notice = screen.getByRole("alert");
-    expect(notice.textContent).toContain("1 suggestion queued for publish");
+    expect(notice.textContent).toContain("1 suggestion selected for preparation");
     expect(notice.textContent).toContain(
       "1 suggestion was already picked up for publishing or had expired",
     );
     // Only the row that actually moved leaves the pending list.
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*1/ })).not.toBeNull();
   });
 
   it("uses only the engine's reviewed ids for local batch state", async () => {
@@ -505,10 +515,10 @@ describe("ValidationPage live review state", () => {
     await user.click(screen.getByRole("button", { name: "Confirm accept" }));
 
     expect(screen.getByRole("status").textContent).toContain(
-      "1 suggestion queued for publish",
+      "1 suggestion selected for preparation",
     );
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*1/ })).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(mocks.bulkMutate).toHaveBeenLastCalledWith(
@@ -541,7 +551,7 @@ describe("ValidationPage live review state", () => {
     );
     expect(notice.textContent).toContain("1 later suggestion was not attempted");
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*2/ })).not.toBeNull();
   });
 
   it("says so plainly when a batch changed nothing at all", async () => {
@@ -609,67 +619,284 @@ describe("ValidationPage live review state", () => {
   });
 });
 
-describe("ValidationPage publish handoff", () => {
-  it("stays quiet while nothing is approved", () => {
+const PLAN = {
+  id: 55,
+  status: "prepared" as const,
+  plan_hash: "a".repeat(64),
+  source_article_id: 10,
+  source_url: "https://example.com/source",
+  original_html: "<p>solar panel costs</p>",
+  updated_html: '<p><a href="/target">solar panel</a> costs</p>',
+  links: [
+    {
+      position: 0,
+      suggestion_id: 1,
+      target_url: "https://example.com/target",
+      anchor_text: "solar panel",
+      outcome: "inserted" as const,
+    },
+  ],
+};
+
+const SECOND_PLAN = {
+  ...PLAN,
+  id: 56,
+  plan_hash: "b".repeat(64),
+  source_article_id: 11,
+  source_url: "https://example.com/other-source",
+  links: [{ ...PLAN.links[0], suggestion_id: 2 }],
+};
+
+const preparedFor = (
+  site: number,
+  overrides: Record<string, unknown> = {},
+  plans = [PLAN],
+) => {
+  mocks.pendingPublication = [
+    { site_id: site, selected_suggestions: 1, approved_plans: 0 },
+  ];
+  mocks.publicationPlans = {
+    data: {
+      site_id: site,
+      selected_suggestions: 1,
+      plans,
+      errors: [],
+      has_more: false,
+      ...overrides,
+    },
+  };
+};
+
+const openReview = async (user: ReturnType<typeof userEvent.setup>) => {
+  renderQueue();
+  await user.click(screen.getByRole("button", { name: "Review publication changes" }));
+};
+
+describe("ValidationPage publication approval", () => {
+  it("stays quiet while nothing is selected or approved", () => {
     renderQueue();
 
+    expect(document.body.textContent).not.toContain("waiting for review");
     expect(document.body.textContent).not.toContain("waiting to be published");
   });
 
-  it("surfaces an approved backlog and publishes the sites holding it", async () => {
-    const user = userEvent.setup();
-    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 24 }];
+  it("offers no way to publish a site straight from the queue", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 24, approved_plans: 0 },
+    ];
     renderQueue();
 
-    expect(document.body.textContent).toContain("waiting to be published");
-    await user.click(screen.getByRole("button", { name: "Publish 1 site" }));
-
-    expect(mocks.publishMutate).toHaveBeenCalledWith([1], expect.anything());
+    // Selecting rows is not consent to write to a customer's site. The only
+    // route on is the review that renders the exact edits.
+    expect(screen.queryByRole("button", { name: /^Publish \d+ site/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish this site" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Review publication changes" })).not.toBeNull();
+    expect(document.body.textContent).toContain("waiting for review");
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
   });
 
-  it("shows the exact WordPress HTML before publishing", async () => {
-    const user = userEvent.setup();
-    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 1 }];
-    mocks.publicationPreview = {
-      data: {
-        site_id: 1,
-        approved: 1,
-        previewed: 1,
-        placements_missing: 0,
-        inserted: 1,
-        block: 0,
-        already_present: 0,
-        planned: [],
-        errors: [],
-        truncated: false,
-        articles: [
-          {
-            source_article_id: 10,
-            source_url: "https://example.com/source",
-            original_html: "<p>solar panel costs</p>",
-            updated_html: '<p><a href="/target">solar panel</a> costs</p>',
-            links: [
-              {
-                suggestion_id: 1,
-                source_article_id: 10,
-                source_url: "https://example.com/source",
-                target_url: "https://example.com/target",
-                outcome: "inserted",
-                anchor_text: "solar panel",
-              },
-            ],
-          },
-        ],
-      },
-    };
+  it("renders no fleet-wide publication control when several sites have work", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 4, approved_plans: 0 },
+      { site_id: 2, selected_suggestions: 9, approved_plans: 0 },
+    ];
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: "Preview edits" }));
+    expect(screen.queryByRole("button", { name: /^Publish \d+ site/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review publication changes" })).toBeNull();
+    expect(document.body.textContent).toContain("Filter to one site");
+  });
+
+  it("selecting a suggestion never calls a publication endpoint", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(
+      screen.getByRole("button", { name: /Accept suggestion from Example site: Source 1/ }),
+    );
+
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    expect(mocks.queueMutate).not.toHaveBeenCalled();
+  });
+
+  it("shows the exact WordPress HTML and the hash the approval will name", async () => {
+    const user = userEvent.setup();
+    preparedFor(1);
+    await openReview(userEvent.setup());
+    void user;
 
     expect(screen.getByRole("dialog")).not.toBeNull();
     expect(document.body.textContent).toContain("Compare exact HTML");
     expect(document.body.textContent).toContain("<p>solar panel costs</p>");
     expect(document.body.textContent).toContain('<p><a href="/target">solar panel</a> costs</p>');
+    expect(document.body.textContent).toContain(PLAN.plan_hash.slice(0, 12));
+    expect(mocks.prepareMutate).toHaveBeenCalledWith(1);
+  });
+
+  it("never says the content may still change after approval", async () => {
+    preparedFor(1);
+    await openReview(userEvent.setup());
+
+    expect(document.body.textContent).not.toMatch(/may (still )?change/i);
+    expect(document.body.textContent).not.toContain("before publication");
+  });
+
+  it("sends only the displayed plans and hashes, then queues them", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+    preparedFor(1);
+    await openReview(user);
+
+    await user.click(screen.getByRole("button", { name: /^Approve and queue 1 exact edit$/ }));
+
+    expect(mocks.approveMutate).toHaveBeenCalledWith(
+      { siteId: 1, plans: [{ id: 55, plan_hash: PLAN.plan_hash }] },
+      expect.anything(),
+    );
+    expect(mocks.queueMutate).toHaveBeenCalledWith(
+      { siteId: 1, planIds: [55] },
+      expect.anything(),
+    );
+  });
+
+  it("does not queue anything when the approval fails", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) =>
+      options?.onError?.(new Error("nope")),
+    );
+    preparedFor(1);
+    await openReview(user);
+
+    await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
+
+    expect(mocks.queueMutate).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("nothing was published");
+  });
+
+  it("keeps an approved-but-not-queued batch truthful and retryable", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+    mocks.queueMutate.mockImplementation((_siteId, options) =>
+      options?.onError?.(new Error("redis is down")),
+    );
+    preparedFor(1);
+    await openReview(user);
+
+    await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
+
+    expect(document.body.textContent).toContain("approved but not queued");
+    // The retry queues only; it must not ask for the same approval twice.
+    mocks.approveMutate.mockClear();
+    mocks.queueMutate.mockClear();
+    await user.click(screen.getByRole("button", { name: "Queue approved edits" }));
+
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    expect(mocks.queueMutate).toHaveBeenCalledWith(
+      { siteId: 1, planIds: [55] },
+      expect.anything(),
+    );
+  });
+
+  it("cannot approve more than what is on screen, whatever else remains", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+    preparedFor(1, {
+      has_more: true,
+      errors: [
+        {
+          source_article_id: 99,
+          source_url: "https://example.com/broken",
+          message: "post is gone",
+        },
+      ],
+    });
+    await openReview(user);
+
+    await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
+
+    // One plan was shown; `has_more` and the failed source describe work that is
+    // explicitly not in this request.
+    expect(mocks.approveMutate).toHaveBeenCalledWith(
+      { siteId: 1, plans: [{ id: 55, plan_hash: PLAN.plan_hash }] },
+      expect.anything(),
+    );
+    expect(document.body.textContent).toContain("left out of this batch");
+  });
+
+  it("ticks every prepared article, so the normal case is still one click", async () => {
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    await openReview(userEvent.setup());
+
+    expect(
+      screen.getByRole("button", { name: /^Approve and queue 2 exact edits$/ }),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("2 of 2 selected");
+  });
+
+  it("approves only the articles left ticked, and says what it held back", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    await openReview(user);
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: `Approve the edit to ${SECOND_PLAN.source_url}`,
+      }),
+    );
+
+    expect(document.body.textContent).toContain("1 article stays unpublished");
+    await user.click(screen.getByRole("button", { name: /^Approve and queue 1 exact edit$/ }));
+
+    // The unticked article is as absent from the request as a failed source is.
+    expect(mocks.approveMutate).toHaveBeenCalledWith(
+      { siteId: 1, plans: [{ id: 55, plan_hash: PLAN.plan_hash }] },
+      expect.anything(),
+    );
+    expect(mocks.queueMutate).toHaveBeenCalledWith(
+      { siteId: 1, planIds: [55] },
+      expect.anything(),
+    );
+  });
+
+  it("cannot approve when every article is unticked", async () => {
+    const user = userEvent.setup();
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    await openReview(user);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all prepared articles" }));
+
+    expect(
+      screen.getByRole("button", { name: /^Approve and queue 0 exact edits$/ }),
+    ).toHaveProperty("disabled", true);
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+  });
+
+  it("retries the queue with the subset that was approved, not the whole batch", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+    mocks.queueMutate.mockImplementation((_variables, options) =>
+      options?.onError?.(new Error("redis is down")),
+    );
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    await openReview(user);
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: `Approve the edit to ${SECOND_PLAN.source_url}`,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
+
+    mocks.queueMutate.mockClear();
+    await user.click(screen.getByRole("button", { name: "Queue approved edits" }));
+
+    // Plan 56 was never approved, so naming it in the retry would be a 409 and
+    // the operator would be stuck with an approval they could not queue.
+    expect(mocks.queueMutate).toHaveBeenCalledWith(
+      { siteId: 1, planIds: [55] },
+      expect.anything(),
+    );
   });
 });
 
@@ -863,7 +1090,7 @@ describe("ValidationPage mixed-method queue", () => {
     renderQueue();
 
     expect(screen.getByRole("button", { name: /Pending.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*1/ })).not.toBeNull();
   });
 
   it("reviews a hybrid row through the same mutation as a baseline row", async () => {

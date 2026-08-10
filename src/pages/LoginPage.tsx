@@ -9,30 +9,13 @@ import { SESSION_QUERY_KEY } from "../hooks/useSession";
 import { REDUCED_MOTION_QUERY, useTheme } from "../hooks/useTheme";
 
 /**
- * NeonBorder takes its corner radius as a percentage of half the shorter side,
- * not in pixels, so the value that makes the ring sit flush against the card
- * has to be solved for the card's real size: the card is `{rounded.xl}` = 16px,
- * and the sign-in panel's shorter side runs about 330–384px across its two
- * states and both breakpoints, so half of it is ~165–192px and 16px of that is
- * ~8–10%. Nine splits the difference and leaves the ring within about a pixel
- * of the corner in every state. It cannot be exact in all of them at once —
- * that is the component's API, not a rounding mistake here.
+ * The sign-in ring is the one reserved chromatic accent in the product UI.
+ * Its amber value is documented in DESIGN-elevenlabs.md and stays scoped to
+ * this authentication surface rather than becoming a general CTA color.
  */
+const LOGIN_NEON = "#E5BD70";
+const LOGIN_NEON_GLOW = 72;
 const NEON_ROUNDED_PCT = 9;
-
-/**
- * The ring's colour in light mode, where it composites normally rather than
- * additively (see `.login-neon` in {@link file://./../index.css}).
- *
- * Light mode uses a soft golden yellow and a narrower glow so it stays visible
- * on white without carrying the dark mode's full halo.
- *
- * The prop is a hex string parsed by the component, not a token: `withAlpha`
- * there reads hex or comma-form `rgb()`, and the palette's channels are
- * space-separated, which that parser falls back to black on.
- */
-const LIGHT_NEON = "#E5BD70";
-const LIGHT_NEON_GLOW = 72;
 const HERO_LEAD = "Internal links,";
 const HERO_PREFIX = "proposed by ";
 const HERO_WORDS = ["meaning.", "context.", "intent."];
@@ -49,10 +32,9 @@ const EXPLANATION: Record<Exclude<LoginState, "approved">, string> = {
 /**
  * Telegram's mark, at Telegram's own colours.
  *
- * The only literal colours in the app. Everything else resolves through a theme
- * token, but this is somebody else's brand and it must not invert when the
- * dashboard does — and the pill under it is dark in light mode and light in
- * dark, which the blue disc reads against either way.
+ * Telegram's mark stays literal because it is somebody else's brand and must
+ * not invert when the dashboard does. The reserved login ring is documented
+ * separately; neither accent enters dashboard chrome or CTA styling.
  */
 function TelegramMark({ size = 18 }: { size?: number }) {
   return (
@@ -75,9 +57,7 @@ export default function LoginPage() {
   const [handedOff, setHandedOff] = useState(true);
   const telegramTab = useRef<Window | null>(null);
   /**
-   * `speed={0}` is how the neon ring honours this: the component's frame loop
-   * keeps running but stops advancing the arc, so the ring holds the position
-   * it was first rendered at instead of travelling the perimeter. The rest of
+   * `speed={0}` freezes the sign-in ring for reduced-motion users. The rest of
    * the page's motion is stopped in CSS, at {@link file://./../index.css}.
    */
   const prefersReducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
@@ -210,21 +190,13 @@ export default function LoginPage() {
         </section>
 
         <section className="card relative w-full px-6 py-8 sm:px-8 lg:justify-self-end">
-          {/* NeonBorder takes no children — it measures the box it is stretched
-              across and paints the ring *outside* that box. So it is a filler
-              layer inside the card rather than a wrapper around it, which is
-              also why it never covers the content it sits on top of in paint
-              order. `.card` sets no overflow, so the glow is free to spill.
-
-              `.login-neon` is what makes the ring survive the light theme: the
-              component composites additively, which needs a dark ground, so the
-              rule behind that class composites it normally there instead. See
-              {@link file://./../index.css}. */}
+          {/* The ring is reserved for sign-in: it marks the authentication hand-off
+              without changing the dashboard's neutral operating surfaces. */}
           <div aria-hidden="true" className="login-neon pointer-events-none absolute inset-0">
             <NeonBorder
               rounded={NEON_ROUNDED_PCT}
-              color={resolved === "light" ? LIGHT_NEON : undefined}
-              glow={resolved === "light" ? LIGHT_NEON_GLOW : undefined}
+              color={resolved === "light" ? LOGIN_NEON : undefined}
+              glow={resolved === "light" ? LOGIN_NEON_GLOW : undefined}
               speed={prefersReducedMotion ? 0 : undefined}
             />
           </div>
@@ -303,7 +275,7 @@ export default function LoginPage() {
                   spellCheck={false}
                   required
                   placeholder="ABCD-EFGH-JKLM"
-                  className="input font-mono uppercase tracking-widest"
+                  className="field font-mono uppercase tracking-widest"
                 />
                 <button
                   type="submit"

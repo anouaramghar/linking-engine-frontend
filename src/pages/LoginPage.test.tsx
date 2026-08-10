@@ -79,7 +79,9 @@ describe("LoginPage", () => {
 
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
-    await userEvent.type(await screen.findByLabelText(/one-time telegram code/i), "ABCD-EFGH-JKLM");
+    const code = await screen.findByLabelText(/one-time telegram code/i);
+    expect(code.className).toContain("field");
+    await userEvent.type(code, "ABCD-EFGH-JKLM");
     await userEvent.click(screen.getByRole("button", { name: /complete sign in/i }));
 
     await waitFor(() => expect(completeLogin).toHaveBeenCalledWith("ABCD-EFGH-JKLM"));

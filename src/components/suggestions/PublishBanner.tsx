@@ -1,25 +1,33 @@
 interface Props {
-  approved: number;
+  /** Rows an editor has selected. Not publishable until an exact edit is approved. */
+  selected: number;
+  /** Artifacts already approved by a person, waiting only for a job. */
+  approvedPlans: number;
   siteCount: number;
-  publishing: boolean;
-  onPublish: () => void;
-  onPreview?: () => void;
+  busy: boolean;
+  /** Only offered for a single site: approval is per exact edit, not per fleet. */
+  onReview?: () => void;
+  /** Retry for edits that were approved when the job could not be started. */
+  onQueueApproved?: () => void;
 }
 
 /**
- * Approving happens here, but publishing lived only on the Sites page — so an
- * approved backlog could sit unshipped with nothing on this screen saying so.
+ * Selecting happens on this page, so this is where the backlog has to be
+ * visible — but selecting is not approving, and this banner no longer offers a
+ * way to publish straight from it. The only route on is to look at the exact
+ * edits for one site and approve them.
  */
 export default function PublishBanner({
-  approved,
+  selected,
+  approvedPlans,
   siteCount,
-  publishing,
-  onPublish,
-  onPreview,
+  busy,
+  onReview,
+  onQueueApproved,
 }: Props) {
-  if (approved === 0) return null;
+  if (selected === 0 && approvedPlans === 0) return null;
 
-  const noun = approved === 1 ? "suggestion" : "suggestions";
+  const noun = selected === 1 ? "suggestion" : "suggestions";
   const scope = siteCount === 1 ? "1 site" : `${siteCount} sites`;
 
   return (
@@ -28,27 +36,38 @@ export default function PublishBanner({
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-strong px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="text-body-sm font-medium text-ink">
-          {approved} approved {noun} across {scope} {approved === 1 ? "is" : "are"} waiting to
-          be published
+          {selected > 0
+            ? `${selected} selected ${noun} across ${scope} ${selected === 1 ? "is" : "are"} waiting for review`
+            : `${approvedPlans} approved ${approvedPlans === 1 ? "edit is" : "edits are"} waiting to be published`}
         </div>
         <div className="mt-1 text-caption text-body">
-          Approved links are not live on the site until a publish job writes them back.
+          {selected > 0
+            ? "Selected links are not live, and are not scheduled. Review the exact edits for a site and approve them to publish."
+            : "These exact edits were approved but no publish job is running for them yet."}
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {onPreview && (
-          <button type="button" onClick={onPreview} className="btn btn-outline btn-sm">
-            Preview edits
+        {approvedPlans > 0 && onQueueApproved && (
+          <button
+            type="button"
+            onClick={onQueueApproved}
+            disabled={busy}
+            className="btn btn-outline btn-sm"
+          >
+            {busy ? "Queueing…" : "Queue approved edits"}
           </button>
         )}
-        <button
-          type="button"
-          onClick={onPublish}
-          disabled={publishing}
-          className="btn btn-primary btn-sm"
-        >
-          {publishing ? "Queueing…" : `Publish ${scope}`}
-        </button>
+        {onReview ? (
+          <button type="button" onClick={onReview} disabled={busy} className="btn btn-primary btn-sm">
+            Review publication changes
+          </button>
+        ) : (
+          // Several sites have work. Approval names exact edits on exact
+          // articles, so there is nothing honest a fleet-wide button could do.
+          <span className="text-caption text-muted">
+            Filter to one site to review its changes
+          </span>
+        )}
       </div>
     </div>
   );

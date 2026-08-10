@@ -29,8 +29,10 @@ export const deleteSite = (id: number, confirmName: string) =>
 export const ingestSite = (id: number) =>
   api.post<JobAccepted>(`/sites/${id}/ingest`).then((r) => r.data);
 
-export const publishSite = (id: number) =>
-  api.post<JobAccepted>(`/publish/${id}`).then((r) => r.data);
+// `publishSite` used to live here, and being reachable from the Sites page is
+// what made it dangerous: one click published everything selected, with nobody
+// having seen the resulting edit. Queueing now lives in api/publish.ts next to
+// the preparation and approval it must follow.
 
 export const approvePoolSource = (id: number) =>
   api.post<Site>(`/sites/${id}/pool-source/approval`).then((r) => r.data);

@@ -5,6 +5,7 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { BulkReviewChunkError } from "../api/suggestions";
+import type { PublicationPlan } from "../api/publish";
 import { ENGINE_PAGE_LIMIT } from "../api/engineLimits";
 import type {
   SuggestionCounts,
@@ -21,9 +22,10 @@ import PublishBanner from "../components/suggestions/PublishBanner";
 import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import {
+  useApprovePlans,
   usePendingPublication,
-  usePublicationDryRun,
-  usePublishSites,
+  usePreparePublicationPlans,
+  useQueueApprovedPlans,
 } from "../hooks/usePublish";
 import {
   SHORTCUT_HINT,
@@ -64,7 +66,7 @@ import type {
 
 const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "pending", label: "Pending review" },
-  { key: "approved", label: "Queued for publish" },
+  { key: "approved", label: "Selected" },
   { key: "applying", label: "Publishing" },
   { key: "applied", label: "Published live" },
   { key: "failed", label: "Publishing failed" },
@@ -139,6 +141,13 @@ export default function ValidationPage() {
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [previewSiteId, setPreviewSiteId] = useState<number | null>(null);
+  // Sites whose exact edits were approved but whose publish job failed to start,
+  // held as the exact plan ids that approval named. The approval stands, so the
+  // only thing left to offer is a queue retry — and it has to name that same
+  // subset, because queueing a plan the operator excluded is a 409.
+  const [approvedNotQueued, setApprovedNotQueued] = useState<Map<number, number[]>>(
+    () => new Map(),
+  );
   const cursorRef = useRef<HTMLLIElement>(null);
   const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
@@ -236,11 +245,12 @@ export default function ValidationPage() {
     rejectCountsQuery,
   ].some((query) => query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
-  const publicationPreview = usePublicationDryRun(previewSiteId);
+  const preparePlans = usePreparePublicationPlans();
   const review = useReview();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
-  const publish = usePublishSites();
+  const approvePlans = useApprovePlans();
+  const queuePlans = useQueueApprovedPlans();
 
   // The suggestions query stays disabled until sites arrive, so it reports
   // "pending" before it has any work to do — gate it on the sites we have.
@@ -577,7 +587,9 @@ export default function ValidationPage() {
   const decide = (id: number, status: ReviewStatus) => {
     if (queueUpdating || confirmation || actionMutationPending) return;
     const message =
-      status === "approved" ? "1 suggestion queued for publish." : "1 suggestion rejected.";
+      status === "approved"
+        ? "1 suggestion selected for preparation."
+        : "1 suggestion rejected.";
     // Deliberate tri-state: undefined leaves a non-cursor selection alone;
     // null clears a cursor whose removed row has no successor.
     const successor = successorOf(id);
@@ -675,7 +687,7 @@ export default function ValidationPage() {
     const status = approving ? "approved" : "rejected";
     const describe = (count: number) =>
       approving
-        ? `${count} ${plural(count)} queued for publish.`
+        ? `${count} ${plural(count)} selected for preparation.`
         : `${count} ${plural(count)} rejected.`;
     setNotice(null);
     focusAfterReview.current = "main";
@@ -730,29 +742,104 @@ export default function ValidationPage() {
         (entry) => siteFilter === 0 || entry.site_id === siteFilter,
       );
   const awaitingPublish = pendingPublication.map((entry) => entry.site_id);
-  const approvedCount = pendingPublication.reduce(
-    (total, entry) => total + entry.awaiting_publication,
+  const selectedCount = pendingPublication.reduce(
+    (total, entry) => total + entry.selected_suggestions,
     0,
   );
+  const approvedPlanCount = pendingPublication.reduce(
+    (total, entry) => total + entry.approved_plans,
+    0,
+  );
+  const publishBusy = approvePlans.isPending || queuePlans.isPending;
 
-  const startPublish = () => {
-    if (publicationUnavailable || publish.isPending || awaitingPublish.length === 0) return;
-    setNotice(null);
-    publish.mutate(awaitingPublish, {
-      onSuccess: ({ queued, alreadyRunning, failed }) =>
-        setNotice({
-          message: [
-            queued > 0 && `Publish queued for ${queued} ${queued === 1 ? "site" : "sites"}.`,
-            alreadyRunning > 0 && `${alreadyRunning} already publishing.`,
-            failed > 0 && `${failed} could not be queued.`,
-          ]
-            .filter(Boolean)
-            .join(" "),
-          tone: failed > 0 ? "error" : "info",
-        }),
-      onError: () =>
-        setNotice({ message: "Publishing could not be started.", tone: "error" }),
+  /**
+   * Start the job for edits a person has already approved.
+   *
+   * Separate from approval on purpose: an enqueue that fails must not make the
+   * operator agree to the same edits a second time, and this path makes no
+   * decision of its own, so retrying it is free.
+   */
+  // `undefined` plan ids means "every approved plan for this site", which is the
+  // deliberate recovery shape of the queue endpoint; it is a stored value, not a
+  // missing one, so the retry repeats the request that failed rather than
+  // widening it. Clearing the entry is what marks the site queued.
+  const rememberNotQueued = (siteId: number, planIds: number[] | undefined) =>
+    setApprovedNotQueued((current) => new Map(current).set(siteId, planIds));
+
+  const clearNotQueued = (siteId: number) =>
+    setApprovedNotQueued((current) => {
+      if (!current.has(siteId)) return current;
+      const next = new Map(current);
+      next.delete(siteId);
+      return next;
     });
+
+  const queueApproved = (
+    siteId: number,
+    planIds?: number[],
+    onQueued?: () => void,
+  ) => {
+    if (publishBusy) return;
+    setNotice(null);
+    queuePlans.mutate(
+      { siteId, planIds },
+      {
+        onSuccess: () => {
+          clearNotQueued(siteId);
+          onQueued?.();
+          setNotice({ message: "Publish queued for the approved edits.", tone: "info" });
+        },
+        onError: (error) => {
+          rememberNotQueued(siteId, planIds);
+          setNotice({
+            message: isConflict(error)
+              ? "This site is already publishing, or has no approved edits left to queue."
+              : "These edits stay approved, but the publish job could not be started. Queue them again.",
+            tone: "error",
+          });
+        },
+      },
+    );
+  };
+
+  /**
+   * The one human decision: bind this operator to exactly the plans they ticked.
+   *
+   * Only those plans and their hashes are sent. `has_more`, the per-article
+   * errors, and any article the operator unticked all describe work that is
+   * *not* in this request, so a batch can never grow between what was read and
+   * what was agreed to.
+   */
+  const approveAndQueue = (siteId: number, plans: PublicationPlan[]) => {
+    if (publishBusy || plans.length === 0) return;
+    setNotice(null);
+    approvePlans.mutate(
+      {
+        siteId,
+        plans: plans.map((plan) => ({ id: plan.id, plan_hash: plan.plan_hash })),
+      },
+      {
+        onSuccess: () =>
+          queueApproved(
+            siteId,
+            plans.map((plan) => plan.id),
+            () => setPreviewSiteId(null),
+          ),
+        onError: (error) =>
+          setNotice({
+            message: isConflict(error)
+              ? "These edits changed since they were prepared, so nothing was approved. Reload the review and look at the new version."
+              : "The approval could not be saved, so nothing was published.",
+            tone: "error",
+          }),
+      },
+    );
+  };
+
+  const openPublicationReview = (siteId: number) => {
+    preparePlans.reset();
+    setPreviewSiteId(siteId);
+    preparePlans.mutate(siteId);
   };
 
   const selected =
@@ -925,7 +1012,7 @@ export default function ValidationPage() {
         title="Link suggestions"
         sub={`${pendingTotal === null ? "Pending count unavailable" : `${formatCount(pendingTotal)} pending`} across ${ownedSiteCount} ${
           ownedSiteCount === 1 ? "site" : "sites"
-        } · queued links are not live until published`}
+        } · selected links go live only after their exact edits are approved`}
       />
       <div className="relative flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
@@ -1000,13 +1087,18 @@ export default function ValidationPage() {
           </details>
 
           <PublishBanner
-            approved={approvedCount}
+            selected={selectedCount}
+            approvedPlans={approvedPlanCount}
             siteCount={awaitingPublish.length}
-            publishing={publish.isPending}
-            onPublish={startPublish}
-            onPreview={
-              awaitingPublish.length === 1
-                ? () => setPreviewSiteId(awaitingPublish[0])
+            busy={publishBusy}
+            onReview={
+              awaitingPublish.length === 1 && !publicationUnavailable
+                ? () => openPublicationReview(awaitingPublish[0])
+                : undefined
+            }
+            onQueueApproved={
+              awaitingPublish.length === 1 && !publicationUnavailable
+                ? () => queueApproved(awaitingPublish[0])
                 : undefined
             }
           />
@@ -1201,32 +1293,21 @@ export default function ValidationPage() {
         {previewSiteId !== null && (
           <PublicationPreviewModal
             siteName={siteName(previewSiteId)}
-            data={publicationPreview.data}
-            loading={publicationPreview.isPending || publicationPreview.isFetching}
-            error={publicationPreview.isError}
-            publishing={publish.isPending}
-            onRetry={() => void publicationPreview.refetch()}
+            data={preparePlans.data}
+            loading={preparePlans.isPending}
+            error={preparePlans.isError}
+            busy={publishBusy}
+            approvedNotQueued={approvedNotQueued.has(previewSiteId)}
+            onRetry={() => preparePlans.mutate(previewSiteId)}
             onClose={() => setPreviewSiteId(null)}
-            onPublish={() => {
-              setNotice(null);
-              publish.mutate([previewSiteId], {
-                onSuccess: ({ queued, alreadyRunning, failed }) => {
-                  setPreviewSiteId(null);
-                  setNotice({
-                    message: [
-                      queued > 0 && "Publish queued for 1 site.",
-                      alreadyRunning > 0 && "This site is already publishing.",
-                      failed > 0 && "Publishing could not be queued.",
-                    ]
-                      .filter(Boolean)
-                      .join(" "),
-                    tone: failed > 0 ? "error" : "info",
-                  });
-                },
-                onError: () =>
-                  setNotice({ message: "Publishing could not be started.", tone: "error" }),
-              });
-            }}
+            onApproveAndQueue={(plans) => approveAndQueue(previewSiteId, plans)}
+            onQueueOnly={() =>
+              queueApproved(
+                previewSiteId,
+                approvedNotQueued.get(previewSiteId),
+                () => setPreviewSiteId(null),
+              )
+            }
           />
         )}
       </div>

@@ -117,11 +117,11 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText(/Selected by BM25/)).toBeNull();
   });
 
-  it("identifies an approved suggestion as queued but not live", () => {
+  it("identifies a selected suggestion as chosen but not yet approved", () => {
     renderPreview("approved");
 
-    expect(screen.getByText("Queued for publish")).not.toBeNull();
-    expect(screen.getByText("Queued for the next publish batch. Not live yet.")).not.toBeNull();
+    expect(screen.getByText("Selected")).not.toBeNull();
+    expect(screen.getByText(/Selected for publication/)).not.toBeNull();
   });
 
   it("identifies an in-progress publication", () => {
@@ -170,7 +170,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Queued for publish")).not.toBeNull();
+    expect(screen.getByText("Selected")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();

@@ -9,7 +9,7 @@ afterEach(cleanup);
 const open = async (onSelect = vi.fn()) => {
   const user = userEvent.setup();
   render(
-    <ActionMenu label="Actions" items={[{ label: "Publish approved", onSelect }]} />,
+    <ActionMenu label="Actions" items={[{ label: "Archive site", onSelect }]} />,
   );
   await user.click(screen.getByRole("button", { name: "Actions" }));
   return { user, onSelect };
@@ -22,7 +22,7 @@ describe("ActionMenu", () => {
     const trigger = screen.getByRole("button", { name: "Actions" });
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("menuitem", { name: "Publish approved" })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Archive site" })).not.toBeNull();
   });
 
   it("closes on Escape and returns focus to the trigger", async () => {
@@ -43,7 +43,7 @@ describe("ActionMenu", () => {
   it("runs the item and closes on select", async () => {
     const { user, onSelect } = await open();
 
-    await user.click(screen.getByRole("menuitem", { name: "Publish approved" }));
+    await user.click(screen.getByRole("menuitem", { name: "Archive site" }));
     expect(onSelect).toHaveBeenCalled();
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -64,7 +64,7 @@ describe("ActionMenu keyboard contract", () => {
           items={[
             { label: "Crawl", onSelect },
             { label: "Suggest", onSelect, disabled: true },
-            { label: "Publish approved", onSelect },
+            { label: "Archive site", onSelect },
           ]}
         />
         <button type="button">After actions</button>
@@ -92,7 +92,7 @@ describe("ActionMenu keyboard contract", () => {
     await user.keyboard("{ArrowUp}");
 
     expect(screen.getByRole("menu")).not.toBeNull();
-    expect(focused()).toBe("Publish approved");
+    expect(focused()).toBe("Archive site");
   });
 
   it("moves with the arrows, skipping items that cannot be chosen", async () => {
@@ -100,7 +100,7 @@ describe("ActionMenu keyboard contract", () => {
     await user.click(trigger);
 
     await user.keyboard("{ArrowDown}");
-    expect(focused()).toBe("Publish approved"); // 'Suggest' is disabled
+    expect(focused()).toBe("Archive site"); // 'Suggest' is disabled
 
     await user.keyboard("{ArrowUp}");
     expect(focused()).toBe("Crawl");
@@ -111,7 +111,7 @@ describe("ActionMenu keyboard contract", () => {
     await user.click(trigger);
 
     await user.keyboard("{ArrowUp}");
-    expect(focused()).toBe("Publish approved");
+    expect(focused()).toBe("Archive site");
 
     await user.keyboard("{ArrowDown}");
     expect(focused()).toBe("Crawl");
@@ -122,7 +122,7 @@ describe("ActionMenu keyboard contract", () => {
     await user.click(trigger);
 
     await user.keyboard("{End}");
-    expect(focused()).toBe("Publish approved");
+    expect(focused()).toBe("Archive site");
 
     await user.keyboard("{Home}");
     expect(focused()).toBe("Crawl");

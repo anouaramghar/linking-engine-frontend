@@ -139,7 +139,7 @@ export default function SuggestionPreview({
             disabled={actionsDisabled}
             className="btn btn-primary flex-1"
           >
-            Accept & queue placement
+            Accept & select for publication
           </button>
           <button
             type="button"
@@ -183,7 +183,8 @@ export default function SuggestionPreview({
 
       {s.status === "pending" && (
         <div className="mt-3 text-caption leading-normal text-muted">
-          Accepting this suggestion queues it for a future publish batch.
+          Accepting selects this suggestion. It is not queued and not scheduled —
+          the exact edit it produces still has to be reviewed and approved.
         </div>
       )}
       {s.status === "rejected" && (

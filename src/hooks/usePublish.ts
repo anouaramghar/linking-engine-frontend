@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getPublicationDryRun, listPendingPublication } from "../api/publish";
-import { publishSite } from "../api/sites";
-import { isConflict } from "../lib/errors";
-
-export interface PublishOutcome {
-  queued: number;
-  alreadyRunning: number;
-  failed: number;
-}
+import {
+  approvePublicationPlans,
+  listPendingPublication,
+  preparePublicationPlans,
+  queueApprovedPlans,
+  type PublicationPreparation,
+} from "../api/publish";
 
 export const usePendingPublication = (enabled = true) =>
   useQuery({
@@ -17,38 +15,52 @@ export const usePendingPublication = (enabled = true) =>
     enabled,
   });
 
-export const usePublicationDryRun = (siteId: number | null) =>
-  useQuery({
-    queryKey: ["publish", "dry-run", siteId],
-    queryFn: () => getPublicationDryRun(siteId!),
-    enabled: siteId !== null,
-    retry: false,
+/**
+ * Read the live articles and store the exact edits, only when the operator asks.
+ * A mutation prevents focus/remount refetches from repeating live requests or
+ * paid placement work. Retry remains an explicit button click.
+ */
+export const usePreparePublicationPlans = () =>
+  useMutation<PublicationPreparation, Error, number>({
+    mutationFn: (siteId: number) => preparePublicationPlans(siteId),
   });
 
 /**
- * Publishing is per site, so shipping an approved backlog spanning several sites
- * means one job each. A site whose publish job is already running is not a
- * failure — the work the editor asked for is already happening.
+ * Approve exactly the plans on screen, named by id *and* hash.
+ *
+ * Deliberately separate from queueing. Approval is the human decision and must
+ * be recorded before any job exists; queueing is a retryable no-decision step.
+ * Fusing them would mean a failed enqueue looked like a failed approval, and
+ * the operator would be asked to agree to the same edits twice.
  */
-export const usePublishSites = () => {
+export const useApprovePlans = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (siteIds: number[]): Promise<PublishOutcome> => {
-      const results = await Promise.allSettled(siteIds.map(publishSite));
-      return results.reduce<PublishOutcome>(
-        (outcome, result) => {
-          if (result.status === "fulfilled") outcome.queued += 1;
-          else if (isConflict(result.reason)) outcome.alreadyRunning += 1;
-          else outcome.failed += 1;
-          return outcome;
-        },
-        { queued: 0, alreadyRunning: 0, failed: 0 },
-      );
+    mutationFn: ({
+      siteId,
+      plans,
+    }: {
+      siteId: number;
+      plans: { id: number; plan_hash: string }[];
+    }) => approvePublicationPlans(siteId, plans),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["suggestions"] });
+      qc.invalidateQueries({ queryKey: ["publish", "pending"] });
     },
+  });
+};
+
+/** Start the job for a site's already-approved plans. Decides nothing. */
+export const useQueueApprovedPlans = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ siteId, planIds }: { siteId: number; planIds?: number[] }) =>
+      queueApprovedPlans(siteId, planIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["suggestions"] });
       qc.invalidateQueries({ queryKey: ["publish", "pending"] });
       qc.invalidateQueries({ queryKey: ["sites"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
 };

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Ref } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
-import { ingestSite, publishSite } from "../api/sites";
+import { ingestSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -12,6 +12,7 @@ import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import SelectionControl from "../components/SelectionControl";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
@@ -142,61 +143,6 @@ function SuggestionMethodBadge() {
   );
 }
 
-function SelectionControl({
-  label,
-  checked,
-  indeterminate = false,
-  disabled = false,
-  inputRef,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  indeterminate?: boolean;
-  disabled?: boolean;
-  inputRef?: Ref<HTMLInputElement>;
-  onChange: () => void;
-}) {
-  const active = checked || indeterminate;
-
-  return (
-    <>
-      <input
-        ref={inputRef}
-        type="checkbox"
-        className="peer sr-only"
-        aria-label={label}
-        aria-checked={indeterminate ? "mixed" : checked}
-        checked={checked}
-        disabled={disabled}
-        onChange={onChange}
-      />
-      <span
-        aria-hidden="true"
-        className={`pointer-events-none flex h-5 w-5 flex-none items-center justify-center rounded-md border transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-disabled:opacity-50 ${
-          active
-            ? "border-primary bg-primary text-on-primary"
-            : "border-hairline-control bg-surface-card"
-        }`}
-      >
-        {indeterminate ? (
-          <span className="h-0.5 w-2.5 rounded-pill bg-on-primary" />
-        ) : checked ? (
-          <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-            <path
-              d="m3 8 3 3 7-7"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : null}
-      </span>
-    </>
-  );
-}
-
 function SiteIdentity({ site, index }: { site: Site; index: number }) {
   return (
     <>
@@ -216,6 +162,7 @@ function SiteIdentity({ site, index }: { site: Site; index: number }) {
 }
 
 export default function SitesPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const sitesQuery = useSites(search);
   const sites = useMemo(
@@ -724,18 +671,15 @@ export default function SitesPage() {
                               ),
                           },
                           {
-                            label: "Publish approved",
-                            disabled:
-                              busy[busyKey(site.id, "Publish approved")] ||
-                              jobStatusUnavailable ||
-                              hasActiveJob(site.id, "publication"),
+                            // Was "Publish approved", and it published every
+                            // selected suggestion for the site with nobody
+                            // having seen the resulting edit. Publication is now
+                            // reachable only through the review that shows the
+                            // exact HTML and takes an explicit approval.
+                            label: "Review publication changes",
+                            disabled: false,
                             onSelect: () =>
-                              void run(
-                                site.id,
-                                "Publish approved",
-                                "publication",
-                                publishSite,
-                              ),
+                              navigate(`/queue?site=${site.id}&status=approved`),
                           },
                         ]),
                     {

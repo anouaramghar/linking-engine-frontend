@@ -251,7 +251,8 @@ export default function BulkActions({
               {confirmation.undoAvailable
                 ? "The decision can be undone."
                 : "This change is too large to undo in one step."} {" "}
-              Approved links are not live until published.
+              Selected links are not live and not scheduled; the exact edits still
+              have to be reviewed and approved.
             </div>
           </div>
           <button type="button" onClick={cancel} className="btn btn-outline btn-sm">
