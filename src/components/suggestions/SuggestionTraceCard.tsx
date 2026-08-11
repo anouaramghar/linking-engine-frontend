@@ -96,6 +96,7 @@ const timingStat = (suggestion: Suggestion, events: SuggestionEvent[] | undefine
 export default function SuggestionTraceCard({ suggestion, trace }: Props) {
   const bm25 = suggestion.score_components?.bm25_score;
   const externalTrust = suggestion.score_components?.external_trust;
+  const externalSafety = suggestion.score_components?.external_safety;
   const timing = timingStat(suggestion, trace.data);
 
   return (
@@ -124,6 +125,25 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
             </dd>
           </div>
         )}
+        {suggestion.provider_score !== null && suggestion.provider_score !== undefined && (
+          <div className="rounded-lg bg-surface-strong px-3 py-2">
+            <dt className="text-caption-sm text-muted">Tavily relevance</dt>
+            <dd className="mt-0.5 text-body-sm font-medium text-ink">
+              {pct(suggestion.provider_score)}
+            </dd>
+          </div>
+        )}
+        {externalSafety && (
+          <div
+            className="rounded-lg bg-surface-strong px-3 py-2"
+            title={`Web-search safety for ${externalSafety.domain}`}
+          >
+            <dt className="text-caption-sm text-muted">Safety checks</dt>
+            <dd className="mt-0.5 text-body-sm font-medium text-ink">
+              {externalSafety.eligible ? "Passed" : "Blocked"}
+            </dd>
+          </div>
+        )}
         <div className="rounded-lg bg-surface-strong px-3 py-2">
           <dt className="text-caption-sm text-muted">
             {suggestion.method === "hybrid_bm25" && bm25 !== undefined
@@ -135,6 +155,8 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
               ? bm25.toFixed(1)
               : suggestion.method === "baseline_cosine"
                 ? "Cosine"
+                : suggestion.method === "external_search"
+                  ? "Web search"
                 : "Hybrid"}
           </dd>
         </div>
@@ -153,6 +175,11 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
       {suggestion.trace_id && (
         <p className="mt-2 break-all text-caption-sm text-muted">
           Trace ID: <span className="font-medium text-body">{suggestion.trace_id}</span>
+        </p>
+      )}
+      {suggestion.provider_request_id && (
+        <p className="mt-1 break-all text-caption-sm text-muted">
+          Provider request: {suggestion.provider_request_id}
         </p>
       )}
 

@@ -4,7 +4,13 @@ export interface ArticleBrief {
   url: string;
 }
 
-export type SuggestionTargetOrigin = "internal" | "content_pool";
+export interface SuggestionTargetBrief {
+  id: number | null;
+  title: string;
+  url: string;
+}
+
+export type SuggestionTargetOrigin = "internal" | "content_pool" | "web_search";
 
 export type SuggestionStatus =
   | "pending"
@@ -46,6 +52,12 @@ export interface SuggestionScoreComponents {
     reasons: string[];
     checks: Record<string, boolean | number | string | null>;
   };
+  external_safety?: {
+    domain: string;
+    eligible: boolean;
+    reasons: string[];
+    checks: Record<string, boolean>;
+  };
 }
 
 /**
@@ -75,13 +87,18 @@ export interface Suggestion {
   trace_id?: string;
   site_id: number;
   source_article: ArticleBrief;
-  target_article: ArticleBrief;
+  target_article: SuggestionTargetBrief;
   target_origin: SuggestionTargetOrigin;
   target_site_name: string;
   method: string;
   /** Cosine semantic similarity, whichever method selected the row. */
   score: number;
   score_components?: SuggestionScoreComponents | null;
+  provider?: string | null;
+  provider_request_id?: string | null;
+  provider_score?: number | null;
+  search_query?: string | null;
+  external_snippet?: string | null;
   status: SuggestionStatus;
   anchor_text: string | null;
   publish_outcome?: "inserted" | "block" | "already_present" | null;

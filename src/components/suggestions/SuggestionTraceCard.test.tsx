@@ -132,4 +132,46 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("External trust")).not.toBeNull();
     expect(screen.getByText("95/100")).not.toBeNull();
   });
+
+  it("shows Tavily provenance without treating provider relevance as semantic score", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={{
+          ...suggestion,
+          target_article: {
+            id: null,
+            title: "Independent SEO guide",
+            url: "https://reference.example/seo-guide",
+          },
+          target_origin: "web_search",
+          target_site_name: "Tavily",
+          method: "external_search",
+          provider: "tavily",
+          provider_request_id: "request-123",
+          provider_score: 0.74,
+          score_components: {
+            external_safety: {
+              domain: "reference.example",
+              eligible: true,
+              reasons: [],
+              checks: {
+                https: true,
+                blocklisted: false,
+                competitor: false,
+                owned_domain: false,
+              },
+            },
+          },
+        }}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByText("Tavily relevance")).not.toBeNull();
+    expect(screen.getByText("74%")).not.toBeNull();
+    expect(screen.getByText("Safety checks")).not.toBeNull();
+    expect(screen.getByText("Passed")).not.toBeNull();
+    expect(screen.getByText("Web search")).not.toBeNull();
+    expect(document.body.textContent).toContain("Provider request: request-123");
+  });
 });

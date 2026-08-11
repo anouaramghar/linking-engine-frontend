@@ -86,7 +86,7 @@ export default function SuggestionPreview({
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="badge">{TARGET_ORIGIN_LABEL[s.target_origin]}</span>
-          {s.target_origin === "content_pool" && (
+          {s.target_origin !== "internal" && (
             <span className="text-caption text-muted">{s.target_site_name}</span>
           )}
         </div>
@@ -105,6 +105,12 @@ export default function SuggestionPreview({
           <div className="mt-2 text-caption text-muted">
             Suggested anchor: <span className="font-medium text-ink">{s.anchor_text}</span>
           </div>
+        )}
+        {s.target_origin === "web_search" && s.external_snippet && (
+          <p className="mt-3 text-caption leading-relaxed text-body">{s.external_snippet}</p>
+        )}
+        {s.target_origin === "web_search" && s.search_query && (
+          <div className="mt-2 text-caption-sm text-muted">Search query: {s.search_query}</div>
         )}
       </div>
 

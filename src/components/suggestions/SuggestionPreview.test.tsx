@@ -207,6 +207,43 @@ describe("SuggestionPreview publication state", () => {
     );
   });
 
+  it("shows a direct Tavily target with its discovery context", () => {
+    const webSearch: Suggestion = {
+      ...suggestion("pending"),
+      target_article: {
+        id: null,
+        title: "Independent SEO guide",
+        url: "https://reference.example/seo-guide",
+      },
+      target_origin: "web_search",
+      target_site_name: "Tavily",
+      method: "external_search",
+      external_snippet: "Independent guidance about useful SEO links.",
+      search_query: "SEO Orlando",
+    };
+    render(
+      <SuggestionPreview
+        suggestion={webSearch}
+        siteName="Example site"
+        placement={placement}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("External link · Tavily")).not.toBeNull();
+    expect(screen.getByText("Tavily")).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "Independent guidance about useful SEO links.",
+    );
+    expect(document.body.textContent).toContain("Search query: SEO Orlando");
+    expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
+      "https://reference.example/seo-guide",
+    );
+  });
+
   it("renders a quarantined row and offers the only way back", () => {
     // The worker returns 'failed' rows in the default queue. A status the
     // client does not know about reads its metadata off undefined, which takes

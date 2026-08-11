@@ -171,6 +171,16 @@ describe("queue filters", () => {
     await waitFor(() => expect(currentSearch).toContain("origin=content_pool"));
   });
 
+  it("supports a shareable Tavily-only queue", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.selectOptions(screen.getByLabelText("Target filter"), "web_search");
+
+    await waitFor(() => expect(currentSearch).toContain("origin=web_search"));
+    expect(mocks.queueFilters?.targetOrigin).toBe("web_search");
+  });
+
   it("restores a queue from a shared link", () => {
     renderQueue("/?q=hooks&origin=content_pool&unique=1&min=90&status=approved");
 

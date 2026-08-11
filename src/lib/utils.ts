@@ -29,11 +29,13 @@ export const timeAgo = (iso: string | null) => {
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
   hybrid_bm25: "hybrid BM25",
+  external_search: "Tavily",
 };
 
 export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
   internal: "Internal link",
   content_pool: "External link · Content pool",
+  web_search: "External link · Tavily",
 };
 
 /**

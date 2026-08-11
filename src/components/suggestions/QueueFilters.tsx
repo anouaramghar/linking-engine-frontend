@@ -84,6 +84,7 @@ export default function QueueFilters({
           <option value="">Any target</option>
           <option value="internal">{TARGET_ORIGIN_LABEL.internal}</option>
           <option value="content_pool">{TARGET_ORIGIN_LABEL.content_pool}</option>
+          <option value="web_search">{TARGET_ORIGIN_LABEL.web_search}</option>
         </select>
 
         {isFiltered && (

@@ -100,7 +100,7 @@ function SuggestionCard({
                 </span>
               )}
               <span className="text-caption text-muted">{siteName}</span>
-              {s.target_origin === "content_pool" && (
+              {s.target_origin !== "internal" && (
                 <span className="text-caption text-muted">{s.target_site_name}</span>
               )}
               <span className="rounded-pill border border-hairline px-2.5 py-1 text-caption-upper uppercase text-muted">
