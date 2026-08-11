@@ -19,8 +19,6 @@ interface Props {
   onUndo: (id: number) => void;
   actionsDisabled?: boolean;
   showSource?: boolean;
-  /** Set on the keyboard cursor's row so the queue can scroll it into view. */
-  containerRef?: React.Ref<HTMLLIElement>;
 }
 
 function SuggestionCard({
@@ -33,13 +31,11 @@ function SuggestionCard({
   onUndo,
   actionsDisabled = false,
   showSource = true,
-  containerRef,
 }: Props) {
   const meta = STATUS_META[s.status];
 
   return (
     <li
-      ref={containerRef}
       data-suggestion-id={s.id}
       aria-current={selected || undefined}
       className={`card flex animate-rowIn flex-col items-stretch gap-2.5 px-3.5 py-3 transition-shadow hover:shadow-soft sm:px-4 lg:flex-row lg:items-center lg:gap-4 ${

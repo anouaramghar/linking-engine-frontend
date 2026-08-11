@@ -19,6 +19,7 @@ export interface DashboardUser {
 
 export interface LoginStart {
   deep_link: string;
+  expires_in_seconds: number;
 }
 
 /** Every state is final for one Telegram-issued code. */

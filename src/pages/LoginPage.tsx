@@ -52,6 +52,8 @@ export default function LoginPage() {
   const queryClient = useQueryClient();
   const [started, setStarted] = useState(false);
   const [code, setCode] = useState("");
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   // Whether the hand-off tab actually opened. A blocked pop-up otherwise leaves
   // the operator watching a spinner that waits for something that never happened.
   const [handedOff, setHandedOff] = useState(true);
@@ -106,10 +108,21 @@ export default function LoginPage() {
     return () => window.clearTimeout(timer);
   }, [prefersReducedMotion]);
 
+  useEffect(() => {
+    if (expiresAt === null) return;
+
+    const updateCountdown = () =>
+      setRemainingSeconds(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1_000)));
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1_000);
+    return () => window.clearInterval(timer);
+  }, [expiresAt]);
+
   const start = useMutation({
     mutationFn: startLogin,
     onSuccess: (data) => {
       setStarted(true);
+      setExpiresAt(Date.now() + data.expires_in_seconds * 1_000);
       if (telegramTab.current) telegramTab.current.location.href = data.deep_link;
     },
     // Do not leave a blank tab sitting there after a 429 or a 503.
@@ -139,10 +152,27 @@ export default function LoginPage() {
     start.mutate();
   }
 
+  function resetLogin() {
+    setStarted(false);
+    setCode("");
+    setExpiresAt(null);
+    setRemainingSeconds(0);
+    setHandedOff(true);
+    start.reset();
+    complete.reset();
+  }
+
+  function restartLogin() {
+    resetLogin();
+    signIn();
+  }
+
   const deepLink = start.data?.deep_link;
   const state = complete.data?.state;
   const finalState = state && state !== "approved" ? state : null;
   const startFailure = start.isPending ? null : startErrorMessage(start.error);
+  const expired = expiresAt !== null && remainingSeconds === 0;
+  const countdown = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden">
@@ -256,13 +286,23 @@ export default function LoginPage() {
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
+                  if (expired) return;
                   complete.mutate(code);
                 }}
                 className="flex flex-col gap-3"
               >
-                <label htmlFor="telegram-code" className="text-caption font-medium text-ink">
-                  One-time Telegram code
-                </label>
+                <div className="flex items-baseline justify-between gap-3">
+                  <label htmlFor="telegram-code" className="text-caption font-medium text-ink">
+                    One-time Telegram code
+                  </label>
+                  <span
+                    role="timer"
+                    aria-label="Telegram code expiration"
+                    className={`shrink-0 text-caption tabular-nums ${expired ? "text-error-ink" : "text-muted"}`}
+                  >
+                    {expired ? "Code expired" : `Expires in ${countdown}`}
+                  </span>
+                </div>
                 <input
                   id="telegram-code"
                   value={code}
@@ -274,12 +314,13 @@ export default function LoginPage() {
                   autoCapitalize="characters"
                   spellCheck={false}
                   required
+                  disabled={expired}
                   placeholder="ABCD-EFGH-JKLM"
-                  className="field font-mono uppercase tracking-widest"
+                  className="field font-mono uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <button
                   type="submit"
-                  disabled={complete.isPending || !code.trim()}
+                  disabled={expired || complete.isPending || !code.trim()}
                   className="btn btn-primary w-full disabled:opacity-50"
                 >
                   {complete.isPending ? "Signing in…" : "Complete sign in"}
@@ -301,16 +342,21 @@ export default function LoginPage() {
               {finalState === "invalid" && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setStarted(false);
-                    setCode("");
-                    setHandedOff(true);
-                    start.reset();
-                    complete.reset();
-                  }}
+                  onClick={resetLogin}
                   className="btn btn-outline w-full"
                 >
                   Start again
+                </button>
+              )}
+
+              {expired && finalState !== "invalid" && (
+                <button
+                  type="button"
+                  onClick={restartLogin}
+                  disabled={start.isPending}
+                  className="btn btn-outline w-full disabled:opacity-50"
+                >
+                  {start.isPending ? "Preparing…" : "Start again"}
                 </button>
               )}
             </div>

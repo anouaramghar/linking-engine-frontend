@@ -1,18 +1,39 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   approvePublicationPlans,
+  getPendingPublicationSite,
   listPendingPublication,
   preparePublicationPlans,
   queueApprovedPlans,
   type PublicationPreparation,
 } from "../api/publish";
+import { useJob, isTerminalJobStatus } from "./useJobs";
 
-export const usePendingPublication = (enabled = true) =>
-  useQuery({
-    queryKey: ["publish", "pending"],
-    queryFn: listPendingPublication,
+export const usePendingPublication = (enabled = true, search = "") => {
+  const query = useInfiniteQuery({
+    queryKey: ["publish", "pending", search.trim()],
+    queryFn: ({ pageParam }) => listPendingPublication(pageParam, search),
     enabled,
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+  });
+  const first = query.data?.pages[0];
+  return {
+    ...query,
+    data: query.data?.pages.flatMap((page) => page.items),
+    totalSites: first?.total_sites ?? 0,
+    totalSelectedSuggestions: first?.total_selected_suggestions ?? 0,
+    totalApprovedPlans: first?.total_approved_plans ?? 0,
+  };
+};
+
+export const usePendingPublicationSite = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["publish", "pending", "site", siteId],
+    queryFn: () => getPendingPublicationSite(siteId as number),
+    enabled: siteId !== null,
   });
 
 /**
@@ -20,10 +41,77 @@ export const usePendingPublication = (enabled = true) =>
  * A mutation prevents focus/remount refetches from repeating live requests or
  * paid placement work. Retry remains an explicit button click.
  */
-export const usePreparePublicationPlans = () =>
-  useMutation<PublicationPreparation, Error, number>({
+interface PrepareCallbacks {
+  onQueued?: (jobId: string) => void;
+  onSuccess?: (preparation: PublicationPreparation) => void;
+  onError?: (error: Error) => void;
+}
+
+export const usePreparePublicationPlans = (initialJobId: string | null = null) => {
+  const [jobId, setJobId] = useState<string | null>(initialJobId);
+  const callbacks = useRef<PrepareCallbacks | undefined>(undefined);
+  const delivered = useRef<string | null>(null);
+  const job = useJob(jobId);
+  const enqueue = useMutation({
     mutationFn: (siteId: number) => preparePublicationPlans(siteId),
   });
+
+  useEffect(() => {
+    if (!jobId || !job.data || !isTerminalJobStatus(job.data.status)) return;
+    if (delivered.current === jobId) return;
+    delivered.current = jobId;
+    if (job.data.status === "succeeded" && job.data.result) {
+      const preparation = job.data.result as unknown as PublicationPreparation;
+      callbacks.current?.onSuccess?.(preparation);
+      return;
+    }
+    const error = new Error(job.data.error ?? "The exact edits could not be prepared.");
+    callbacks.current?.onError?.(error);
+  }, [job.data, jobId]);
+
+  const mutate = (siteId: number, options: PrepareCallbacks = {}) => {
+    callbacks.current = options;
+    delivered.current = null;
+    setJobId(null);
+    enqueue.reset();
+    enqueue.mutate(siteId, {
+      onSuccess: (accepted) => {
+        setJobId(accepted.job_id);
+        options.onQueued?.(accepted.job_id);
+      },
+      onError: (error) => {
+        options.onError?.(error);
+      },
+    });
+  };
+
+  const reset = () => {
+    enqueue.reset();
+    delivered.current = null;
+    setJobId(null);
+  };
+
+  const succeeded = job.data?.status === "succeeded" && job.data.result;
+  const data = succeeded
+    ? (job.data?.result as unknown as PublicationPreparation)
+    : undefined;
+  const terminalError =
+    job.data && isTerminalJobStatus(job.data.status) && job.data.status !== "succeeded"
+      ? new Error(job.data.error ?? "The exact edits could not be prepared.")
+      : undefined;
+
+  return {
+    mutate,
+    reset,
+    data,
+    jobId,
+    progress: job.data?.progress,
+    isPending:
+      enqueue.isPending || Boolean(jobId && !isTerminalJobStatus(job.data?.status)),
+    isError: enqueue.isError || job.isError || Boolean(terminalError),
+    error: enqueue.error ?? job.error ?? terminalError,
+  };
+};
 
 /**
  * Approve exactly the plans on screen, named by id *and* hash.

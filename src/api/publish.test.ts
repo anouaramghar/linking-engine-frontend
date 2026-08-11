@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   approvePublicationPlans,
+  getPendingPublicationSite,
+  getPublicationPlanHtml,
   listPendingPublication,
   preparePublicationPlans,
   queueApprovedPlans,
@@ -21,27 +23,85 @@ beforeEach(() => {
 
 describe("listPendingPublication", () => {
   it("keeps selected suggestions and approved plans as separate counts", async () => {
-    const pending = [
-      { site_id: 3, selected_suggestions: 24, approved_plans: 0 },
-      { site_id: 8, selected_suggestions: 0, approved_plans: 2 },
-    ];
+    const pending = {
+      items: [
+        { site_id: 3, selected_suggestions: 24, approved_plans: 0 },
+        { site_id: 8, selected_suggestions: 0, approved_plans: 2 },
+      ],
+      next_cursor: null,
+      total_sites: 2,
+      total_selected_suggestions: 24,
+      total_approved_plans: 2,
+    };
     api.get.mockResolvedValue({ data: pending });
 
     await expect(listPendingPublication()).resolves.toEqual(pending);
-    expect(api.get).toHaveBeenCalledWith("/publish/pending");
+    expect(api.get).toHaveBeenCalledWith("/publish/pending", {
+      params: {
+        cursor: undefined,
+        include_totals: true,
+        limit: 50,
+        search: undefined,
+      },
+    });
+  });
+
+  it("loads one site directly without walking the fleet pages", async () => {
+    const pending = { site_id: 1001, selected_suggestions: 3, approved_plans: 0 };
+    api.get.mockResolvedValue({ data: pending });
+
+    await expect(getPendingPublicationSite(1001)).resolves.toEqual(pending);
+    expect(api.get).toHaveBeenCalledWith("/publish/pending/1001");
+  });
+
+  it("does not recompute fleet totals on later cursor pages", async () => {
+    api.get.mockResolvedValue({
+      data: {
+        items: [],
+        next_cursor: null,
+        total_sites: null,
+        total_selected_suggestions: null,
+        total_approved_plans: null,
+      },
+    });
+
+    await listPendingPublication(1000, "news");
+
+    expect(api.get).toHaveBeenCalledWith("/publish/pending", {
+      params: {
+        cursor: 1000,
+        include_totals: false,
+        limit: 50,
+        search: "news",
+      },
+    });
   });
 });
 
 describe("preparePublicationPlans", () => {
-  it("requests a bounded preparation with enough time for live WordPress reads", async () => {
-    const preparation = { site_id: 3, plans: [] };
-    api.post.mockResolvedValue({ data: preparation });
+  it("queues durable preparation instead of holding an HTTP request open", async () => {
+    const accepted = { job_id: "prepare-3" };
+    api.post.mockResolvedValue({ data: accepted });
 
-    await expect(preparePublicationPlans(3, 7)).resolves.toEqual(preparation);
-    expect(api.post).toHaveBeenCalledWith("/publish/3/plans/prepare", undefined, {
+    await expect(preparePublicationPlans(3, 7)).resolves.toEqual(accepted);
+    expect(api.post).toHaveBeenCalledWith("/publish/3/plans/prepare-async", undefined, {
       params: { max_articles: 7 },
-      timeout: 180_000,
     });
+  });
+});
+
+describe("getPublicationPlanHtml", () => {
+  it("loads the heavy exact bytes only when advanced review asks for them", async () => {
+    const html = {
+      id: 55,
+      plan_hash: "a".repeat(64),
+      original_html: "<p>before</p>",
+      updated_html: "<p>after</p>",
+    };
+    api.get.mockResolvedValue({ data: html });
+
+    await expect(getPublicationPlanHtml(3, 55)).resolves.toEqual(html);
+    expect(api.get).toHaveBeenCalledWith("/publish/3/plans/55/html");
   });
 });
 

@@ -13,6 +13,12 @@ vi.mock("./hooks/useSuggestions", () => ({
   useSuggestionCounts: () => ({ data: { pending: 3 } }),
 }));
 
+vi.mock("./hooks/usePublish", () => ({
+  usePendingPublication: () => ({
+    data: [],
+  }),
+}));
+
 vi.mock("./hooks/useHealth", () => ({
   useHealth: () => ({ isError: false, isPending: false }),
 }));
@@ -24,6 +30,10 @@ vi.mock("./hooks/useSession", () => ({
 
 vi.mock("./pages/ValidationPage", () => ({
   default: () => <div>Queue page</div>,
+}));
+
+vi.mock("./pages/PublishPage", () => ({
+  default: () => <div>Publish page</div>,
 }));
 
 vi.mock("./pages/SitesPage", () => ({
@@ -67,7 +77,7 @@ const shell = (path = "/queue") =>
   );
 
 describe("App shell", () => {
-  it("offers complete mobile and desktop navigation without hiding a route", () => {
+  it("keeps the review workflow in the queue while exposing the other destinations", () => {
     shell();
 
     const mobile = screen.getByRole("navigation", { name: "Mobile navigation" });
@@ -103,20 +113,26 @@ describe("Rail collapse", () => {
 
     // Expanded, the label is the visible text. Collapsed, it is an `sr-only`
     // span and a tooltip — and only the first of those is a name. A rail that
-    // reads as five unlabelled links to a screen reader is not collapsed, it is
+    // reads as four unlabelled links to a screen reader is not collapsed, it is
     // broken, so this asserts the names survive the transition rather than
     // asserting which element carries them.
     await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
 
     // Scoped to the rail: jsdom applies no stylesheet, so the mobile row is in
     // the document too and "Sites" would match in both shells.
-    for (const name of ["Review queue", "Sites", "Content Pool", "Evaluation", "Access"]) {
+    for (const name of [
+      "Review queue",
+      "Sites",
+      "Content Pool",
+      "Evaluation",
+      "Access",
+    ]) {
       expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
     expect(rail().querySelectorAll("a")).toHaveLength(5);
   });
 
-  it("carries the pending count when the badge cannot show it", async () => {
+  it("carries each count when the badge cannot show it", async () => {
     const user = userEvent.setup();
     shell();
 
@@ -126,6 +142,7 @@ describe("Rail collapse", () => {
 
     const queue = rail().querySelector('a[href="/queue"]');
     expect(queue?.textContent).toContain("3 pending");
+    expect(rail().querySelector('a[href="/publish"]')).toBeNull();
   });
 
   it("remembers the choice, because it is a workspace preference", async () => {

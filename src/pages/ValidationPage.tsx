@@ -5,7 +5,6 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { BulkReviewChunkError } from "../api/suggestions";
-import type { PublicationPlan } from "../api/publish";
 import { ENGINE_PAGE_LIMIT } from "../api/engineLimits";
 import type {
   SuggestionCounts,
@@ -15,23 +14,15 @@ import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
 import QueueFilters from "../components/suggestions/QueueFilters";
 import { useQueueFilters } from "../hooks/useQueueFilters";
+import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
-import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
+import SelectionTray from "../components/suggestions/SelectionTray";
+import FlowSteps from "../components/publish/FlowSteps";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../hooks/useMediaQuery";
-import {
-  useApprovePlans,
-  usePendingPublication,
-  usePreparePublicationPlans,
-  useQueueApprovedPlans,
-} from "../hooks/usePublish";
-import {
-  SHORTCUT_HINT,
-  useQueueShortcuts,
-  useShortcutsEnabled,
-} from "../hooks/useQueueShortcuts";
+import { usePendingPublication } from "../hooks/usePublish";
 import {
   useBulkReview,
   useFilteredBulkReview,
@@ -46,7 +37,7 @@ import {
   groupSuggestionsBySource,
   suggestionGroupKey,
 } from "../lib/suggestionGroups";
-import { formatCount, isReversible, scorePercent } from "../lib/utils";
+import { formatCount, scorePercent } from "../lib/utils";
 import {
   clampThreshold,
   filterSuggestions,
@@ -84,7 +75,6 @@ const STATUS_OVERRIDE_LIMIT = 5_000;
 const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_PAGE_SIZE = 20;
-const SOURCE_SUGGESTION_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_HARD_LIMIT = 1_000;
 
 const EMPTY_COUNTS: SuggestionCounts = {
@@ -140,23 +130,10 @@ export default function ValidationPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [previewSiteId, setPreviewSiteId] = useState<number | null>(null);
-  // Sites whose exact edits were approved but whose publish job failed to start,
-  // held as the exact plan ids that approval named. The approval stands, so the
-  // only thing left to offer is a queue retry — and it has to name that same
-  // subset, because queueing a plan the operator excluded is a 409.
-  const [approvedNotQueued, setApprovedNotQueued] = useState<
-    Map<number, number[] | undefined>
-  >(() => new Map());
-  const cursorRef = useRef<HTMLLIElement>(null);
-  const lastIndex = useRef(0);
   const overrideOrder = useRef<number[]>([]);
-  const pendingNavigationAfterId = useRef<number | null>(null);
   const focusAfterReview = useRef<number | "main" | null>(null);
 
-  const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
   const previewIsOverlaid = useMediaQuery(OVERLAY_PREVIEW_QUERY);
-
   const sitesQuery = useSites();
   // Every site, because this list is also what resolves a suggestion's site
   // name — dropping pool sources here would label their groups "site 12".
@@ -233,6 +210,8 @@ export default function ValidationPage() {
     { ...scope, maxPercent: threshold },
     hasSites,
   );
+  // Read-only here. The queue owns the exact-edit review surface; this query
+  // only tells it which selected site's work is ready to open.
   const pendingPublicationQuery = usePendingPublication(hasSites);
   // Only a *stale* answer pauses review: `isPlaceholderData` means these counts
   // still describe the previous filter, so acting on them would act on the
@@ -246,12 +225,9 @@ export default function ValidationPage() {
     rejectCountsQuery,
   ].some((query) => query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
-  const preparePlans = usePreparePublicationPlans();
   const review = useReview();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
-  const approvePlans = useApprovePlans();
-  const queuePlans = useQueueApprovedPlans();
 
   // The suggestions query stays disabled until sites arrive, so it reports
   // "pending" before it has any work to do — gate it on the sites we have.
@@ -344,10 +320,6 @@ export default function ValidationPage() {
   const visibleSuggestions = useMemo(
     () => renderedGroups.flatMap((group) => group.visibleSuggestions),
     [renderedGroups],
-  );
-  const visibleSuggestionIds = useMemo(
-    () => new Set(visibleSuggestions.map((suggestion) => suggestion.id)),
-    [visibleSuggestions],
   );
   const shown = visibleSuggestions.length;
 
@@ -530,11 +502,6 @@ export default function ValidationPage() {
               .slice(0, selectedIndex)
               .reverse()
               .find((suggestion) => !removed.has(suggestion.id));
-          // Resume at the true vacated position after every reviewed row above
-          // the cursor has also left the filtered list.
-          lastIndex.current = navigableSuggestions
-            .slice(0, selectedIndex)
-            .filter((suggestion) => !removed.has(suggestion.id)).length;
           focusAfterReview.current = next?.id ?? "main";
         }
       }
@@ -587,19 +554,29 @@ export default function ValidationPage() {
 
   const decide = (id: number, status: ReviewStatus) => {
     if (queueUpdating || confirmation || actionMutationPending) return;
-    const message =
-      status === "approved"
-        ? "1 suggestion selected for exact-edit review."
-        : "1 suggestion rejected.";
+    const successMessage =
+      status !== "approved"
+        ? "1 suggestion rejected."
+        : "1 suggestion selected for exact-edit review.";
     // Deliberate tri-state: undefined leaves a non-cursor selection alone;
     // null clears a cursor whose removed row has no successor.
     const successor = successorOf(id);
-    setNotice(null);
+    setNotice({
+      message:
+        status === "approved"
+          ? "Saving selection…"
+          : "Saving rejection…",
+      tone: "info",
+    });
     review.mutate(
       { id, status },
       {
         onSuccess: () => {
-          applyStatuses([id], status, { message, tone: "info", undoIds: [id] });
+          applyStatuses([id], status, {
+            message: successMessage,
+            tone: "info",
+            undoIds: [id],
+          });
           focusAfterReview.current = successor ?? "main";
           if (id === selectedId) {
             setSelectedId(successor);
@@ -655,10 +632,10 @@ export default function ValidationPage() {
    *
    * `decide` and `undo` close over the cursor and the filtered list, so they
    * are rebuilt on every render — handed to a memoised card that defeats the
-   * memo entirely. Latching them in a ref (the same trick `useQueueShortcuts`
-   * and `Notice` already use for their timers) gives every row one stable
-   * callback for the life of the page, so a cursor move re-renders the two
-   * rows whose selection actually changed instead of all of them.
+   * memo entirely. Latching them in a ref (the same trick `Notice` already uses
+   * for its timers) gives every row one stable callback for the life of the
+   * page, so opening a row re-renders the two rows whose selection actually
+   * changed instead of all of them.
    */
   const rowActions = useRef({ decide, undo });
   useEffect(() => {
@@ -737,249 +714,41 @@ export default function ValidationPage() {
   // yet" and "the answer failed" hide the publish controls.
   const publicationUnavailable =
     pendingPublicationQuery.isPending || pendingPublicationQuery.isError;
-  const pendingPublication = publicationUnavailable
-    ? []
-    : (pendingPublicationQuery.data ?? []).filter(
-        (entry) => siteFilter === 0 || entry.site_id === siteFilter,
-      );
-  const publicationSites = pendingPublication.map((entry) => ({
-    id: entry.site_id,
-    name: siteName(entry.site_id),
-    selectedSuggestions: entry.selected_suggestions,
-    approvedPlans: entry.approved_plans,
-    canPublish: entry.can_publish,
-  }));
-  const reviewablePublicationSites = publicationSites.filter(
-    (site) => site.selectedSuggestions > 0 && site.canPublish !== false,
-  );
-  const publishBusy = approvePlans.isPending || queuePlans.isPending;
-
-  /**
-   * Start the job for edits a person has already approved.
-   *
-   * Separate from approval on purpose: an enqueue that fails must not make the
-   * operator agree to the same edits a second time, and this path makes no
-   * decision of its own, so retrying it is free.
-   */
-  // `undefined` plan ids means "every approved plan for this site", which is the
-  // deliberate recovery shape of the queue endpoint; it is a stored value, not a
-  // missing one, so the retry repeats the request that failed rather than
-  // widening it. Clearing the entry is what marks the site queued.
-  const rememberNotQueued = (siteId: number, planIds: number[] | undefined) =>
-    setApprovedNotQueued((current) => new Map(current).set(siteId, planIds));
-
-  const clearNotQueued = (siteId: number) =>
-    setApprovedNotQueued((current) => {
-      if (!current.has(siteId)) return current;
-      const next = new Map(current);
-      next.delete(siteId);
-      return next;
-    });
-
-  const queueApproved = (
-    siteId: number,
-    planIds?: number[],
-    onQueued?: () => void,
-  ) => {
-    if (publishBusy) return;
-    setNotice(null);
-    queuePlans.mutate(
-      { siteId, planIds },
-      {
-        onSuccess: () => {
-          clearNotQueued(siteId);
-          onQueued?.();
-          setNotice({ message: "Publish queued for the approved edits.", tone: "info" });
-        },
-        onError: (error) => {
-          rememberNotQueued(siteId, planIds);
-          setNotice({
-            message: isConflict(error)
-              ? "This site is already publishing, or has no approved edits left to queue."
-              : "These edits stay approved, but the publish job could not be started. Queue them again.",
-            tone: "error",
-          });
-        },
-      },
-    );
-  };
-
-  /**
-   * The one human decision: bind this operator to exactly the plans they ticked.
-   *
-   * Only those plans and their hashes are sent. `has_more`, the per-article
-   * errors, and any article the operator unticked all describe work that is
-   * *not* in this request, so a batch can never grow between what was read and
-   * what was agreed to.
-   */
-  const approveAndQueue = (siteId: number, plans: PublicationPlan[]) => {
-    if (publishBusy || plans.length === 0) return;
-    setNotice(null);
-    approvePlans.mutate(
-      {
-        siteId,
-        plans: plans.map((plan) => ({ id: plan.id, plan_hash: plan.plan_hash })),
-      },
-      {
-        onSuccess: () =>
-          queueApproved(
-            siteId,
-            plans.map((plan) => plan.id),
-            () => setPreviewSiteId(null),
-          ),
-        onError: (error) =>
-          setNotice({
-            message: isConflict(error)
-              ? "These edits changed since they were prepared, so nothing was approved. Reload the review and look at the new version."
-              : "The approval could not be saved, so nothing was published.",
-            tone: "error",
-          }),
-      },
-    );
-  };
-
-  const openPublicationReview = (siteId: number) => {
-    preparePlans.reset();
-    setPreviewSiteId(siteId);
-    preparePlans.mutate(siteId);
-  };
-
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
 
-  const selectedCanOpenPublicationReview = Boolean(
-    selected &&
-      publicationSites.some(
-        (site) =>
-          site.id === selected.site_id &&
-          site.selectedSuggestions > 0 &&
-          site.canPublish !== false,
-      ),
-  );
+  const step = (delta: number) => {
+    if (queueUpdating || navigableSuggestions.length === 0) return;
+    const current = navigableSuggestions.findIndex((item) => item.id === selectedId);
+    const target = current === -1 ? 0 : current + delta;
+    if (target >= navigableSuggestions.length) {
+      if (hasMore) showMore();
+      return;
+    }
+    setSelectedId(navigableSuggestions[Math.max(0, target)].id);
+  };
+
+  useQueueShortcuts({
+    onNext: () => step(1),
+    onPrevious: () => step(-1),
+    onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
+    onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
+    onUndo: () => {
+      if (selected?.status === "approved" || selected?.status === "rejected") {
+        undo([selected.id]);
+      } else if (notice?.undoIds?.length) {
+        undo(notice.undoIds);
+      }
+    },
+    onEscape: () => {
+      if (confirmation) setConfirmation(null);
+      else setSelectedId(null);
+    },
+  });
 
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.
   const placementQuery = usePlacement(selected?.id ?? null);
-
-  // The position the cursor last held. Tracked in an effect rather than during
-  // render so a discarded concurrent render cannot record a place the editor
-  // never saw.
-  useEffect(() => {
-    const index = navigableSuggestions.findIndex(
-      (item) => item.id === selectedId,
-    );
-    if (index !== -1) lastIndex.current = index;
-  }, [navigableSuggestions, selectedId]);
-
-  // Move the cursor within the visible list, seeding it at the top on first use.
-  const step = (delta: number) => {
-    if (queueUpdating || !navigableSuggestions.length) return;
-    const current = navigableSuggestions.findIndex(
-      (item) => item.id === selectedId,
-    );
-    const currentGroup = renderedGroups.find((group) =>
-      group.visibleSuggestions.some((item) => item.id === selectedId),
-    );
-    const currentGroupLimit = currentGroup
-      ? groupLimits[currentGroup.key] ?? SOURCE_SUGGESTION_PAGE_SIZE
-      : 0;
-    const groupHasMore = Boolean(
-      currentGroup &&
-        currentGroup.visibleSuggestions.length < currentGroup.suggestions.length &&
-        currentGroupLimit < SOURCE_SUGGESTION_AUTO_LOAD_LIMIT,
-    );
-    if (
-      delta > 0 &&
-      current === navigableSuggestions.length - 1 &&
-      (groupHasMore || suggestionsQuery.hasNextPage)
-    ) {
-      if (!groupHasMore && autoLoadPaused) {
-        setNotice({
-          message: "More suggestions are available. Use Show more to keep loading.",
-          tone: "info",
-        });
-        return;
-      }
-      if (
-        suggestionsQuery.isFetchingNextPage ||
-        pendingNavigationAfterId.current !== null
-      ) {
-        return;
-      }
-      pendingNavigationAfterId.current = navigableSuggestions[current].id;
-      if (groupHasMore && currentGroup) {
-        setGroupLimits((current) => ({
-          ...current,
-          [currentGroup.key]:
-            (current[currentGroup.key] ?? SOURCE_SUGGESTION_PAGE_SIZE) +
-            SOURCE_SUGGESTION_PAGE_SIZE,
-        }));
-      } else {
-        showMoreLoaded();
-        void suggestionsQuery.fetchNextPage().catch(() => {
-          pendingNavigationAfterId.current = null;
-          setNotice({
-            message: "The next queue page could not be loaded. Please try again.",
-            tone: "error",
-          });
-        });
-      }
-      return;
-    }
-    // A bulk review can pull the cursor row out from under the selection. The
-    // row that slid into its index is the one to resume on — snapping back to
-    // the top of the queue would lose the editor's place entirely.
-    const target = current === -1 ? lastIndex.current : current + delta;
-    const next = Math.min(
-      navigableSuggestions.length - 1,
-      Math.max(0, target),
-    );
-    // Keep the cursor inside what is mounted, so paging never strands it on a
-    // row that has no card to scroll to.
-    const nextSuggestion = navigableSuggestions[next];
-    if (!visibleSuggestionIds.has(nextSuggestion.id)) showMore();
-    setSelectedId(nextSuggestion.id);
-  };
-
-  useEffect(() => {
-    const afterId = pendingNavigationAfterId.current;
-    if (afterId === null || suggestionsQuery.isFetchingNextPage) return;
-    const index = navigableSuggestions.findIndex((item) => item.id === afterId);
-    const next = index === -1 ? undefined : navigableSuggestions[index + 1];
-    if (next) {
-      pendingNavigationAfterId.current = null;
-      setSelectedId(next.id);
-    } else if (!suggestionsQuery.hasNextPage) {
-      pendingNavigationAfterId.current = null;
-    }
-  }, [
-    navigableSuggestions,
-    suggestionsQuery.hasNextPage,
-    suggestionsQuery.isFetchingNextPage,
-  ]);
-
-  useQueueShortcuts(
-    {
-      onNext: () => step(1),
-      onPrevious: () => step(-1),
-      onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
-      onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
-      onUndo: () => {
-        if (selected && isReversible(selected.status)) undo([selected.id]);
-        else if (notice?.undoIds?.length) undo(notice.undoIds);
-      },
-      onEscape: () => {
-        if (confirmation) setConfirmation(null);
-        else setSelectedId(null);
-      },
-    },
-    shortcutsEnabled,
-  );
-
-  useEffect(() => {
-    // Optional-called: not every environment implements scrollIntoView.
-    cursorRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedId]);
 
   useEffect(() => {
     const target = focusAfterReview.current;
@@ -1027,7 +796,19 @@ export default function ValidationPage() {
         } · selected links go live only after their exact edits are approved`}
       />
       <div className="relative flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div
+            role="region"
+            aria-label="Suggestion queue"
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6"
+          >
+          {/* Said before the decision rather than after it. Step 1 is the only
+              step this page owns, and an operator has to know that before they
+              start clicking Select. */}
+          <div className="mb-4">
+            <FlowSteps current={1} />
+          </div>
+
           {/* Any filter change invalidates a confirmation in flight: the rule it
               describes was defined over the previous set of rows. */}
           <div className="card mb-4 flex flex-col gap-3 p-3 sm:p-4">
@@ -1068,33 +849,6 @@ export default function ValidationPage() {
               onConfirm={confirmBulk}
               onCancel={() => setConfirmation(null)}
             />
-            {/* The queue's fast path, said out loud. It was reachable but written
-                down nowhere, and a single unmodified key that files a review is
-                also one an editor has to be able to switch off. */}
-            <details className="border-t border-hairline pt-2 text-caption text-muted">
-              <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-strong">
-                <span aria-hidden="true">⌨</span>
-                <span className="font-medium text-ink">Keyboard shortcuts</span>
-                <span>({shortcutsEnabled ? "on" : "off"})</span>
-              </summary>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3">
-                {shortcutsEnabled ? (
-                  <span>
-                    <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
-                  </span>
-                ) : (
-                  <span>Keyboard shortcuts are off.</span>
-                )}
-                <button
-                  type="button"
-                  onClick={toggleShortcuts}
-                  aria-pressed={shortcutsEnabled}
-                  className="font-medium text-ink underline underline-offset-2 hover:text-primary"
-                >
-                  {shortcutsEnabled ? "Turn off" : "Turn on"}
-                </button>
-              </div>
-            </details>
           </div>
 
           {notice && (
@@ -1142,7 +896,8 @@ export default function ValidationPage() {
               aria-live="polite"
               className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
             >
-              Loading publication status. Publishing is paused until it arrives.
+              Loading what is already selected. The link to the exact-edit review appears once it
+              arrives.
             </div>
           )}
 
@@ -1194,9 +949,6 @@ export default function ValidationPage() {
                           selected={suggestion.id === selectedId}
                           actionsDisabled={queueUpdating || actionMutationPending}
                           showSource={false}
-                          containerRef={
-                            suggestion.id === selectedId ? cursorRef : undefined
-                          }
                           onOpen={openRow}
                           onAccept={acceptRow}
                           onReject={rejectRow}
@@ -1262,6 +1014,27 @@ export default function ValidationPage() {
               </>
             )}
           </div>
+
+          </div>
+
+          {!loading && !failed && !publicationUnavailable && (
+            <SelectionTray
+              siteId={siteFilter || undefined}
+              selected={
+                pendingPublicationQuery.totalSelectedSuggestions ??
+                (pendingPublicationQuery.data ?? []).reduce(
+                  (total, site) => total + site.selected_suggestions,
+                  0,
+                )
+              }
+              siteCount={
+                pendingPublicationQuery.totalSites ??
+                (pendingPublicationQuery.data ?? []).filter(
+                  (site) => site.selected_suggestions > 0,
+                ).length
+              }
+            />
+          )}
         </div>
 
         {!previewIsOverlaid && !selected && (
@@ -1297,35 +1070,6 @@ export default function ValidationPage() {
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}
             onUndo={() => undo([selected.id])}
-            onReviewPublication={
-              selectedCanOpenPublicationReview
-                ? () => openPublicationReview(selected.site_id)
-                : undefined
-            }
-          />
-        )}
-
-        {previewSiteId !== null && (
-          <PublicationPreviewModal
-            siteName={siteName(previewSiteId)}
-            siteOptions={reviewablePublicationSites}
-            activeSiteId={previewSiteId}
-            onSiteChange={openPublicationReview}
-            data={preparePlans.data}
-            loading={preparePlans.isPending}
-            error={preparePlans.isError}
-            busy={publishBusy}
-            approvedNotQueued={approvedNotQueued.has(previewSiteId)}
-            onRetry={() => preparePlans.mutate(previewSiteId)}
-            onClose={() => setPreviewSiteId(null)}
-            onApproveAndQueue={(plans) => approveAndQueue(previewSiteId, plans)}
-            onQueueOnly={() =>
-              queueApproved(
-                previewSiteId,
-                approvedNotQueued.get(previewSiteId),
-                () => setPreviewSiteId(null),
-              )
-            }
           />
         )}
       </div>

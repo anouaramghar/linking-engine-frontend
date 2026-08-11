@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { JobAccepted } from "../types/job";
 
 /**
  * Publication is three separate calls, and only the middle one is a decision.
@@ -15,6 +16,8 @@ import { api } from "./client";
 
 export interface PendingPublicationSite {
   site_id: number;
+  site_name?: string;
+  platform?: string;
   /** Editorial intent awaiting preparation. Not publishable on its own. */
   selected_suggestions: number;
   /** Exact artifacts a person approved. The only thing that may be queued. */
@@ -25,6 +28,14 @@ export interface PendingPublicationSite {
    * read as publishable rather than silently hiding the review button.
    */
   can_publish?: boolean;
+}
+
+export interface PendingPublicationPage {
+  items: PendingPublicationSite[];
+  next_cursor: number | null;
+  total_sites: number | null;
+  total_selected_suggestions: number | null;
+  total_approved_plans: number | null;
 }
 
 export type LinkOutcome = "inserted" | "block" | "already_present";
@@ -42,6 +53,7 @@ export interface PlanLink {
   suggestion_id: number;
   target_url: string;
   anchor_text: string | null;
+  placement_context?: string | null;
   outcome: LinkOutcome;
 }
 
@@ -55,10 +67,18 @@ export interface PublicationPlan {
   plan_hash: string;
   source_article_id: number;
   source_url: string;
-  original_html: string;
-  /** Byte-for-byte what WordPress will receive. Nothing re-renders it. */
-  updated_html: string;
+  /** Present only on the deprecated synchronous preparation response. */
+  original_html?: string;
+  /** Present only on the deprecated synchronous preparation response. */
+  updated_html?: string;
   links: PlanLink[];
+}
+
+export interface PublicationPlanHtml {
+  id: number;
+  plan_hash: string;
+  original_html: string;
+  updated_html: string;
 }
 
 export interface PublicationPreparationError {
@@ -81,9 +101,25 @@ export interface PlanApprovalResult {
   approved_by: string;
 }
 
-export const listPendingPublication = () =>
+export const listPendingPublication = (
+  cursor?: number,
+  search = "",
+  limit = 50,
+) =>
   api
-    .get<PendingPublicationSite[]>("/publish/pending")
+    .get<PendingPublicationPage>("/publish/pending", {
+      params: {
+        limit,
+        cursor,
+        search: search.trim() || undefined,
+        include_totals: cursor === undefined,
+      },
+    })
+    .then((response) => response.data);
+
+export const getPendingPublicationSite = (siteId: number) =>
+  api
+    .get<PendingPublicationSite>(`/publish/pending/${siteId}`)
     .then((response) => response.data);
 
 /**
@@ -98,13 +134,14 @@ export const preparePublicationPlans = (
   maxArticles = PREPARE_MAX_ARTICLES,
 ) =>
   api
-    .post<PublicationPreparation>(`/publish/${siteId}/plans/prepare`, undefined, {
+    .post<JobAccepted>(`/publish/${siteId}/plans/prepare-async`, undefined, {
       params: { max_articles: maxArticles },
-      // The engine reads live WordPress posts sequentially and may honour a
-      // host's Retry-After. This step is intentionally longer than a normal
-      // dashboard request, while still bounded for a dead connection.
-      timeout: 180_000,
     })
+    .then((response) => response.data);
+
+export const getPublicationPlanHtml = (siteId: number, planId: number) =>
+  api
+    .get<PublicationPlanHtml>(`/publish/${siteId}/plans/${planId}/html`)
     .then((response) => response.data);
 
 export const approvePublicationPlans = (

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +15,7 @@ vi.mock("../api/auth", async (importOriginal) => ({
 }));
 
 const DEEP_LINK = "https://t.me/linkmeshbot?start=login";
+const LOGIN_START = { deep_link: DEEP_LINK, expires_in_seconds: 300 };
 
 function renderLogin() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -29,6 +30,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("LoginPage", () => {
@@ -36,7 +38,7 @@ describe("LoginPage", () => {
     const tab = { location: { href: "" }, close: vi.fn() };
     const open = vi.fn(() => tab);
     vi.stubGlobal("open", open);
-    startLogin.mockResolvedValue({ deep_link: DEEP_LINK });
+    startLogin.mockResolvedValue(LOGIN_START);
 
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
@@ -50,7 +52,7 @@ describe("LoginPage", () => {
 
   it("offers the link when the browser blocks the tab", async () => {
     vi.stubGlobal("open", vi.fn(() => null));
-    startLogin.mockResolvedValue({ deep_link: DEEP_LINK });
+    startLogin.mockResolvedValue(LOGIN_START);
 
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
@@ -74,7 +76,7 @@ describe("LoginPage", () => {
   it("redeems the one-time code Telegram gives the approved operator", async () => {
     const tab = { location: { href: "" }, close: vi.fn() };
     vi.stubGlobal("open", vi.fn(() => tab));
-    startLogin.mockResolvedValue({ deep_link: DEEP_LINK });
+    startLogin.mockResolvedValue(LOGIN_START);
     completeLogin.mockResolvedValue({ state: "approved", user: null });
 
     renderLogin();
@@ -85,5 +87,29 @@ describe("LoginPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /complete sign in/i }));
 
     await waitFor(() => expect(completeLogin).toHaveBeenCalledWith("ABCD-EFGH-JKLM"));
+  });
+
+  it("counts down the code lifetime and prevents submitting an expired code", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T12:00:00Z"));
+    vi.stubGlobal("open", vi.fn(() => null));
+    startLogin.mockResolvedValue(LOGIN_START);
+
+    renderLogin();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /sign in with telegram/i }));
+    });
+
+    expect(screen.getByRole("timer").textContent).toBe("Expires in 5:00");
+
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByRole("timer").textContent).toBe("Expires in 4:59");
+
+    act(() => vi.advanceTimersByTime(299_000));
+    expect(screen.getByRole("timer").textContent).toBe("Code expired");
+    expect((screen.getByLabelText(/one-time telegram code/i) as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByRole("button", { name: /start again/i })).toBeTruthy();
   });
 });

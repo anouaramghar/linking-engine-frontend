@@ -1,0 +1,568 @@
+import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+
+import type { PublicationPlan, PublicationPreparation } from "../api/publish";
+import Notice from "../components/Notice";
+import type { NoticeState } from "../components/Notice";
+import PageHeader from "../components/PageHeader";
+import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import FlowSteps from "../components/publish/FlowSteps";
+import PublicationReview from "../components/publish/PublicationReview";
+import {
+  useApprovePlans,
+  usePendingPublication,
+  usePendingPublicationSite,
+  usePreparePublicationPlans,
+  useQueueApprovedPlans,
+} from "../hooks/usePublish";
+import { useReview } from "../hooks/useSuggestions";
+import { isConflict } from "../lib/errors";
+import { formatCount } from "../lib/utils";
+
+const plural = (count: number, word: string) =>
+  `${count} ${count === 1 ? word : `${word}s`}`;
+
+const NO_TICKS: Set<number> = new Set();
+
+/**
+ * Sites holding selected links, newest work first is not a thing here: the list
+ * is short and the order that matters is the operator's own site list.
+ */
+function SiteIndex({
+  sites,
+  prepared,
+  search,
+  onSearch,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+}: {
+  sites: {
+    id: number;
+    name: string;
+    selectedSuggestions: number;
+    approvedPlans: number;
+    canPublish: boolean;
+  }[];
+  /** Sites whose edits are already read into this session. */
+  prepared: Set<number>;
+  search: string;
+  onSearch: (value: string) => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}) {
+  return (
+    <div>
+      <label className="mb-4 block max-w-md">
+        <span className="sr-only">Search sites waiting for publication review</span>
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Search waiting sites"
+          className="input w-full"
+        />
+      </label>
+      {sites.length === 0 ? (
+        <EmptyPanel>
+          {search ? (
+            <>No waiting sites match “{search}”.</>
+          ) : (
+            <>
+              Nothing is waiting for review. Select suggestions on the{" "}
+              <Link
+                to="/queue"
+                className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+              >
+                review queue
+              </Link>{" "}
+              first.
+            </>
+          )}
+        </EmptyPanel>
+      ) : (
+      <ul className="flex flex-col gap-2.5">
+        {sites.map((site) => (
+        <li
+          key={site.id}
+          className="card flex flex-col items-stretch gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-body-md font-medium text-ink">{site.name}</span>
+              {prepared.has(site.id) && <span className="badge">Prepared</span>}
+            </div>
+            <div className="mt-1 text-caption text-muted">
+              {plural(site.selectedSuggestions, "link")} selected
+              {site.approvedPlans > 0 &&
+                ` · ${plural(site.approvedPlans, "article")} already approved`}
+            </div>
+          </div>
+          {site.canPublish ? (
+            <div className="flex flex-none flex-col items-start gap-1 sm:items-end">
+              <span className="text-caption-sm text-muted">
+                <span className="font-medium text-ink">Recommended</span> &middot; Optional
+              </span>
+              <Link to={`/publish/${site.id}`} className="btn btn-primary">
+                {prepared.has(site.id) ? "Back to the edits" : "Review exact edits"}
+              </Link>
+            </div>
+          ) : (
+            <span className="text-caption text-muted sm:text-right">
+              No WordPress account is connected, so the edits cannot be prepared.
+            </span>
+          )}
+        </li>
+        ))}
+      </ul>
+      )}
+      {hasMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={loadingMore}
+          className="btn btn-outline mt-4"
+        >
+          {loadingMore ? "Loading…" : "Load more sites"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default function PublishPage() {
+  const params = useParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [siteSearch, setSiteSearch] = useState("");
+  const deferredSiteSearch = useDeferredValue(siteSearch);
+  const routeSiteId = Number(params.siteId);
+  const siteId = Number.isInteger(routeSiteId) && routeSiteId > 0 ? routeSiteId : null;
+
+  const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [queued, setQueued] = useState(false);
+  // Held when approval succeeded but the job could not start. The approval
+  // stands, so the only thing left to offer is a queue retry — and it has to
+  // name that same subset, because queueing a plan the operator excluded is a
+  // 409. `undefined` ids mean "every approved plan for this site", which is a
+  // stored value rather than a missing one.
+  const [notQueued, setNotQueued] = useState<{ planIds?: number[] } | null>(null);
+  /** Set when the engine refused the approval because the plans moved on. */
+  const [stale, setStale] = useState(false);
+
+  /**
+   * One preparation and one set of ticks per site.
+   *
+   * Preparation costs a live request per source article, so walking to another
+   * site and back must not spend them again — and it must not silently discard
+   * the reading the operator already did on the first site.
+   */
+  const [prepared, setPrepared] = useState<Map<number, PublicationPreparation>>(
+    () => new Map(),
+  );
+  const [ticks, setTicks] = useState<Map<number, Set<number>>>(() => new Map());
+  const [preparing, setPreparing] = useState<number | null>(null);
+  const [prepareFailed, setPrepareFailed] = useState<number | null>(null);
+  /** The suggestion being returned to the queue, if any. */
+  const [removing, setRemoving] = useState<number | null>(null);
+
+  // A direct site review needs only that site's small summary. Do not make it
+  // wait for the fleet inbox, which can span thousands of sites.
+  const pendingQuery = usePendingPublication(siteId === null, deferredSiteSearch);
+  const activeSiteQuery = usePendingPublicationSite(siteId);
+  const preparePlans = usePreparePublicationPlans(searchParams.get("job"));
+  const approvePlans = useApprovePlans();
+  const queuePlans = useQueueApprovedPlans();
+  const review = useReview();
+
+  const pendingSites = (pendingQuery.data ?? []).map((entry) => ({
+    id: entry.site_id,
+    name: entry.site_name ?? `site ${entry.site_id}`,
+    selectedSuggestions: entry.selected_suggestions,
+    approvedPlans: entry.approved_plans,
+    canPublish: entry.can_publish !== false,
+  }));
+  const reviewable = pendingSites.filter(
+    (site) => site.selectedSuggestions > 0 || site.approvedPlans > 0,
+  );
+  const activeSite =
+    siteId === null
+      ? null
+      : reviewable.find((site) => site.id === siteId) ??
+        (activeSiteQuery.data
+          ? {
+              id: activeSiteQuery.data.site_id,
+              name: activeSiteQuery.data.site_name ?? `site ${activeSiteQuery.data.site_id}`,
+              selectedSuggestions: activeSiteQuery.data.selected_suggestions,
+              approvedPlans: activeSiteQuery.data.approved_plans,
+              canPublish: activeSiteQuery.data.can_publish !== false,
+            }
+          : null);
+
+  const runPrepare = (id: number) => {
+    setPreparing(id);
+    setPrepareFailed(null);
+    preparePlans.mutate(id, {
+      onQueued: (jobId) => {
+        setSearchParams(
+          (current) => {
+            const next = new URLSearchParams(current);
+            next.set("job", jobId);
+            return next;
+          },
+          { replace: true },
+        );
+      },
+      onSuccess: (result) => {
+        setPrepared((current) => new Map(current).set(id, result));
+        // Every prepared article starts ticked: the operator already chose this
+        // batch by selecting its suggestions, so the boxes are here to exclude
+        // an article, not to consent to one. Consent is the final button, and
+        // what it means is pinned by the hash beside each article.
+        setTicks((current) =>
+          new Map(current).set(id, new Set(result.plans.map((plan) => plan.id))),
+        );
+        setPreparing((current) => (current === id ? null : current));
+      },
+      onError: () => {
+        setPrepareFailed(id);
+        setPreparing((current) => (current === id ? null : current));
+      },
+    });
+  };
+
+  /**
+   * Preparation runs once per site, and only from an explicit visit. The ref is
+   * what keeps a re-render — or a StrictMode double effect — from spending those
+   * live requests twice.
+   */
+  const attempted = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (siteId === null || !activeSite?.canPublish) return;
+    if (attempted.current.has(siteId)) return;
+    attempted.current.add(siteId);
+    setQueued(false);
+    setNotQueued(null);
+    setStale(false);
+    // Route entry is the explicit user action that starts preparation. The ref
+    // makes this one transition, including under StrictMode.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!preparePlans.jobId) runPrepare(siteId);
+    // `preparePlans` is a fresh object on every render; the ref above is the
+    // real guard, so re-running this effect is harmless and cheap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, activeSite?.canPublish, preparePlans.jobId]);
+
+  const busy = approvePlans.isPending || queuePlans.isPending;
+
+  const forget = (id: number) =>
+    setPrepared((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
+
+  const reload = () => {
+    if (siteId === null) return;
+    setStale(false);
+    setNotice(null);
+    forget(siteId);
+    preparePlans.reset();
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("job");
+        return next;
+      },
+      { replace: true },
+    );
+    runPrepare(siteId);
+  };
+
+  /**
+   * Send one link back to the queue.
+   *
+   * A plan's hash covers the whole article, so a link cannot be dropped from an
+   * approval on its own: the suggestion returns to pending and the article is
+   * rendered again without it. That costs a second preparation, which is still
+   * cheaper than the trip to the queue and back that this replaces.
+   */
+  const removeLink = (suggestionId: number) => {
+    if (siteId === null || busy || removing !== null) return;
+    setNotice(null);
+    setRemoving(suggestionId);
+    review.mutate(
+      { id: suggestionId, status: "pending" },
+      {
+        onSuccess: () => {
+          setRemoving(null);
+          setNotice({
+            message:
+              "That link went back to the review queue. The remaining edits are being prepared again.",
+            tone: "info",
+          });
+          forget(siteId);
+          runPrepare(siteId);
+        },
+        onError: (error) => {
+          setRemoving(null);
+          setNotice({
+            message: isConflict(error)
+              ? "That link is already publishing, so it can no longer be removed."
+              : "That link could not be removed. Please try again.",
+            tone: "error",
+          });
+        },
+      },
+    );
+  };
+
+  // The polled result is the reload-safe path; the map preserves a completed
+  // review while the operator walks to another site and back in this session.
+  const preparation =
+    siteId === null
+      ? undefined
+      : prepared.get(siteId) ??
+        (preparePlans.data?.site_id === siteId ? preparePlans.data : undefined);
+  const selectedIds =
+    (siteId === null ? undefined : ticks.get(siteId)) ??
+    (preparation ? new Set(preparation.plans.map((plan) => plan.id)) : NO_TICKS);
+
+  const toggleTick = (planId: number) => {
+    if (siteId === null) return;
+    setTicks((current) => {
+      const next = new Set(current.get(siteId) ?? []);
+      if (!next.delete(planId)) next.add(planId);
+      return new Map(current).set(siteId, next);
+    });
+  };
+
+  const toggleAllTicks = (planIds: number[]) => {
+    if (siteId === null) return;
+    setTicks((current) => {
+      const held = current.get(siteId) ?? NO_TICKS;
+      const all = planIds.length > 0 && planIds.every((id) => held.has(id));
+      return new Map(current).set(siteId, all ? new Set() : new Set(planIds));
+    });
+  };
+
+  /**
+   * Start the job for edits a person has already approved.
+   *
+   * Separate from approval on purpose: an enqueue that fails must not make the
+   * operator agree to the same edits a second time, and this path makes no
+   * decision of its own, so retrying it is free.
+   */
+  const queueApproved = (planIds?: number[]) => {
+    if (siteId === null || busy) return;
+    setNotice(null);
+    queuePlans.mutate(
+      { siteId, planIds },
+      {
+        onSuccess: () => {
+          setNotQueued(null);
+          setQueued(true);
+          setNotice({ message: "Publish queued for the approved edits.", tone: "info" });
+        },
+        onError: (error) => {
+          setNotQueued({ planIds });
+          setNotice({
+            message: isConflict(error)
+              ? "This site is already publishing, or has no approved edits left to queue."
+              : "These edits stay approved, but the publish job could not be started. Queue them again.",
+            tone: "error",
+          });
+        },
+      },
+    );
+  };
+
+  /**
+   * The one human decision: bind this operator to exactly the plans they ticked.
+   *
+   * Only those plans and their hashes are sent. `has_more`, the per-article
+   * errors, and any article the operator unticked all describe work that is
+   * *not* in this request, so a batch can never grow between what was read and
+   * what was agreed to.
+   */
+  const approveAndQueue = (plans: PublicationPlan[]) => {
+    if (siteId === null || busy || plans.length === 0) return;
+    setNotice(null);
+    approvePlans.mutate(
+      {
+        siteId,
+        plans: plans.map((plan) => ({ id: plan.id, plan_hash: plan.plan_hash })),
+      },
+      {
+        onSuccess: () => queueApproved(plans.map((plan) => plan.id)),
+        onError: (error) => {
+          setStale(isConflict(error));
+          setNotice({
+            message: isConflict(error)
+              ? "These edits changed since they were prepared, so nothing was approved. Reload the review and look at the new version."
+              : "The approval could not be saved, so nothing was published.",
+            tone: "error",
+          });
+        },
+      },
+    );
+  };
+
+  const loading =
+    (siteId === null && pendingQuery.isPending) ||
+    (siteId !== null && activeSiteQuery.isPending);
+  const failed =
+    (siteId === null && pendingQuery.isError) ||
+    (siteId !== null && activeSiteQuery.isError);
+  const selectedTotal =
+    pendingQuery.totalSelectedSuggestions ??
+    reviewable.reduce((total, site) => total + site.selectedSuggestions, 0);
+  const waitingSiteTotal = pendingQuery.totalSites ?? reviewable.length;
+
+  return (
+    <>
+      <PageHeader
+        title="Approve exact edits"
+        sub={
+          siteId === null
+            ? `${formatCount(selectedTotal)} selected ${
+                selectedTotal === 1 ? "link" : "links"
+              } across ${plural(waitingSiteTotal, "site")} · nothing is live until you approve it`
+            : `${activeSite ? activeSite.name : `site ${siteId}`} · reviewing is recommended, but optional`
+        }
+        actions={
+          <>
+            {/* Without this the only way back to the other sites is the rail,
+                which reads as leaving the task rather than stepping up in it. */}
+            {siteId !== null && waitingSiteTotal > 1 && (
+              <Link to="/publish" className="btn btn-outline btn-sm">
+                All sites waiting
+              </Link>
+            )}
+            <Link to="/queue" className="btn btn-outline btn-sm">
+              Back to the queue
+            </Link>
+          </>
+        }
+      />
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+        <div className="mb-5">
+          <FlowSteps current={queued ? 3 : 2} />
+        </div>
+
+        {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+
+        {stale && (
+          <div
+            role="alert"
+            className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-4 py-3 text-caption text-error-ink"
+          >
+            <span className="min-w-0 flex-1">
+              Nothing was approved. Read the new version of these edits before you approve them.
+            </span>
+            <button
+              type="button"
+              onClick={reload}
+              className="btn btn-outline btn-sm border-error/40 bg-surface-card text-error-ink hover:border-error"
+            >
+              Reload the review
+            </button>
+          </div>
+        )}
+
+        {loading && <SkeletonRows count={3} label="Loading the sites waiting for review" />}
+
+        {!loading && failed && (
+          <ErrorPanel
+            title="The review could not be loaded"
+            description="LinkMesh could not reach the engine, so this page is not showing your real work."
+            onRetry={() => {
+              void pendingQuery.refetch();
+              if (siteId !== null) void activeSiteQuery.refetch();
+            }}
+            retrying={pendingQuery.isFetching || activeSiteQuery.isFetching}
+          />
+        )}
+
+        {!loading && !failed && siteId === null && (
+          <SiteIndex
+            sites={reviewable}
+            prepared={new Set(prepared.keys())}
+            search={siteSearch}
+            onSearch={setSiteSearch}
+            hasMore={Boolean(pendingQuery.hasNextPage)}
+            loadingMore={pendingQuery.isFetchingNextPage}
+            onLoadMore={() => void pendingQuery.fetchNextPage()}
+          />
+        )}
+
+        {/* Queueing consumes the batch, so the site drops out of the pending
+            list the moment the job starts. The confirmation is what the
+            operator is reading at that instant, and it must not be replaced by
+            "this site has nothing waiting" one refetch later. */}
+        {!loading && !failed && siteId !== null && queued && (
+          <div className="card px-5 py-8 text-center">
+            <div className="text-body-md font-medium text-ink">The publish job is queued</div>
+            <p className="mx-auto mt-2 max-w-md text-caption leading-normal text-body">
+              The approved edits are with the worker now. The queue shows each link as Publishing,
+              then as Published live.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              <Link to="/queue?status=applying" className="btn btn-primary">
+                Watch the publishing links
+              </Link>
+              <Link to="/publish" className="btn btn-outline">
+                Review another site
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {!loading && !failed && !queued && siteId !== null && !activeSite && (
+          <EmptyPanel>
+            This site has no links waiting for review.{" "}
+            <button
+              type="button"
+              onClick={() => navigate("/publish")}
+              className="font-medium text-ink underline underline-offset-2 hover:text-primary"
+            >
+              Choose another site
+            </button>
+            .
+          </EmptyPanel>
+        )}
+
+        {!loading && !failed && !queued && activeSite && !activeSite.canPublish && (
+          <EmptyPanel>
+            {activeSite.name} has no WordPress account connected, so the exact edits cannot be
+            prepared. Add the account on the Sites page.
+          </EmptyPanel>
+        )}
+
+        {!loading && !failed && !queued && activeSite?.canPublish && (
+          <PublicationReview
+            siteId={activeSite.id}
+            siteName={activeSite.name}
+            data={preparation}
+            loading={preparing === siteId || preparePlans.isPending}
+            progress={preparePlans.progress}
+            error={prepareFailed === siteId && preparation === undefined}
+            busy={busy || removing !== null}
+            approvedNotQueued={notQueued !== null}
+            selectedIds={selectedIds}
+            onToggle={toggleTick}
+            onToggleAll={toggleAllTicks}
+            removingSuggestionId={removing}
+            onRemoveLink={removeLink}
+            onRetry={reload}
+            onApproveAndQueue={approveAndQueue}
+            onQueueOnly={() => queueApproved(notQueued?.planIds)}
+          />
+        )}
+      </div>
+    </>
+  );
+}

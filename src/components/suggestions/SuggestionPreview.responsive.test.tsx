@@ -2,7 +2,7 @@
  * The preview is a column beside the list on a wide screen and a drawer over it
  * below `xl`. The two differ in more than width: only the drawer is a dialog,
  * traps focus, and owns Escape — beside the list those would all be wrong, since
- * Tab must reach the queue and the page's own shortcuts handle Escape.
+ * Tab must reach the queue and a column is not something Escape closes.
  *
  * jsdom has no `matchMedia`, so the hook reports "wide" everywhere unless a test
  * says otherwise. That is why the rest of the suite never sees the drawer, and
@@ -89,7 +89,7 @@ describe("beside the list", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("leaves Escape to the queue's own shortcut handler", () => {
+  it("does not close on Escape, because it is a column and not a dialog", () => {
     setNarrow(false);
     const { onClose } = renderPreview();
 
@@ -143,7 +143,7 @@ describe("overlaying the list", () => {
     expect(screen.getByRole("button", { name: "Select for review" })).not.toBeNull();
   });
 
-  it("owns Escape, because the page shortcuts stand down inside a dialog", () => {
+  it("owns Escape, the way a modal dialog has to", () => {
     setNarrow(true);
     const { onClose } = renderPreview();
 

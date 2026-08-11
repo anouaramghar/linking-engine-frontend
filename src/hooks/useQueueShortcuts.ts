@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 export interface QueueShortcutHandlers {
   onNext: () => void;
@@ -9,94 +9,49 @@ export interface QueueShortcutHandlers {
   onEscape: () => void;
 }
 
-/** Typing in a field, or working inside a dialog/confirmation, must never trigger a review. */
 const isTyping = (target: EventTarget | null) => {
-  const el = target as HTMLElement | null;
-  if (!el?.tagName) return false;
-  return (
-    ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) ||
-    el.isContentEditable ||
-    !!el.closest?.("[role='dialog'], [role='alertdialog'], [data-queue-confirmation]")
+  const element = target as HTMLElement | null;
+  return Boolean(
+    element &&
+      (["INPUT", "SELECT", "TEXTAREA"].includes(element.tagName) ||
+        element.isContentEditable ||
+        element.closest("[role='dialog'], [role='alertdialog']")),
   );
 };
 
-const KEYS: Record<string, keyof QueueShortcutHandlers> = {
-  j: "onNext",
-  ArrowDown: "onNext",
-  k: "onPrevious",
-  ArrowUp: "onPrevious",
-  a: "onAccept",
-  r: "onReject",
-  u: "onUndo",
-  Escape: "onEscape",
-};
-
 /**
- * Review-queue keyboard control. The queue is a high-volume screen, so every
- * decision is reachable without leaving the home row.
+ * High-volume queue controls using standard/navigation or modified keys only.
+ * Avoiding unmodified character shortcuts keeps the feature compliant without
+ * adding another visible settings control to the focused queue toolbar.
  */
-export const useQueueShortcuts = (handlers: QueueShortcutHandlers, enabled = true) => {
-  // Committed in an effect rather than during render, so the listener always
-  // calls handlers from a render that actually made it to the screen.
+export const useQueueShortcuts = (handlers: QueueShortcutHandlers) => {
   const latest = useRef(handlers);
   useEffect(() => {
     latest.current = handlers;
   });
 
   useEffect(() => {
-    if (!enabled) return;
-
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTyping(event.target)) return;
-
-      const handler = KEYS[event.key];
-      if (!handler) return;
+      let action: keyof QueueShortcutHandlers | undefined;
+      if (!event.altKey && !event.ctrlKey && !event.metaKey && event.key === "ArrowDown") {
+        action = "onNext";
+      } else if (!event.altKey && !event.ctrlKey && !event.metaKey && event.key === "ArrowUp") {
+        action = "onPrevious";
+      } else if (event.altKey && event.key === "ArrowRight") {
+        action = "onAccept";
+      } else if (event.altKey && event.key === "ArrowLeft") {
+        action = "onReject";
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        action = "onUndo";
+      } else if (event.key === "Escape") {
+        action = "onEscape";
+      }
+      if (!action) return;
       event.preventDefault();
-      latest.current[handler]();
+      latest.current[action]();
     };
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled]);
-};
-
-export const SHORTCUT_HINT = "j/k move · a accept · r reject · u undo · Esc close";
-
-const STORAGE_KEY = "linkmesh.queue-shortcuts";
-
-/**
- * The on/off switch WCAG 2.1.4 asks for.
- *
- * `a` and `r` are unmodified single characters bound to the window, which is
- * the fast path this screen is built around — and also exactly the binding that
- * fires by accident under speech input or an unsteady hand. `isTyping` keeps
- * them out of fields, but a review is still one stray keystroke away, so the
- * editor gets to turn them off and have that stick.
- */
-export const useShortcutsEnabled = () => {
-  const [enabled, setEnabled] = useState(() => {
-    try {
-      return window.localStorage?.getItem(STORAGE_KEY) !== "off";
-    } catch {
-      // Storage can throw outright under a restrictive privacy setting.
-      return true;
-    }
-  });
-
-  const toggle = useCallback(
-    () =>
-      setEnabled((current) => {
-        const next = !current;
-        try {
-          window.localStorage?.setItem(STORAGE_KEY, next ? "on" : "off");
-        } catch {
-          // The preference still holds for this session.
-        }
-        return next;
-      }),
-    [],
-  );
-
-  return { enabled, toggle };
+  }, []);
 };

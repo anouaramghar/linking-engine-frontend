@@ -95,8 +95,26 @@ const useInvalidateQueue = () => {
     ]);
 };
 
+/**
+ * A single decision is already represented locally by ValidationPage. Mark the
+ * paginated rows stale without immediately downloading every loaded page again;
+ * refresh only the small counters and publication-inbox summary.
+ */
+const useInvalidateSingleReview = () => {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({
+        queryKey: ["suggestions", "queue"],
+        refetchType: "none",
+      }),
+      qc.invalidateQueries({ queryKey: ["suggestions", "counts"] }),
+      qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
+    ]);
+};
+
 export const useReview = () => {
-  const invalidate = useInvalidateQueue();
+  const invalidate = useInvalidateSingleReview();
   return useMutation({
     mutationFn: ({ id, status }: { id: number; status: ReviewStatus }) =>
       reviewSuggestion(id, status),

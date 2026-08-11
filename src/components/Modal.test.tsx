@@ -72,4 +72,17 @@ describe("Modal", () => {
     fireEvent.mouseDown(backdrop);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("can protect a review from accidental backdrop dismissal", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Review exact edits" onClose={onClose} dismissOnBackdrop={false}>
+        <button type="button">Approve</button>
+      </Modal>,
+    );
+
+    fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

@@ -15,6 +15,7 @@ const EvaluationPage = lazy(() => import("./pages/EvaluationPage"));
 const ContentPoolPage = lazy(() => import("./pages/ContentPoolPage"));
 const SitesPage = lazy(() => import("./pages/SitesPage"));
 const ValidationPage = lazy(() => import("./pages/ValidationPage"));
+const PublishPage = lazy(() => import("./pages/PublishPage"));
 
 function RouteFallback() {
   return (
@@ -32,13 +33,15 @@ function RouteFallback() {
  * Each nav mark is drawn from the same grammar as the Brand mark and the
  * ThemeToggle's controls: circles and 1.5px strokes, so the rail reads as one
  * drawing rather than a borrowed icon set. `short` is the label for the
- * four-column mobile row *only* — the 224px rail has room for the real name,
+ * mobile row *only* — the 224px rail has room for the real name,
  * and "Pool" on its own does not say whose pool or of what.
  */
 interface NavItem {
   to: string;
   label: string;
   short?: string;
+  /** What this item's badge counts, for the accessible name and the tooltip. */
+  countNoun?: string;
   icon: ReactNode;
 }
 
@@ -46,6 +49,7 @@ const QUEUE: NavItem = {
   to: "/queue",
   label: "Review queue",
   short: "Queue",
+  countNoun: "pending",
   icon: (
     <>
       <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
@@ -55,15 +59,18 @@ const QUEUE: NavItem = {
   ),
 };
 
+/** The selection, exact-edit review, and approval all belong to this workspace. */
+const FLOW = [QUEUE];
+
 /**
- * The queue is the destination; these four are where you go between review
- * sessions. That is the whole hierarchy, and one label is enough to draw it —
+ * The queue is the destination; the remaining items are where you go between
+ * review sessions. That is the whole hierarchy, and one label is enough to draw it —
  * an eyebrow over every group would be grammar rather than structure. It also
  * gives the collapsed rail the one thing it needs: a rule that survives when
  * the words do not.
  *
- * The order is the order the rail has always had. Grouping is allowed to add a
- * seam; it is not allowed to move an operator's muscle memory.
+ * The queue stays first. Grouping is allowed to add a seam; it is not allowed
+ * to move an operator's muscle memory for the management pages.
  */
 const MANAGED: NavItem[] = [
   {
@@ -113,7 +120,7 @@ const MANAGED: NavItem[] = [
   },
 ];
 
-const NAV = [QUEUE, ...MANAGED];
+const NAV = [...FLOW, ...MANAGED];
 
 const NavMark = ({ icon }: { icon: ReactNode }) => (
   <svg
@@ -164,14 +171,16 @@ function Brand({ markOnly = false }: { markOnly?: boolean }) {
 
 function RailLink({
   item,
-  pending,
+  counts,
   collapsed,
 }: {
   item: NavItem;
-  pending: number | null;
+  counts: Record<string, number | null>;
   collapsed: boolean;
 }) {
-  const count = item.to === QUEUE.to && pending !== null && pending > 0 ? pending : null;
+  const raw = counts[item.to] ?? null;
+  const count = raw !== null && raw > 0 ? raw : null;
+  const noun = item.countNoun ?? "waiting";
 
   const link = (
     <NavLink
@@ -210,7 +219,9 @@ function RailLink({
                     isActive ? "bg-on-primary" : "bg-primary ring-2 ring-canvas-soft"
                   }`}
                 />
-                <span className="sr-only">{count} pending</span>
+                <span className="sr-only">
+                  {count} {noun}
+                </span>
               </>
             ) : (
               <span
@@ -220,7 +231,9 @@ function RailLink({
                   }`}
               >
                 <span aria-hidden="true">{count}</span>
-                <span className="sr-only">{count} pending</span>
+                <span className="sr-only">
+                  {count} {noun}
+                </span>
               </span>
             ))}
         </>
@@ -231,7 +244,7 @@ function RailLink({
   if (!collapsed) return link;
 
   return (
-    <RailTip label={count === null ? item.label : `${item.label} · ${count} pending`}>
+    <RailTip label={count === null ? item.label : `${item.label} · ${count} ${noun}`}>
       {link}
     </RailTip>
   );
@@ -244,15 +257,23 @@ function RailLink({
  * grouping inside primary navigation, not a second navigation, and announcing
  * it as one would make the rail sound like two menus.
  */
-function RailNavigation({ pending, collapsed }: { pending: number | null; collapsed: boolean }) {
+function RailNavigation({
+  counts,
+  collapsed,
+}: {
+  counts: Record<string, number | null>;
+  collapsed: boolean;
+}) {
   const groupId = useId();
 
   return (
     <nav aria-label="Primary navigation" className="flex flex-col gap-1">
-      <ul>
-        <li>
-          <RailLink item={QUEUE} pending={pending} collapsed={collapsed} />
-        </li>
+      <ul className="flex flex-col gap-1">
+        {FLOW.map((item) => (
+          <li key={item.to}>
+            <RailLink item={item} counts={counts} collapsed={collapsed} />
+          </li>
+        ))}
       </ul>
 
       <h2
@@ -266,7 +287,7 @@ function RailNavigation({ pending, collapsed }: { pending: number | null; collap
       <ul aria-labelledby={groupId} className="flex flex-col gap-1">
         {MANAGED.map((item) => (
           <li key={item.to}>
-            <RailLink item={item} pending={pending} collapsed={collapsed} />
+            <RailLink item={item} counts={counts} collapsed={collapsed} />
           </li>
         ))}
       </ul>
@@ -274,8 +295,8 @@ function RailNavigation({ pending, collapsed }: { pending: number | null; collap
   );
 }
 
-/** The mobile row stays flat: five columns is already the grouping. */
-function MobileNavigation({ pending }: { pending: number | null }) {
+/** The mobile row stays flat: the columns are already the grouping. */
+function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
   return (
     <nav aria-label="Mobile navigation" className="grid grid-cols-5 gap-1 px-2 pb-2">
       {NAV.map((item) => (
@@ -283,7 +304,7 @@ function MobileNavigation({ pending }: { pending: number | null }) {
           key={item.to}
           to={item.to}
           className={({ isActive }) =>
-            `flex min-h-11 items-center justify-center gap-1 rounded-pill px-3 text-center
+            `flex min-h-11 items-center justify-center gap-1 rounded-pill px-2 text-center
              text-nav-link transition-colors duration-150 ${
                isActive
                  ? "bg-primary text-on-primary"
@@ -291,24 +312,32 @@ function MobileNavigation({ pending }: { pending: number | null }) {
              }`
           }
         >
-          {({ isActive }) => (
-            <>
-              <span>{item.short ?? item.label}</span>
-              {item.to === QUEUE.to && pending !== null && pending > 0 && (
-                <span
-                  className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
-                    px-1.5 text-caption-upper tabular-nums ${
-                      isActive
-                        ? "bg-on-primary/20 text-on-primary"
-                        : "bg-surface-strong text-ink"
-                    }`}
-                >
-                  <span aria-hidden="true">{pending}</span>
-                  <span className="sr-only">{pending} pending</span>
-                </span>
-              )}
-            </>
-          )}
+          {({ isActive }) => {
+            const raw = counts[item.to] ?? null;
+            const count = raw !== null && raw > 0 ? raw : null;
+            return (
+              <>
+                {/* Six columns at 375px leave about 55px each, so the label has
+                    to be allowed to shrink rather than push the row wider. */}
+                <span className="min-w-0 truncate">{item.short ?? item.label}</span>
+                {count !== null && (
+                  <span
+                    className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
+                      px-1.5 text-caption-upper tabular-nums ${
+                        isActive
+                          ? "bg-on-primary/20 text-on-primary"
+                          : "bg-surface-strong text-ink"
+                      }`}
+                  >
+                    <span aria-hidden="true">{count}</span>
+                    <span className="sr-only">
+                      {count} {item.countNoun ?? "waiting"}
+                    </span>
+                  </span>
+                )}
+              </>
+            );
+          }}
         </NavLink>
       ))}
     </nav>
@@ -350,13 +379,15 @@ export default function App() {
   const { data: sites } = useSites();
   const ownedSites = sites?.filter((site) => site.platform !== "pool");
   const ownedSiteCount = ownedSites?.length ?? null;
-  const { data: counts } = useSuggestionCounts({}, Boolean(ownedSites?.length));
+  const hasSites = Boolean(ownedSites?.length);
+  const { data: counts } = useSuggestionCounts({}, hasSites);
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.
   const { preference, setTheme } = useTheme();
   const { collapsed, toggle } = useRail();
   const pending = counts?.pending ?? null;
+  const navCounts = { [QUEUE.to]: pending };
   const healthLabel = healthPending
     ? "Checking engine"
     : healthFailed
@@ -407,7 +438,7 @@ export default function App() {
             <AccountControls />
           </div>
         </div>
-        <MobileNavigation pending={pending} />
+        <MobileNavigation counts={navCounts} />
       </header>
 
       {/* The system describes a marketing top-nav, not an app rail. The rail is
@@ -436,7 +467,7 @@ export default function App() {
           <CollapseToggle collapsed={collapsed} onToggle={toggle} />
         </div>
 
-        <RailNavigation pending={pending} collapsed={collapsed} />
+        <RailNavigation counts={navCounts} collapsed={collapsed} />
 
         <footer className={`mt-auto ${collapsed ? "px-0" : "px-2"}`}>
           {/* Engine down is not a caption. Nothing in this dashboard works while
@@ -502,6 +533,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/queue" replace />} />
             <Route path="/queue" element={<ValidationPage />} />
+            <Route path="/publish" element={<PublishPage />} />
+            <Route path="/publish/:siteId" element={<PublishPage />} />
             <Route path="/sites" element={<SitesPage />} />
             <Route path="/content-pool" element={<ContentPoolPage />} />
             <Route path="/evaluation" element={<EvaluationPage />} />

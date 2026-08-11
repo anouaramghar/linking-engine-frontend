@@ -8,9 +8,17 @@ interface Props {
   children: React.ReactNode;
   /** Sizing and layout for the panel; the chrome is owned by this component. */
   panelClassName?: string;
+  /** Protected workflows should close only through an explicit action. */
+  dismissOnBackdrop?: boolean;
 }
 
-export default function Modal({ title, onClose, children, panelClassName = "" }: Props) {
+export default function Modal({
+  title,
+  onClose,
+  children,
+  panelClassName = "",
+  dismissOnBackdrop = true,
+}: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -22,7 +30,7 @@ export default function Modal({ title, onClose, children, panelClassName = "" }:
       // mousedown, not click: releasing a text selection outside the panel must
       // not count as a click on the backdrop and discard the user's input.
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (dismissOnBackdrop && event.target === event.currentTarget) onClose();
       }}
     >
       <div
