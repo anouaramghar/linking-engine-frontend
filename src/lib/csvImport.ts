@@ -15,6 +15,13 @@ export interface ParsedCsv {
 
 type SiteField = keyof SiteCreate;
 
+export interface SiteCsvOptions {
+  defaultPlatform?: SiteCreate["platform"];
+  allowedPlatforms?: readonly SiteCreate["platform"][];
+  allowWordPressCredentials?: boolean;
+  requireHttps?: boolean;
+}
+
 interface DelimitedRow {
   cells: string[];
   line: number;
@@ -119,24 +126,39 @@ const parseDelimitedRows = (text: string, delimiter: string): DelimitedRow[] => 
 export const parseDelimitedText = (text: string, delimiter: string): string[][] =>
   parseDelimitedRows(text, delimiter).map((row) => row.cells);
 
-const toSite = (cells: Record<string, string>): { site: SiteCreate | null; error: string | null } => {
+const toSite = (
+  cells: Record<string, string>,
+  options: SiteCsvOptions,
+): { site: SiteCreate | null; error: string | null } => {
   const name = cells.name ?? "";
   const base_url = cells.base_url ?? "";
   if (!name) return { site: null, error: "name is empty" };
   if (!base_url) return { site: null, error: "base_url is empty" };
 
   // Absent or blank platform means the common case: a WordPress site.
-  const platform = (cells.platform || "wordpress").toLowerCase();
+  const platform = (cells.platform || options.defaultPlatform || "wordpress").toLowerCase();
   if (platform !== "wordpress" && platform !== "html" && platform !== "pool") {
     return { site: null, error: `unknown platform "${cells.platform}"` };
+  }
+  if (
+    options.allowedPlatforms &&
+    !options.allowedPlatforms.includes(platform as SiteCreate["platform"])
+  ) {
+    return { site: null, error: `platform "${platform}" is not allowed in this import` };
   }
 
   if (!/^https?:\/\/\S+$/i.test(base_url)) {
     return { site: null, error: "base_url must start with http:// or https://" };
   }
+  if (options.requireHttps && !/^https:\/\/\S+$/i.test(base_url)) {
+    return { site: null, error: "content-pool base_url must start with https://" };
+  }
 
   const wp_username = cells.wp_username || undefined;
   const wp_app_password = cells.wp_app_password || undefined;
+  if (options.allowWordPressCredentials === false && (wp_username || wp_app_password)) {
+    return { site: null, error: "WordPress credentials are not allowed for content-pool sources" };
+  }
   if (Boolean(wp_username) !== Boolean(wp_app_password)) {
     return { site: null, error: "wp_username and wp_app_password must be filled in together" };
   }
@@ -150,7 +172,7 @@ const toSite = (cells: Record<string, string>): { site: SiteCreate | null; error
 /** Trailing-slash normalization matches the backend, so the preview matches what lands. */
 export const normalizeBaseUrl = (url: string) => url.replace(/\/+$/, "");
 
-export const parseSiteCsv = (text: string): ParsedCsv => {
+export const parseSiteCsv = (text: string, options: SiteCsvOptions = {}): ParsedCsv => {
   const source = text.replace(/^\uFEFF/, ""); // Excel prefixes a BOM
   if (!source.trim()) return { rows: [], headers: [], missingColumns: REQUIRED_COLUMNS };
 
@@ -171,7 +193,7 @@ export const parseSiteCsv = (text: string): ParsedCsv => {
       }
     });
 
-    const { site, error } = toSite(record);
+    const { site, error } = toSite(record, options);
     if (error) return { line, site: null, error };
 
     const key = normalizeBaseUrl(site!.base_url);
@@ -181,4 +203,21 @@ export const parseSiteCsv = (text: string): ParsedCsv => {
   });
 
   return { rows: rows.filter((row): row is ImportRow => row !== null), headers, missingColumns };
+};
+
+export const poolSourceType = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      (host === "wikipedia.org" || host.endsWith(".wikipedia.org")) &&
+      parsed.pathname.startsWith("/wiki/") &&
+      parsed.pathname !== "/wiki/"
+    ) {
+      return "Wikipedia";
+    }
+  } catch {
+    // Invalid URLs are reported by parseSiteCsv; previews call this only for valid rows.
+  }
+  return "RSS/Atom candidate";
 };

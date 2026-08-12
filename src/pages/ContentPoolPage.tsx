@@ -10,6 +10,7 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import AddSiteModal from "../components/sites/AddSiteModal";
+import BulkImportModal from "../components/sites/BulkImportModal";
 import PoolAuditModal from "../components/sites/PoolAuditModal";
 import {
   useApprovePoolSource,
@@ -49,6 +50,7 @@ export default function ContentPoolPage() {
   const reactivate = useReactivatePoolSource();
   const remove = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [auditSite, setAuditSite] = useState<Site | null>(null);
   const [deleteSite, setDeleteSite] = useState<Site | null>(null);
   const [filter, setFilter] = useState<PoolFilter>("all");
@@ -139,9 +141,14 @@ export default function ContentPoolPage() {
         title="Content Pool"
         sub={`${poolSources.length} external ${poolSources.length === 1 ? "source" : "sources"} available as read-only suggestion targets`}
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            + Connect pool source
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-outline" onClick={() => setShowImport(true)}>
+              Import CSV
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+              + Connect pool source
+            </button>
+          </div>
         }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
@@ -385,6 +392,7 @@ export default function ContentPoolPage() {
           onClose={() => setShowAdd(false)}
         />
       )}
+      {showImport && <BulkImportModal mode="pool" onClose={() => setShowImport(false)} />}
       {auditSite && <PoolAuditModal site={auditSite} onClose={() => setAuditSite(null)} />}
       {deleteSite && (
         <ConfirmDialog

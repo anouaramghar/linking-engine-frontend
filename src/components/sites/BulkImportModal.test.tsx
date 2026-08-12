@@ -22,12 +22,19 @@ afterEach(() => {
   state.data = undefined;
 });
 
-const upload = async (contents: string, name = "sites.csv") => {
+const upload = async (
+  contents: string,
+  name = "sites.csv",
+  mode: "sites" | "pool" = "sites",
+) => {
   const user = userEvent.setup();
-  const { rerender } = render(<BulkImportModal onClose={vi.fn()} />);
+  const { rerender } = render(<BulkImportModal onClose={vi.fn()} mode={mode} />);
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
   await user.upload(input, new File([contents], name, { type: "text/csv" }));
-  return { user, rerender: () => rerender(<BulkImportModal onClose={vi.fn()} />) };
+  return {
+    user,
+    rerender: () => rerender(<BulkImportModal onClose={vi.fn()} mode={mode} />),
+  };
 };
 
 const CSV = [
@@ -44,6 +51,42 @@ describe("BulkImportModal", () => {
     expect(screen.getByText("https://trail.example.com")).toBeTruthy();
     expect(screen.getByText("sites.csv")).toBeTruthy();
     expect(mutate).not.toHaveBeenCalled(); // preview is local — no request yet
+  });
+
+  it("imports a dedicated pool CSV as unapproved pool sources", async () => {
+    const { user } = await upload(
+      [
+        "name,base_url",
+        "Wikipedia AI,https://en.wikipedia.org/wiki/Artificial_intelligence",
+        "Industry feed,https://news.example.com/feed.xml",
+      ].join("\n"),
+      "pool.csv",
+      "pool",
+    );
+
+    await waitFor(() => expect(screen.getByText("2 ready")).toBeTruthy());
+    expect(screen.getByText("Wikipedia")).toBeTruthy();
+    expect(screen.getByText("RSS/Atom candidate")).toBeTruthy();
+    expect(screen.getByText(/unapproved content-pool source/)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Import 2 sources" }));
+
+    expect(mutate).toHaveBeenCalledWith([
+      {
+        name: "Wikipedia AI",
+        base_url: "https://en.wikipedia.org/wiki/Artificial_intelligence",
+        platform: "pool",
+        wp_username: undefined,
+        wp_app_password: undefined,
+      },
+      {
+        name: "Industry feed",
+        base_url: "https://news.example.com/feed.xml",
+        platform: "pool",
+        wp_username: undefined,
+        wp_app_password: undefined,
+      },
+    ]);
   });
 
   it("submits only the importable rows, in file order", async () => {

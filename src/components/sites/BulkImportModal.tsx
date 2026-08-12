@@ -2,7 +2,12 @@ import { useState } from "react";
 
 import Modal from "../Modal";
 import { useBulkCreateSites } from "../../hooks/useSites";
-import { MAX_BULK_SITES, parseSiteCsv, type ParsedCsv } from "../../lib/csvImport";
+import {
+  MAX_BULK_SITES,
+  parseSiteCsv,
+  poolSourceType,
+  type ParsedCsv,
+} from "../../lib/csvImport";
 import { errorDetail } from "../../lib/errors";
 import { formatCount } from "../../lib/utils";
 
@@ -14,6 +19,13 @@ const TEMPLATE = [
   "",
 ].join("\n");
 
+const POOL_TEMPLATE = [
+  "name,base_url",
+  "Wikipedia AI,https://en.wikipedia.org/wiki/Artificial_intelligence",
+  "Industry News,https://news.example.com/feed.xml",
+  "",
+].join("\n");
+
 /**
  * Import outcomes read as {component.badge-pill}s. Each count already names
  * itself ("3 imported", "1 rejected by API"), so only the failure chip takes
@@ -22,8 +34,15 @@ const TEMPLATE = [
  */
 const CHIP_ERROR = "border border-error/30 bg-error/5 text-error-ink";
 
-export default function BulkImportModal({ onClose }: { onClose: () => void }) {
+export default function BulkImportModal({
+  onClose,
+  mode = "sites",
+}: {
+  onClose: () => void;
+  mode?: "sites" | "pool";
+}) {
   const bulk = useBulkCreateSites();
+  const poolOnly = mode === "pool";
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [fileName, setFileName] = useState("");
   const [readError, setReadError] = useState<string | null>(null);
@@ -40,7 +59,19 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
     setReadError(null);
     setFileName(file.name);
     try {
-      setParsed(parseSiteCsv(await file.text()));
+      setParsed(
+        parseSiteCsv(
+          await file.text(),
+          poolOnly
+            ? {
+                defaultPlatform: "pool",
+                allowedPlatforms: ["pool"],
+                allowWordPressCredentials: false,
+                requireHttps: true,
+              }
+            : undefined,
+        ),
+      );
     } catch {
       setReadError("That file could not be read as text.");
       setParsed(null);
@@ -73,15 +104,29 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
     : [];
 
   return (
-    <Modal title="Import sites from CSV" onClose={onClose} panelClassName="max-w-3xl">
-      <p className="-mt-3 mb-5 flex-none text-caption text-muted">
-        Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
-        <code>platform</code> (<code>wordpress</code>, <code>html</code>, or <code>pool</code>),{" "}
-        <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
-        {formatCount(MAX_BULK_SITES)} sites per file.{" "}
+    <Modal
+      title={poolOnly ? "Import content-pool sources from CSV" : "Import sites from CSV"}
+      onClose={onClose}
+      panelClassName="max-w-3xl"
+    >
+      <p className="mb-5 max-w-2xl flex-none text-body-sm text-body">
+        {poolOnly ? (
+          <>
+            Columns: <code>name</code> and <code>base_url</code>. Every row is imported as an
+            unapproved content-pool source; use an HTTPS RSS/Atom feed or Wikipedia article URL.
+          </>
+        ) : (
+          <>
+            Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
+            <code>platform</code> (<code>wordpress</code>, <code>html</code>, or <code>pool</code>),{" "}
+            <code>wp_username</code>, <code>wp_app_password</code>.
+          </>
+        )}{" "}
+        Up to{" "}
+        {formatCount(MAX_BULK_SITES)} {poolOnly ? "sources" : "sites"} per file.{" "}
         <a
-          href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
-          download="linkmesh-sites.csv"
+          href={`data:text/csv;charset=utf-8,${encodeURIComponent(poolOnly ? POOL_TEMPLATE : TEMPLATE)}`}
+          download={poolOnly ? "linkmesh-content-pool-sources.csv" : "linkmesh-sites.csv"}
           className="underline underline-offset-2 hover:text-ink"
         >
           Download a template
@@ -122,7 +167,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
             {broken.length > 0 && (
               <span className="badge">{formatCount(broken.length)} skipped</span>
             )}
-            {parsed.rows.some((row) => row.site?.wp_app_password) && (
+            {!poolOnly && parsed.rows.some((row) => row.site?.wp_app_password) && (
               <span className="text-caption text-muted">
                 This file contains application passwords — delete it after importing.
               </span>
@@ -157,7 +202,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                   <th className="px-3 py-2">Line</th>
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">URL</th>
-                  <th className="px-3 py-2">Platform</th>
+                  <th className="px-3 py-2">{poolOnly ? "Source type" : "Platform"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -168,7 +213,9 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                       <>
                         <td className="px-3 py-2 text-ink">{row.site.name}</td>
                         <td className="px-3 py-2 text-body">{row.site.base_url}</td>
-                        <td className="px-3 py-2 text-body">{row.site.platform}</td>
+                        <td className="px-3 py-2 text-body">
+                          {poolOnly ? poolSourceType(row.site.base_url) : row.site.platform}
+                        </td>
                       </>
                     ) : (
                       <td colSpan={3} className="px-3 py-2 text-error-ink">
@@ -235,7 +282,15 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           >
             {bulk.isPending
               ? "Importing…"
-              : `Import ${ready.length || ""} ${ready.length === 1 ? "site" : "sites"}`.trim()}
+              : `Import ${ready.length || ""} ${
+                  ready.length === 1
+                    ? poolOnly
+                      ? "source"
+                      : "site"
+                    : poolOnly
+                      ? "sources"
+                      : "sites"
+                }`.trim()}
           </button>
         )}
         <button

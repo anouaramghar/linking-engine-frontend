@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   revoke: vi.fn(),
   reactivate: vi.fn(),
   remove: vi.fn(),
+  bulk: vi.fn(),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -18,6 +19,13 @@ vi.mock("../hooks/useSites", () => ({
   useReactivatePoolSource: () => ({ mutateAsync: mocks.reactivate }),
   useDeleteSite: () => ({ mutateAsync: mocks.remove, isPending: false }),
   useCreateSite: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useBulkCreateSites: () => ({
+    mutate: mocks.bulk,
+    reset: vi.fn(),
+    data: undefined,
+    isPending: false,
+    isError: false,
+  }),
   usePoolAuditEvents: () => ({
     events: [],
     hasNextPage: false,
@@ -48,6 +56,7 @@ beforeEach(() => {
   mocks.revoke.mockReset();
   mocks.reactivate.mockReset();
   mocks.remove.mockReset();
+  mocks.bulk.mockReset();
 });
 
 afterEach(cleanup);
@@ -112,6 +121,19 @@ describe("ContentPoolPage", () => {
     );
     expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).disabled).toBe(
       true,
+    );
+  });
+
+  it("opens the dedicated content-pool CSV importer", () => {
+    render(<ContentPoolPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Import CSV" }));
+
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "Import content-pool sources from CSV",
+    );
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "Every row is imported as an unapproved content-pool source",
     );
   });
 });
