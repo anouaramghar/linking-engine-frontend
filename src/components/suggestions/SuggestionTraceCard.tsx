@@ -74,6 +74,96 @@ const formatDuration = (from: string, to: string | number) => {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 };
 
+const CHECK_LABEL: Record<string, string> = {
+  https: "HTTPS",
+  trusted_tld: "Trusted TLD",
+  domain_age_days: "Domain age",
+  allowlisted: "On the allowlist",
+  blocklisted: "On the blocklist",
+  competitor: "Competitor domain",
+  owned_domain: "Domain we manage",
+  approved_source: "Approved pool source",
+};
+
+/**
+ * Checks where `true` is the finding that blocks a link rather than the
+ * reassuring answer. Everything else is reported plainly: `allowlisted: false`
+ * means nothing on a site with no allowlist, and dressing it as a failure would
+ * be the same overclaiming this panel exists to remove.
+ */
+const BLOCKING_WHEN_TRUE = new Set(["blocklisted", "competitor", "owned_domain"]);
+
+const checkLabel = (key: string) => CHECK_LABEL[key] ?? key.replaceAll("_", " ");
+
+const checkValue = (key: string, value: boolean | number | string | null) => {
+  if (value === null || value === undefined) return "Unknown";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (key === "domain_age_days") return `${value} days`;
+  return String(value);
+};
+
+const checkIsAdverse = (key: string, value: boolean | number | string | null) => {
+  if (typeof value !== "boolean") return false;
+  return BLOCKING_WHEN_TRUE.has(key) ? value : key === "https" && !value;
+};
+
+/**
+ * The individual checks behind an external verdict, and why it went that way.
+ *
+ * A single score or a "Passed" badge is not the contract: the engine records
+ * each guard it applied and a reason for every one that refused the link, and an
+ * editor deciding whether to publish an outbound link needs to see which guard
+ * spoke. A blocked link with no stated reason is an unexplained refusal.
+ */
+function ExternalChecks({
+  title,
+  domain,
+  eligible,
+  reasons,
+  checks,
+}: {
+  title: string;
+  domain: string;
+  eligible: boolean;
+  reasons: string[];
+  checks: Record<string, boolean | number | string | null>;
+}) {
+  const entries = Object.entries(checks);
+  return (
+    <div className="mt-3 rounded-lg border border-hairline px-3 py-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-caption-sm font-medium text-ink">{title}</span>
+        <span className={`text-caption-sm ${eligible ? "text-muted" : "text-error-ink"}`}>
+          {domain} &middot; {eligible ? "Passed" : "Blocked"}
+        </span>
+      </div>
+      {reasons.length > 0 && (
+        <ul className="mt-2 list-disc space-y-0.5 pl-5 text-caption-sm text-error-ink">
+          {reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      )}
+      {entries.length > 0 && (
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-caption-sm">
+          {entries.map(([key, value]) => (
+            <div key={key} className="flex items-baseline justify-between gap-2">
+              <dt className="min-w-0 truncate text-muted">{checkLabel(key)}</dt>
+              <dd
+                className={`font-medium ${
+                  checkIsAdverse(key, value) ? "text-error-ink" : "text-body"
+                }`}
+              >
+                {checkValue(key, value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 const timingStat = (suggestion: Suggestion, events: SuggestionEvent[] | undefined) => {
   const decision = events?.find(
     (event) =>
@@ -171,6 +261,25 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
           </dd>
         </div>
       </dl>
+
+      {externalTrust && (
+        <ExternalChecks
+          title="External trust checks"
+          domain={externalTrust.domain}
+          eligible={externalTrust.eligible}
+          reasons={externalTrust.reasons}
+          checks={externalTrust.checks}
+        />
+      )}
+      {externalSafety && (
+        <ExternalChecks
+          title="Web-search safety checks"
+          domain={externalSafety.domain}
+          eligible={externalSafety.eligible}
+          reasons={externalSafety.reasons}
+          checks={externalSafety.checks}
+        />
+      )}
 
       {suggestion.trace_id && (
         <p className="mt-2 break-all text-caption-sm text-muted">

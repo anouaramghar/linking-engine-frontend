@@ -1,4 +1,4 @@
-import { lazy, Suspense, useId, type ReactNode } from "react";
+import { lazy, Suspense, useId, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
@@ -307,52 +307,144 @@ function RailNavigation({
   );
 }
 
-/** The mobile row stays flat: the columns are already the grouping. */
-function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
+function NavCount({ count, noun, isActive }: { count: number; noun: string; isActive: boolean }) {
   return (
-    <nav aria-label="Mobile navigation" className="grid grid-cols-6 gap-1 px-2 pb-2">
-      {NAV.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) =>
-            `flex min-h-11 items-center justify-center gap-1 rounded-pill px-2 text-center
-             text-nav-link transition-colors duration-150 ${
-               isActive
-                 ? "bg-primary text-on-primary"
-                 : "text-body hover:bg-surface-strong hover:text-ink"
-             }`
-          }
+    <span
+      className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
+        px-1.5 text-caption-upper tabular-nums ${
+          isActive ? "bg-on-primary/20 text-on-primary" : "bg-surface-strong text-ink"
+        }`}
+    >
+      <span aria-hidden="true">{count}</span>
+      <span className="sr-only">
+        {count} {noun}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Navigation for every width below the desktop rail.
+ *
+ * Two shapes, because one does not fit both ends of the range. Six permanent
+ * columns at 375px leave about 55px each: below the 44px touch target the design
+ * system asks for once the gaps are taken out, with every label truncated to a
+ * word that no longer names its page. The system's own rule is a hamburger below
+ * 768px, so that is what runs there — a disclosure holding the full labels, the
+ * same grouping as the rail, and rows a thumb can actually hit. From 768px the
+ * row has room to be a row, and stays one.
+ *
+ * The panel closes on navigation and on Escape: it covers the page it is
+ * navigating away from, so leaving it open after a choice would hide the result
+ * of that choice.
+ */
+function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const groupId = useId();
+
+  const item = (navItem: NavItem, layout: "row" | "stack") => {
+    const raw = counts[navItem.to] ?? null;
+    const count = raw !== null && raw > 0 ? raw : null;
+    const noun = navItem.countNoun ?? "waiting";
+    return (
+      <NavLink
+        to={navItem.to}
+        onClick={() => setOpen(false)}
+        className={({ isActive }) =>
+          `flex min-h-11 items-center rounded-pill text-nav-link transition-colors duration-150 ${
+            layout === "row" ? "justify-center gap-1 px-2 text-center" : "gap-2.5 px-3"
+          } ${
+            isActive
+              ? "bg-primary text-on-primary"
+              : "text-body hover:bg-surface-strong hover:text-ink"
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            {layout === "stack" && <NavMark icon={navItem.icon} />}
+            <span className={layout === "row" ? "min-w-0 truncate" : "min-w-0 flex-1 truncate"}>
+              {layout === "row" ? navItem.short ?? navItem.label : navItem.label}
+            </span>
+            {count !== null && <NavCount count={count} noun={noun} isActive={isActive} />}
+          </>
+        )}
+      </NavLink>
+    );
+  };
+
+  return (
+    <>
+      <div className="px-4 pb-2 md:hidden">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((current) => !current)}
+          className="btn btn-outline flex min-h-11 w-full items-center justify-center gap-2"
         >
-          {({ isActive }) => {
-            const raw = counts[item.to] ?? null;
-            const count = raw !== null && raw > 0 ? raw : null;
-            return (
+          <svg
+            aria-hidden="true"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+          >
+            {open ? (
               <>
-                {/* Six columns at 375px leave about 55px each, so the label has
-                    to be allowed to shrink rather than push the row wider. */}
-                <span className="min-w-0 truncate">{item.short ?? item.label}</span>
-                {count !== null && (
-                  <span
-                    className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
-                      px-1.5 text-caption-upper tabular-nums ${
-                        isActive
-                          ? "bg-on-primary/20 text-on-primary"
-                          : "bg-surface-strong text-ink"
-                      }`}
-                  >
-                    <span aria-hidden="true">{count}</span>
-                    <span className="sr-only">
-                      {count} {item.countNoun ?? "waiting"}
-                    </span>
-                  </span>
-                )}
+                <path d="M5 5 19 19" />
+                <path d="M19 5 5 19" />
               </>
-            );
+            ) : (
+              <>
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h16" />
+              </>
+            )}
+          </svg>
+          {open ? "Close menu" : "Menu"}
+        </button>
+      </div>
+
+      {open && (
+        <nav
+          id={panelId}
+          aria-label="Mobile menu"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setOpen(false);
           }}
-        </NavLink>
-      ))}
-    </nav>
+          className="flex flex-col gap-1 px-2 pb-3 md:hidden"
+        >
+          <ul className="flex flex-col gap-1">
+            {FLOW.map((navItem) => (
+              <li key={navItem.to}>{item(navItem, "stack")}</li>
+            ))}
+          </ul>
+          <h2 id={groupId} className="eyebrow mt-3 px-3 pb-1">
+            Manage
+          </h2>
+          <ul aria-labelledby={groupId} className="flex flex-col gap-1">
+            {MANAGED.map((navItem) => (
+              <li key={navItem.to}>{item(navItem, "stack")}</li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <nav
+        aria-label="Mobile navigation"
+        className="hidden grid-cols-6 gap-1 px-2 pb-2 md:grid lg:hidden"
+      >
+        {NAV.map((navItem) => (
+          <span key={navItem.to}>{item(navItem, "row")}</span>
+        ))}
+      </nav>
+    </>
   );
 }
 

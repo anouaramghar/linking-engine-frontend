@@ -142,7 +142,10 @@ export interface BulkReviewResult {
   reviewed: number[];
   /** Includes legacy engines that confirm a count without returning row ids. */
   reviewedCount: number;
-  /** Rows already picked up for publishing or expired, left untouched. */
+  /**
+   * Rows the engine refused to touch: publishing, already published, expired,
+   * or bound to an approved publication plan.
+   */
   skipped: number[];
   status: ReviewStatus;
 }

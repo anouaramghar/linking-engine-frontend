@@ -30,6 +30,25 @@ const metrics: EvaluationMetrics = {
   date_to: "2026-08-05T12:00:00Z",
   cohort_definition:
     "The date range selects suggestions generated during that period; outcomes describe that cohort.",
+  provenance: {
+    surface: "operational_telemetry",
+    schema_version: "evaluation_metrics_v1",
+    commit: "abc1234",
+    evidence_cutoff: "2026-08-05T11:00:00Z",
+    individual_labels: 70,
+    bulk_labels: 30,
+    label_provenance:
+      "70 decisions made row by row, 30 made by a bulk rule. Both are counted in the rates on this page; only the first are individual labels.",
+    sample_state: "more_individual_labels_required",
+    sites_meeting_label_target: 0,
+    individual_label_target: 100,
+    baseline_site_target: 3,
+    limitations: [
+      "Operational telemetry, not an evidence artifact.",
+      "Acceptance is not correctness.",
+    ],
+    supports_ranking_decisions: false,
+  },
   editorial: {
     suggestions_total: 120,
     pending: 20,
@@ -207,6 +226,19 @@ describe("EvaluationPage", () => {
     expect(screen.getByText("Cosine baseline")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Soon");
     expect(document.body.textContent).not.toContain("GraphSAGE");
+  });
+
+  it("states that the page is telemetry and shows its provenance and limitations", () => {
+    renderPage();
+
+    expect(screen.getByText("Operational telemetry")).not.toBeNull();
+    expect(screen.getByText("Not evidence for ranking or model changes")).not.toBeNull();
+    expect(screen.getByText(/More individual labels required/)).not.toBeNull();
+    expect(screen.getByText(/0 of 3 sites at the label target/)).not.toBeNull();
+    expect(screen.getByText(/70 individual, 30 from bulk rules/)).not.toBeNull();
+    expect(screen.getByText(/evaluation_metrics_v1 · commit abc1234/)).not.toBeNull();
+    expect(screen.getByText("What these numbers cannot settle (2)")).not.toBeNull();
+    expect(screen.getByText("Acceptance is not correctness.")).not.toBeNull();
   });
 
   it("stores selected date and site filters in the URL and query contract", () => {

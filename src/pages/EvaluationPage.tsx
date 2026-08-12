@@ -6,6 +6,8 @@ import {
   type EvaluationFilters,
   type EvaluationMetric,
   type EvaluationMetrics,
+  type EvaluationProvenance,
+  type EvidenceSampleState,
   type MethodMetrics,
   type ScoreRangeMetrics,
 } from "../api/evaluation";
@@ -330,6 +332,104 @@ function SitesBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
   );
 }
 
+const SAMPLE_STATE_LABEL: Record<EvidenceSampleState, string> = {
+  evidence_unavailable: "Evidence unavailable",
+  more_individual_labels_required: "More individual labels required",
+  three_site_baseline_ready: "Three-site baseline ready",
+};
+
+/**
+ * States plainly what this page is before any number is read.
+ *
+ * It sits above the metrics, not inside the collapsed definitions panel: the
+ * whole point is that a reader cannot take a rate off this dashboard and use it
+ * to argue for a ranking or model change without having seen why they may not.
+ */
+function ProvenanceNotice({ provenance }: { provenance: EvaluationProvenance }) {
+  const {
+    sample_state,
+    sites_meeting_label_target,
+    baseline_site_target,
+    individual_labels,
+    individual_label_target,
+    bulk_labels,
+    evidence_cutoff,
+    schema_version,
+    commit,
+    label_provenance,
+    limitations,
+  } = provenance;
+  const ready = sample_state === "three_site_baseline_ready";
+
+  return (
+    <section
+      className="card mb-4 border border-hairline-strong px-4 py-4 sm:px-6"
+      aria-label="Evidence provenance and limitations"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="badge">Operational telemetry</span>
+        <h2 className="font-serif text-display-sm text-ink">
+          Not evidence for ranking or model changes
+        </h2>
+      </div>
+      <p className="mt-2 text-caption leading-normal text-muted">
+        These numbers report what the system did. Changing a ranking default or a model
+        needs a versioned three-site baseline instead — {baseline_site_target} representative
+        sites with at least {formatCount(individual_label_target)} individual labels each.
+      </p>
+      <dl className="mt-4 grid grid-cols-1 gap-3 text-caption leading-normal sm:grid-cols-2">
+        <div>
+          <dt className="font-medium text-ink">Sample state</dt>
+          <dd className="mt-1 text-muted">
+            {SAMPLE_STATE_LABEL[sample_state]}
+            {!ready && (
+              <>
+                {" — "}
+                {formatCount(sites_meeting_label_target)} of {baseline_site_target} sites at the
+                label target
+              </>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-ink">Label provenance</dt>
+          <dd className="mt-1 text-muted">
+            {formatCount(individual_labels)} individual, {formatCount(bulk_labels)} from bulk
+            rules. {label_provenance}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-ink">Evidence cutoff</dt>
+          <dd className="mt-1 text-muted">
+            {evidence_cutoff
+              ? new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }).format(new Date(evidence_cutoff))
+              : "No suggestions in this cohort"}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-ink">Schema and build</dt>
+          <dd className="mt-1 break-all text-muted">
+            {schema_version} · commit {commit ?? "unknown"}
+          </dd>
+        </div>
+      </dl>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-caption font-medium text-ink">
+          What these numbers cannot settle ({limitations.length})
+        </summary>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-caption leading-normal text-muted">
+          {limitations.map((limitation) => (
+            <li key={limitation}>{limitation}</li>
+          ))}
+        </ul>
+      </details>
+    </section>
+  );
+}
+
 function MetricDefinitions({ cohortDefinition }: { cohortDefinition: string }) {
   return (
     <details className="card mt-4 px-4 py-4 sm:px-6">
@@ -410,6 +510,7 @@ function DashboardBody({
 
   return (
     <>
+      <ProvenanceNotice provenance={metrics.provenance} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card, index) => (
           <MetricCard

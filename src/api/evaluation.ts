@@ -106,12 +106,35 @@ export interface EvaluationComparison {
   publication_success_rate_change: number | null;
 }
 
+export type EvidenceSampleState =
+  | "evidence_unavailable"
+  | "more_individual_labels_required"
+  | "three_site_baseline_ready";
+
+/** What this dashboard is, and what its numbers cannot settle. */
+export interface EvaluationProvenance {
+  surface: "operational_telemetry";
+  schema_version: string;
+  commit: string | null;
+  evidence_cutoff: string | null;
+  individual_labels: number;
+  bulk_labels: number;
+  label_provenance: string;
+  sample_state: EvidenceSampleState;
+  sites_meeting_label_target: number;
+  individual_label_target: number;
+  baseline_site_target: number;
+  limitations: string[];
+  supports_ranking_decisions: boolean;
+}
+
 export interface EvaluationMetrics {
   generated_at: string;
   site_id: number | null;
   date_from: string | null;
   date_to: string | null;
   cohort_definition: string;
+  provenance: EvaluationProvenance;
   editorial: EditorialMetrics;
   placement: PlacementMetrics;
   publication: PublicationMetrics;

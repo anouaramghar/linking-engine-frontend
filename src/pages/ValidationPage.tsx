@@ -76,6 +76,30 @@ interface BatchFailure {
 }
 
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
+
+/**
+ * Why a review or an undo left rows alone.
+ *
+ * The engine refuses a row that is publishing, already published or expired —
+ * and, separately, one already bound to an approved publication plan. That last
+ * case is the one this message used to get wrong: such a row is not in flight
+ * and has not expired, it is part of an exact edit a person has approved, and
+ * telling an editor it "entered publishing" sends them looking for a publication
+ * run that does not exist. Both reasons are named so the count is explainable
+ * without reading the queue row by row.
+ */
+const skippedByEngine = (count: number) =>
+  `${count} ${plural(count)} could not be changed: ${count === 1 ? "it is" : "they are"} publishing, already published, expired, or part of an approved publication plan.`;
+
+/**
+ * Why a filtered undo left rows alone.
+ *
+ * A different rule from `skippedByEngine`: the undo restores exactly the rows
+ * its own operation changed, and skips any whose status has moved on since. An
+ * approved plan is not a reason here, so it is not claimed as one.
+ */
+const skippedByChange = (count: number) =>
+  `${count} ${plural(count)} ${count === 1 ? "was" : "were"} left untouched because ${count === 1 ? "it has" : "they have"} changed since the bulk rule ran — decided again, published, or expired.`;
 const STATUS_OVERRIDE_LIMIT = 5_000;
 const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
@@ -476,9 +500,7 @@ export default function ValidationPage() {
     const confirmedCount = Math.max(reviewedCount, applied.length);
     const unknownIdCount = confirmedCount - applied.length;
     const skippedCount = Array.isArray(skipped) ? skipped.length : skipped;
-    const aside = skippedCount
-      ? `${skippedCount} ${plural(skippedCount)} ${skippedCount === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skippedCount === 1 ? "it" : "they"} could not be changed.`
-      : "";
+    const aside = skippedCount ? skippedByEngine(skippedCount) : "";
     const failureMessage = failure
       ? [
           `${confirmedCount} ${confirmedCount === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
@@ -724,9 +746,7 @@ export default function ValidationPage() {
         setNotice({
           message: [
             `${restored} ${plural(restored)} restored to pending review.`,
-            skipped
-              ? `${skipped} ${plural(skipped)} had changed or entered publishing and were left untouched.`
-              : "",
+            skipped ? skippedByChange(skipped) : "",
           ]
             .filter(Boolean)
             .join(" "),
@@ -825,9 +845,7 @@ export default function ValidationPage() {
           setNotice({
             message: [
               describe(reviewed),
-              skipped
-                ? `${skipped} ${plural(skipped)} could not be changed because publishing had already claimed them or they had expired.`
-                : "",
+              skipped ? skippedByEngine(skipped) : "",
               undoOperationId
                 ? "The exact server-side cohort can be undone from this message."
                 : "The queue has been refreshed.",

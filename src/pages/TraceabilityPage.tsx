@@ -9,8 +9,14 @@ import { formatCount } from "../lib/utils";
 
 const PAGE_SIZE = 50;
 
+// The documented lifecycle set, in docs/design/suggestion-traceability.md order.
+// `external_discovered` is the provenance event every accepted web-search
+// candidate gets in addition to `generated`; leaving it out of this list made
+// the one event that explains a paid external suggestion the only one an
+// operator could not filter for.
 const EVENT_TYPES = [
   "generated",
+  "external_discovered",
   "imported",
   "reviewed",
   "restored",

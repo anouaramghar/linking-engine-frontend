@@ -541,7 +541,7 @@ describe("ValidationPage live review state", () => {
     const notice = screen.getByRole("alert");
     expect(notice.textContent).toContain("1 suggestion selected for exact-edit review");
     expect(notice.textContent).toContain(
-      "1 suggestion was already picked up for publishing or had expired",
+      "1 suggestion could not be changed: it is publishing, already published, expired, or part of an approved publication plan.",
     );
     // Only the row that actually moved leaves the pending list.
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();

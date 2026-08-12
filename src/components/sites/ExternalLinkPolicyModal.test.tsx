@@ -42,12 +42,22 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(),
   },
   update: { isPending: false, mutateAsync: vi.fn() },
+  counts: {
+    web_search: { pending: 4, approved: 3 },
+    content_pool: { pending: 2, approved: 1 },
+  } as Record<string, { pending: number; approved: number }>,
 }));
 
 vi.mock("../../hooks/useSites", () => ({
   useExternalLinkPolicy: () => mocks.policy,
   useExternalSourceEvaluations: () => mocks.sources,
   useUpdateExternalLinkPolicy: () => mocks.update,
+}));
+
+vi.mock("../../hooks/useSuggestions", () => ({
+  useSuggestionCounts: (filters: { targetOrigin?: string }) => ({
+    data: filters.targetOrigin ? mocks.counts[filters.targetOrigin] : undefined,
+  }),
 }));
 
 const site = {
@@ -96,6 +106,10 @@ describe("ExternalLinkPolicyModal", () => {
       target: { value: "competitor.example, rival.example" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+    expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save and expire blocked suggestions" }),
+    );
     await waitFor(() => expect(mocks.update.mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         min_trust_score: 75,
@@ -106,5 +120,34 @@ describe("ExternalLinkPolicyModal", () => {
       "External link policy saved. 2 blocked suggestions expired.",
     );
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("names every tightening change and what it puts at risk before saving", () => {
+    render(<ExternalLinkPolicyModal site={site} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Enable external suggestions/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Blocked domains/ }), {
+      target: { value: "spam.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+
+    const confirmation = screen.getByRole("alert");
+    expect(confirmation.textContent).toContain("External suggestions are being turned off");
+    expect(confirmation.textContent).toContain("Newly blocked: spam.example.");
+    // 4 + 2 pending and 3 + 1 approved, across both outward target kinds.
+    expect(confirmation.textContent).toContain("6 pending and 4 approved");
+    expect(mocks.update.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("saves a loosened policy without a confirmation step", async () => {
+    mocks.update.mutateAsync.mockResolvedValue({ expired_suggestions: 0 });
+    render(<ExternalLinkPolicyModal site={site} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Minimum trust score/ }), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+
+    await waitFor(() => expect(mocks.update.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ min_trust_score: 40 }),
+    ));
   });
 });
