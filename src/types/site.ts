@@ -134,3 +134,10 @@ export interface BulkImportResult {
   skipped: BulkFailure[];
   rejected: BulkFailure[];
 }
+
+export interface PoolSourceValidationResult {
+  base_url: string | null;
+  valid: boolean;
+  source_type: "wikipedia" | "rss_atom" | null;
+  reason: string | null;
+}

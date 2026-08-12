@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ingestSite } from "../api/sites";
+import { ingestSite, MAX_POOL_INGESTION_BATCH_SOURCES } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
@@ -9,12 +9,14 @@ import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import SelectionControl from "../components/SelectionControl";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import PoolAuditModal from "../components/sites/PoolAuditModal";
 import {
   useApprovePoolSource,
   useDeleteSite,
+  usePoolIngestionBatch,
   useReactivatePoolSource,
   useRevokePoolSource,
   useSites,
@@ -49,12 +51,17 @@ export default function ContentPoolPage() {
   const revoke = useRevokePoolSource();
   const reactivate = useReactivatePoolSource();
   const remove = useDeleteSite();
+  const poolBatch = usePoolIngestionBatch();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [auditSite, setAuditSite] = useState<Site | null>(null);
+  const [approvalSite, setApprovalSite] = useState<Site | null>(null);
   const [deleteSite, setDeleteSite] = useState<Site | null>(null);
   const [filter, setFilter] = useState<PoolFilter>("all");
   const [search, setSearch] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
+  const selectVisibleRef = useRef<HTMLInputElement>(null);
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
   const [crawlJobs, setCrawlJobs] = useState<Record<number, string>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -81,6 +88,112 @@ export default function ContentPoolPage() {
     50,
     250,
   );
+  const visibleEligibleIds = useMemo(
+    () =>
+      visible
+        .filter((site) => site.pool_source_approved && !site.pool_source_quarantined)
+        .map((site) => site.id),
+    [visible],
+  );
+  const selectedVisibleCount = visibleEligibleIds.filter((id) =>
+    selectedSourceIds.has(id),
+  ).length;
+  const allVisibleSelected =
+    visibleEligibleIds.length > 0 && selectedVisibleCount === visibleEligibleIds.length;
+  const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+  const selectedOutsideFilterCount = selectedSourceIds.size - selectedVisibleCount;
+  const batchLimitReached = selectedSourceIds.size >= MAX_POOL_INGESTION_BATCH_SOURCES;
+  const selectedActiveCount = [...selectedSourceIds].filter((id) =>
+    activeJobs.some((job) => job.site_id === id && job.kind === "ingestion"),
+  ).length;
+  const selectedIneligibleCount = [...selectedSourceIds].filter((id) => {
+    const source = poolSources.find((site) => site.id === id);
+    return !source?.pool_source_approved || source.pool_source_quarantined;
+  }).length;
+  const batchBlocked =
+    jobStatusUnavailable ||
+    selectedActiveCount > 0 ||
+    selectedIneligibleCount > 0 ||
+    selectedSourceIds.size > MAX_POOL_INGESTION_BATCH_SOURCES;
+
+  useEffect(() => {
+    if (selectVisibleRef.current) {
+      selectVisibleRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  const toggleSelectedSource = (site: Site) => {
+    if (!site.pool_source_approved || site.pool_source_quarantined) return;
+    setSelectedSourceIds((current) => {
+      const next = new Set(current);
+      if (next.has(site.id)) next.delete(site.id);
+      else if (next.size < MAX_POOL_INGESTION_BATCH_SOURCES) next.add(site.id);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedSourceIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected || (batchLimitReached && someVisibleSelected)) {
+        visibleEligibleIds.forEach((id) => next.delete(id));
+      } else {
+        let slots = MAX_POOL_INGESTION_BATCH_SOURCES - next.size;
+        visibleEligibleIds.forEach((id) => {
+          if (next.has(id) || slots <= 0) return;
+          next.add(id);
+          slots -= 1;
+        });
+      }
+      return next;
+    });
+  };
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedSourceIds(new Set());
+  };
+
+  const launchBatch = async () => {
+    if (
+      selectedSourceIds.size === 0 ||
+      batchBlocked ||
+      poolBatch.isPending
+    ) {
+      return;
+    }
+    const sourceIds = [...selectedSourceIds];
+    setNotice(null);
+    const result = await poolBatch.mutateAsync(sourceIds);
+    setCrawlJobs((current) => {
+      const next = { ...current };
+      result.queued.forEach(({ siteId, job }) => {
+        next[siteId] = job.job_id;
+      });
+      return next;
+    });
+    if (result.queued.length > 0) await activeJobsQuery.refetch();
+
+    if (result.failed.length === 0) {
+      setSelectionMode(false);
+      setSelectedSourceIds(new Set());
+      setNotice({
+        message: `${result.queued.length} pool source${result.queued.length === 1 ? "" : "s"} queued for crawl.`,
+        tone: "info",
+      });
+      return;
+    }
+
+    setSelectedSourceIds(new Set(result.failed.map(({ siteId }) => siteId)));
+    const firstFailure = result.failed[0];
+    setNotice({
+      message: `${result.queued.length} queued; ${result.failed.length} failed. ${errorDetail(
+        firstFailure.error,
+        "The failed sources can be retried.",
+      )}`,
+      tone: "error",
+    });
+  };
 
   const runAction = async (label: string, action: () => Promise<unknown>) => {
     setNotice(null);
@@ -135,6 +248,22 @@ export default function ContentPoolPage() {
     );
   };
 
+  const confirmApproval = async () => {
+    if (!approvalSite || approve.isPending) return;
+    const target = approvalSite;
+    setNotice(null);
+    try {
+      await approve.mutateAsync(target.id);
+      setApprovalSite(null);
+      setNotice({ message: `${target.name} approval completed.`, tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, `${target.name} approval failed. Please try again.`),
+        tone: "error",
+      });
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -142,6 +271,15 @@ export default function ContentPoolPage() {
         sub={`${poolSources.length} external ${poolSources.length === 1 ? "source" : "sources"} available as read-only suggestion targets`}
         actions={
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() =>
+                selectionMode ? cancelSelection() : setSelectionMode(true)
+              }
+            >
+              {selectionMode ? "Cancel selection" : "Select sources"}
+            </button>
             <button type="button" className="btn btn-outline" onClick={() => setShowImport(true)}>
               Import CSV
             </button>
@@ -177,6 +315,30 @@ export default function ContentPoolPage() {
             </select>
           </label>
         </div>
+
+        {selectionMode && (
+          <div className="card mb-4 flex items-center justify-between gap-3 px-3 py-2.5">
+            <label className="flex min-h-11 cursor-pointer items-center gap-3">
+              <SelectionControl
+                inputRef={selectVisibleRef}
+                label="Select all eligible visible pool sources"
+                checked={allVisibleSelected}
+                indeterminate={someVisibleSelected}
+                disabled={
+                  visibleEligibleIds.length === 0 ||
+                  (batchLimitReached && selectedVisibleCount === 0)
+                }
+                onChange={toggleAllVisible}
+              />
+              <span className="text-caption font-medium text-ink">
+                Select eligible visible sources
+              </span>
+            </label>
+            <span className="text-caption text-muted">
+              {visibleEligibleIds.length} eligible
+            </span>
+          </div>
+        )}
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
         {activeJobsQuery.isError && (
@@ -219,7 +381,12 @@ export default function ContentPoolPage() {
 
         <div className="flex flex-col gap-2.5">
           {visible.map((site) => (
-            <article key={site.id} className="card p-4 sm:p-5">
+            <article
+              key={site.id}
+              className={`card p-4 sm:p-5 ${
+                selectedSourceIds.has(site.id) ? "border-ink bg-surface-strong" : ""
+              }`}
+            >
               {(() => {
                 const activeJob = activeJobs.find(
                   (job) => job.site_id === site.id && job.kind === "ingestion",
@@ -227,46 +394,71 @@ export default function ContentPoolPage() {
                 const trackedJobId = crawlJobs[site.id];
                 return (
               <div className="flex flex-wrap items-start gap-4">
-                <div className="min-w-56 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2
-                      id={`pool-source-${site.id}`}
-                      className="text-body-md font-medium text-ink"
+                <div className="flex min-w-56 flex-1 items-start gap-3">
+                  {selectionMode && (
+                    <label
+                      className="touch-target inline-flex cursor-pointer items-center justify-center"
+                      title={
+                        !site.pool_source_approved
+                          ? "Approve this source before adding it to a crawl batch."
+                          : site.pool_source_quarantined
+                            ? "Reactivate this source before adding it to a crawl batch."
+                            : undefined
+                      }
                     >
-                      {site.name}
-                    </h2>
-                    <span className="badge">
-                      <span
-                        className={`dot ${
-                          site.pool_source_quarantined
-                            ? "bg-error"
-                            : site.pool_source_approved
-                              ? "bg-success"
-                              : "bg-muted-soft"
-                        }`}
+                      <SelectionControl
+                        label={`Select ${site.name} for batch`}
+                        checked={selectedSourceIds.has(site.id)}
+                        disabled={
+                          !site.pool_source_approved ||
+                          Boolean(site.pool_source_quarantined) ||
+                          (!selectedSourceIds.has(site.id) && batchLimitReached)
+                        }
+                        onChange={() => toggleSelectedSource(site)}
                       />
-                      {statusLabel(site)}
-                    </span>
-                    {activeJob?.queue_job_id ? (
-                      <JobStatusBadge
-                        jobId={activeJob.queue_job_id}
-                        kind="ingestion"
-                        snapshot={{
-                          status: activeJob.status,
-                          progress: activeJob.progress,
-                          error: activeJob.error,
-                        }}
-                      />
-                    ) : trackedJobId ? (
-                      <JobStatusBadge jobId={trackedJobId} kind="ingestion" />
-                    ) : null}
-                  </div>
-                  <div className="mt-1 break-all text-caption text-muted">{site.base_url}</div>
-                  {site.pool_source_quarantine_reason && (
-                    <div className="mt-2 text-caption text-error-ink">
-                      {site.pool_source_quarantine_reason}
-                    </div>
+                    </label>
                   )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2
+                        id={`pool-source-${site.id}`}
+                        className="text-body-md font-medium text-ink"
+                      >
+                        {site.name}
+                      </h2>
+                      <span className="badge">
+                        <span
+                          className={`dot ${
+                            site.pool_source_quarantined
+                              ? "bg-error"
+                              : site.pool_source_approved
+                                ? "bg-success"
+                                : "bg-muted-soft"
+                          }`}
+                        />
+                        {statusLabel(site)}
+                      </span>
+                      {activeJob?.queue_job_id ? (
+                        <JobStatusBadge
+                          jobId={activeJob.queue_job_id}
+                          kind="ingestion"
+                          snapshot={{
+                            status: activeJob.status,
+                            progress: activeJob.progress,
+                            error: activeJob.error,
+                          }}
+                        />
+                      ) : trackedJobId ? (
+                        <JobStatusBadge jobId={trackedJobId} kind="ingestion" />
+                      ) : null}
+                    </div>
+                    <div className="mt-1 break-all text-caption text-muted">{site.base_url}</div>
+                    {site.pool_source_quarantine_reason && (
+                      <div className="mt-2 text-caption text-error-ink">
+                        {site.pool_source_quarantine_reason}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <dl className="grid grid-cols-3 gap-4 text-caption text-muted">
                   <div>
@@ -294,6 +486,17 @@ export default function ContentPoolPage() {
                   </div>
                 </dl>
                 <div className="flex flex-wrap gap-2">
+                  {!site.pool_source_approved && (
+                    <button
+                      type="button"
+                      aria-label={`Approve ${site.name}`}
+                      className="btn btn-primary btn-sm"
+                      disabled={mutationPending}
+                      onClick={() => setApprovalSite(site)}
+                    >
+                      Approve
+                    </button>
+                  )}
                   {site.pool_source_approved && !site.pool_source_quarantined && (
                     <button
                       type="button"
@@ -320,18 +523,6 @@ export default function ContentPoolPage() {
                     label="Actions"
                     ariaLabel={`Actions for ${site.name}`}
                     items={[
-                      ...(!site.pool_source_approved
-                        ? [
-                            {
-                              label: "Approve",
-                              disabled: mutationPending,
-                              onSelect: () =>
-                                void runAction(`${site.name} approval`, () =>
-                                  approve.mutateAsync(site.id),
-                                ),
-                            },
-                          ]
-                        : []),
                       ...(site.pool_source_quarantined
                         ? [
                             {
@@ -382,6 +573,50 @@ export default function ContentPoolPage() {
             </span>
           </div>
         )}
+
+        {selectionMode && selectedSourceIds.size > 0 && (
+          <div
+            role="region"
+            aria-label="Pool batch selection"
+            className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-body-sm font-medium text-ink" aria-live="polite">
+                {selectedSourceIds.size} source{selectedSourceIds.size === 1 ? "" : "s"} selected
+              </div>
+              <div className="mt-1 text-caption text-muted">
+                {activeJobsQuery.isError
+                  ? "Live job status is unavailable. Refresh before starting a batch."
+                  : selectedIneligibleCount > 0
+                    ? `${selectedIneligibleCount} selected source${selectedIneligibleCount === 1 ? " is" : "s are"} no longer eligible.`
+                    : selectedActiveCount > 0
+                      ? `${selectedActiveCount} selected source${selectedActiveCount === 1 ? " is" : "s are"} already crawling.`
+                      : batchLimitReached
+                        ? `Batch limit reached: ${MAX_POOL_INGESTION_BATCH_SOURCES} sources maximum.`
+                        : selectedOutsideFilterCount > 0
+                          ? `${selectedOutsideFilterCount} selected outside these filters.`
+                          : "Ready to crawl together."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedSourceIds(new Set())}
+              className="btn btn-outline btn-sm"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => void launchBatch()}
+              disabled={poolBatch.isPending || batchBlocked}
+              className="btn btn-primary btn-sm sm:min-w-[10rem]"
+            >
+              {poolBatch.isPending
+                ? "Starting batch..."
+                : `Run batch (${selectedSourceIds.size})`}
+            </button>
+          </div>
+        )}
       </div>
 
       {showAdd && (
@@ -394,6 +629,16 @@ export default function ContentPoolPage() {
       )}
       {showImport && <BulkImportModal mode="pool" onClose={() => setShowImport(false)} />}
       {auditSite && <PoolAuditModal site={auditSite} onClose={() => setAuditSite(null)} />}
+      {approvalSite && (
+        <ConfirmDialog
+          title={`Approve ${approvalSite.name}?`}
+          description={`Trust ${approvalSite.base_url} as a read-only content-pool source. After approval, it can be crawled and its articles can become external-link targets.`}
+          confirmLabel="Approve source"
+          pending={approve.isPending}
+          onConfirm={() => void confirmApproval()}
+          onCancel={() => setApprovalSite(null)}
+        />
+      )}
       {deleteSite && (
         <ConfirmDialog
           title={`Delete ${deleteSite.name}?`}

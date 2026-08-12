@@ -5,12 +5,14 @@ import {
   bulkCreateSites,
   deleteSite,
   getExternalLinkPolicy,
+  ingestPoolSourceBatch,
   listExternalSourceEvaluations,
   listPoolAuditEvents,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
   updateExternalLinkPolicy,
+  validatePoolSources,
 } from "./sites";
 
 const get = vi.hoisted(() => vi.fn());
@@ -134,6 +136,65 @@ describe("content-pool controls", () => {
     expect(get).toHaveBeenCalledWith("/sites/7/pool-source/audit-events", {
       params: { limit: 50, offset: 0 },
     });
+  });
+
+  it("validates pool sources with bounded requests and keeps their row order", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    post.mockImplementation(async (_url: string, payload: { base_url: string }) => {
+      active++;
+      maximumActive = Math.max(maximumActive, active);
+      await Promise.resolve();
+      active--;
+      return {
+        data: {
+          base_url: payload.base_url,
+          valid: true,
+          source_type: "rss_atom",
+          reason: null,
+        },
+      };
+    });
+    const sources = Array.from({ length: 8 }, (_, index) => ({
+      name: `Feed ${index}`,
+      base_url: `https://news-${index}.example.com/feed.xml`,
+      platform: "pool" as const,
+    }));
+
+    const result = await validatePoolSources(sources);
+
+    expect(maximumActive).toBe(5);
+    expect(result.map((entry) => entry.base_url)).toEqual(
+      sources.map((source) => source.base_url),
+    );
+    expect(post).toHaveBeenCalledTimes(8);
+    expect(post).toHaveBeenNthCalledWith(1, "/sites/pool-source/validate", {
+      name: "Feed 0",
+      base_url: "https://news-0.example.com/feed.xml",
+    });
+  });
+
+  it("queues a bounded pool crawl batch and reports partial failures", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    post.mockImplementation(async (url: string) => {
+      const siteId = Number(url.split("/")[2]);
+      active++;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      active--;
+      if (siteId === 4) throw new Error("already crawling");
+      return { data: { job_id: `job-${siteId}`, job_run_id: siteId } };
+    });
+
+    const result = await ingestPoolSourceBatch([1, 2, 3, 4, 5, 6, 7]);
+
+    expect(maximumActive).toBe(5);
+    expect(result.queued.map(({ siteId }) => siteId).sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 5, 6, 7,
+    ]);
+    expect(result.failed.map(({ siteId }) => siteId)).toEqual([4]);
+    expect(post).toHaveBeenCalledWith("/sites/1/ingest");
   });
 
   it("supports loading older audit pages", async () => {

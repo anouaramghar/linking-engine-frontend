@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import Modal from "../Modal";
-import { useBulkCreateSites } from "../../hooks/useSites";
+import { useBulkCreateSites, useValidatePoolSources } from "../../hooks/useSites";
 import {
   MAX_BULK_SITES,
   parseSiteCsv,
@@ -10,6 +10,7 @@ import {
 } from "../../lib/csvImport";
 import { errorDetail } from "../../lib/errors";
 import { formatCount } from "../../lib/utils";
+import type { PoolSourceValidationResult } from "../../types/site";
 
 const TEMPLATE = [
   "name,base_url,platform,wp_username,wp_app_password",
@@ -42,39 +43,81 @@ export default function BulkImportModal({
   mode?: "sites" | "pool";
 }) {
   const bulk = useBulkCreateSites();
+  const validation = useValidatePoolSources();
   const poolOnly = mode === "pool";
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
+  const [poolValidation, setPoolValidation] = useState<
+    Record<number, PoolSourceValidationResult> | null
+  >(null);
   const [fileName, setFileName] = useState("");
   const [readError, setReadError] = useState<string | null>(null);
 
-  const ready = parsed?.rows.filter((row) => row.site) ?? [];
+  const locallyReady = parsed?.rows.filter((row) => row.site) ?? [];
+  const ready = poolOnly
+    ? poolValidation
+      ? locallyReady.filter((row) => poolValidation[row.line]?.valid)
+      : []
+    : locallyReady;
   const broken = parsed?.rows.filter((row) => !row.site) ?? [];
-  const tooMany = ready.length > MAX_BULK_SITES;
-  const blocked = !!parsed?.missingColumns.length || !ready.length || tooMany;
+  const validationRejected = poolValidation
+    ? locallyReady.filter((row) => poolValidation[row.line]?.valid === false)
+    : [];
+  const tooMany = locallyReady.length > MAX_BULK_SITES;
+  const blocked =
+    !!parsed?.missingColumns.length ||
+    !ready.length ||
+    tooMany ||
+    validation.isPending ||
+    validation.isError;
   const result = bulk.data;
 
   const readFile = async (file: File | undefined) => {
     if (!file) return;
     bulk.reset();
+    validation.reset();
+    setPoolValidation(null);
     setReadError(null);
     setFileName(file.name);
+    let nextParsed: ParsedCsv;
     try {
-      setParsed(
-        parseSiteCsv(
-          await file.text(),
-          poolOnly
-            ? {
-                defaultPlatform: "pool",
-                allowedPlatforms: ["pool"],
-                allowWordPressCredentials: false,
-                requireHttps: true,
-              }
-            : undefined,
-        ),
+      nextParsed = parseSiteCsv(
+        await file.text(),
+        poolOnly
+          ? {
+              defaultPlatform: "pool",
+              allowedPlatforms: ["pool"],
+              allowWordPressCredentials: false,
+              requireHttps: true,
+            }
+          : undefined,
       );
     } catch {
       setReadError("That file could not be read as text.");
       setParsed(null);
+      return;
+    }
+
+    setParsed(nextParsed);
+    if (poolOnly) {
+      const candidates = nextParsed.rows.filter((row) => row.site);
+      if (
+        !nextParsed.missingColumns.length &&
+        candidates.length &&
+        candidates.length <= MAX_BULK_SITES
+      ) {
+        try {
+          const results = await validation.mutateAsync(
+            candidates.map((row) => row.site!),
+          );
+          setPoolValidation(
+            Object.fromEntries(candidates.map((row, index) => [row.line, results[index]])),
+          );
+        } catch {
+          setPoolValidation(null);
+        }
+      } else {
+        setPoolValidation({});
+      }
     }
   };
 
@@ -87,6 +130,12 @@ export default function BulkImportModal({
           line: row.line,
           baseUrl: null,
           reason: row.error ?? "invalid row",
+        })),
+        ...validationRejected.map((row) => ({
+          key: `validation-${row.line}`,
+          line: row.line,
+          baseUrl: row.site?.base_url ?? null,
+          reason: poolValidation?.[row.line]?.reason ?? "source validation failed",
         })),
         ...result.skipped.map((entry) => ({
           key: `skipped-${entry.row}-${entry.reason}`,
@@ -112,8 +161,9 @@ export default function BulkImportModal({
       <p className="mb-5 max-w-2xl flex-none text-body-sm text-body">
         {poolOnly ? (
           <>
-            Columns: <code>name</code> and <code>base_url</code>. Every row is imported as an
-            unapproved content-pool source; use an HTTPS RSS/Atom feed or Wikipedia article URL.
+            Columns: <code>name</code> and <code>base_url</code>. Each URL is checked live before
+            valid rows are imported as unapproved content-pool sources. Use an HTTPS RSS/Atom feed
+            or Wikipedia article URL.
           </>
         ) : (
           <>
@@ -163,9 +213,15 @@ export default function BulkImportModal({
       {parsed && !result && (
         <>
           <div className="mb-3 flex flex-none flex-wrap items-center gap-2">
-            <span className="badge">{formatCount(ready.length)} ready</span>
-            {broken.length > 0 && (
-              <span className="badge">{formatCount(broken.length)} skipped</span>
+            <span className="badge">
+              {validation.isPending
+                ? `Validating ${formatCount(locallyReady.length)}`
+                : `${formatCount(ready.length)} ready`}
+            </span>
+            {broken.length + validationRejected.length > 0 && (
+              <span className="badge">
+                {formatCount(broken.length + validationRejected.length)} skipped
+              </span>
             )}
             {!poolOnly && parsed.rows.some((row) => row.site?.wp_app_password) && (
               <span className="text-caption text-muted">
@@ -192,6 +248,14 @@ export default function BulkImportModal({
               limit — split the file.
             </div>
           )}
+          {poolOnly && validation.isError && (
+            <div
+              role="alert"
+              className="mb-3 flex-none rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+            >
+              {errorDetail(validation.error, "The sources could not be validated.")}
+            </div>
+          )}
 
           {/* Preview rows carry raw URLs, which do not wrap. The card scrolls
               in both directions so a long one never pushes the panel wider. */}
@@ -203,6 +267,7 @@ export default function BulkImportModal({
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">URL</th>
                   <th className="px-3 py-2">{poolOnly ? "Source type" : "Platform"}</th>
+                  {poolOnly && <th className="px-3 py-2">Validation</th>}
                 </tr>
               </thead>
               <tbody>
@@ -214,11 +279,30 @@ export default function BulkImportModal({
                         <td className="px-3 py-2 text-ink">{row.site.name}</td>
                         <td className="px-3 py-2 text-body">{row.site.base_url}</td>
                         <td className="px-3 py-2 text-body">
-                          {poolOnly ? poolSourceType(row.site.base_url) : row.site.platform}
+                          {poolOnly
+                            ? poolValidation?.[row.line]?.source_type === "wikipedia"
+                              ? "Wikipedia"
+                              : poolSourceType(row.site.base_url)
+                            : row.site.platform}
                         </td>
+                        {poolOnly && (
+                          <td
+                            className={`px-3 py-2 ${
+                              poolValidation?.[row.line]?.valid === false
+                                ? "text-error-ink"
+                                : "text-body"
+                            }`}
+                          >
+                            {validation.isPending
+                              ? "Checking..."
+                              : poolValidation?.[row.line]?.valid
+                                ? "Ready"
+                                : poolValidation?.[row.line]?.reason ?? "Not checked"}
+                          </td>
+                        )}
                       </>
                     ) : (
-                      <td colSpan={3} className="px-3 py-2 text-error-ink">
+                      <td colSpan={poolOnly ? 4 : 3} className="px-3 py-2 text-error-ink">
                         {row.error}
                       </td>
                     )}
@@ -240,8 +324,10 @@ export default function BulkImportModal({
             {result.skipped.length > 0 && (
               <span className="badge">{formatCount(result.skipped.length)} already existed</span>
             )}
-            {broken.length > 0 && (
-              <span className="badge">{formatCount(broken.length)} invalid in file</span>
+            {broken.length + validationRejected.length > 0 && (
+              <span className="badge">
+                {formatCount(broken.length + validationRejected.length)} invalid in file
+              </span>
             )}
             {result.rejected.length > 0 && (
               <span className={`badge ${CHIP_ERROR}`}>
