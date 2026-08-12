@@ -13,34 +13,14 @@ import type {
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
 
-const SITE_PAGE_SIZE = ENGINE_PAGE_LIMIT;
-const MAX_SITE_PAGES = 1000;
+export const SITE_PAGE_SIZE = ENGINE_PAGE_LIMIT;
 
-export const listSites = async () => {
-  const sites: Site[] = [];
-  const seenIds = new Set<number>();
-
-  for (let pageNumber = 0; pageNumber < MAX_SITE_PAGES; pageNumber += 1) {
-    const page = await api
-      .get<Site[]>("/sites", { params: { limit: SITE_PAGE_SIZE, offset: sites.length } })
-      .then((response) => response.data);
-
-    if (page.length > SITE_PAGE_SIZE) {
-      throw new Error("The sites API returned more rows than the requested page size.");
-    }
-    if (page.some((site) => seenIds.has(site.id))) {
-      throw new Error("The sites API repeated a page instead of advancing its offset.");
-    }
-
-    page.forEach((site) => seenIds.add(site.id));
-    sites.push(...page);
-    if (page.length < SITE_PAGE_SIZE) return sites;
-  }
-
-  throw new Error(
-    `The sites API exceeded the ${MAX_SITE_PAGES * SITE_PAGE_SIZE}-site safety limit.`,
-  );
-};
+export const listSites = (offset = 0, search = "") =>
+  api
+    .get<Site[]>("/sites", {
+      params: { limit: SITE_PAGE_SIZE, offset, search: search.trim() || undefined },
+    })
+    .then((response) => response.data);
 
 export const createSite = (payload: SiteCreate) =>
   api.post<Site>("/sites", payload).then((r) => r.data);
@@ -48,13 +28,31 @@ export const createSite = (payload: SiteCreate) =>
 export const bulkCreateSites = (sites: SiteCreate[]) =>
   api.post<BulkImportResult>("/sites/bulk", { sites }).then((r) => r.data);
 
-export const deleteSite = (id: number) => api.delete(`/sites/${id}`);
+export const deleteSite = (id: number, confirmName: string) =>
+  api.delete(`/sites/${id}`, { params: { confirm_name: confirmName } });
 
 export const ingestSite = (id: number) =>
   api.post<JobAccepted>(`/sites/${id}/ingest`).then((r) => r.data);
 
-export const publishSite = (id: number) =>
-  api.post<JobAccepted>(`/publish/${id}`).then((r) => r.data);
+// `publishSite` used to live here, and being reachable from the Sites page is
+// what made it dangerous: one click published everything selected, with nobody
+// having seen the resulting edit. Queueing now lives in api/publish.ts next to
+// the preparation and approval it must follow.
+
+/**
+ * Attach a WordPress account to a site that already exists, or replace the one
+ * it has. Setting and replacing are the same call: WordPress stores only a hash
+ * of an application password, so the old value cannot be proven, and it is
+ * being replaced precisely because it stopped working.
+ */
+export const setWordPressCredentials = (
+  id: number,
+  credentials: { wp_username: string; wp_app_password: string },
+) => api.put<Site>(`/sites/${id}/credentials`, credentials).then((r) => r.data);
+
+/** Detach the account. The site keeps crawling; it stops being publishable. */
+export const clearWordPressCredentials = (id: number) =>
+  api.delete<Site>(`/sites/${id}/credentials`).then((r) => r.data);
 
 export const approvePoolSource = (id: number) =>
   api.post<Site>(`/sites/${id}/pool-source/approval`).then((r) => r.data);
@@ -65,10 +63,16 @@ export const revokePoolSource = (id: number) =>
 export const reactivatePoolSource = (id: number) =>
   api.post<Site>(`/sites/${id}/pool-source/reactivate`).then((r) => r.data);
 
-export const listPoolAuditEvents = (id: number) =>
+export const POOL_AUDIT_PAGE_SIZE = 50;
+
+export const listPoolAuditEvents = (
+  id: number,
+  limit = POOL_AUDIT_PAGE_SIZE,
+  offset = 0,
+) =>
   api
     .get<PoolAuditEvent[]>(`/sites/${id}/pool-source/audit-events`, {
-      params: { limit: 50, offset: 0 },
+      params: { limit, offset },
     })
     .then((r) => r.data);
 

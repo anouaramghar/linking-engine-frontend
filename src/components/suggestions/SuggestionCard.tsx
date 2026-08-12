@@ -1,19 +1,12 @@
 import { memo } from "react";
 
-import {
-  METHOD_LABEL,
-  STATUS_META,
-  TARGET_ORIGIN_LABEL,
-  isReversible,
-  pct,
-} from "../../lib/utils";
+import { STATUS_META, TARGET_ORIGIN_LABEL, isReversible, pct } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
 
 interface Props {
   suggestion: Suggestion;
   siteName: string;
   selected: boolean;
-  checked: boolean;
   /**
    * Handlers take the id rather than closing over it. A queue can hold hundreds
    * of mounted rows and the cursor moves on every `j`/`k`, so the parent has to
@@ -24,60 +17,43 @@ interface Props {
   onAccept: (id: number) => void;
   onReject: (id: number) => void;
   onUndo: (id: number) => void;
-  onCheckedChange: (id: number, checked: boolean) => void;
+  actionsDisabled?: boolean;
   showSource?: boolean;
-  /** Set on the keyboard cursor's row so the queue can scroll it into view. */
-  containerRef?: React.Ref<HTMLLIElement>;
 }
 
 function SuggestionCard({
   suggestion: s,
   siteName,
   selected,
-  checked,
   onOpen,
   onAccept,
   onReject,
   onUndo,
-  onCheckedChange,
+  actionsDisabled = false,
   showSource = true,
-  containerRef,
 }: Props) {
   const meta = STATUS_META[s.status];
 
-  const method = METHOD_LABEL[s.method] ?? s.method;
-
   return (
     <li
-      ref={containerRef}
+      data-suggestion-id={s.id}
       aria-current={selected || undefined}
-      className={`card flex animate-rowIn flex-col items-stretch gap-3 px-4 py-4 transition-shadow hover:shadow-soft lg:flex-row lg:items-center lg:gap-4 lg:px-5 ${
+      className={`card flex animate-rowIn flex-col items-stretch gap-2.5 px-3.5 py-3 transition-shadow hover:shadow-soft sm:px-4 lg:flex-row lg:items-center lg:gap-4 ${
         selected ? "border-ink" : ""
       }`}
     >
-      <div className="flex min-w-0 flex-1 items-start gap-3 lg:items-center">
-        {s.status === "pending" && (
-          <label className="touch-target flex flex-none cursor-pointer items-center justify-center rounded-md hover:bg-surface-strong">
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(event) => onCheckedChange(s.id, event.target.checked)}
-              aria-label={`Select suggestion: ${s.source_article.title} to ${s.target_article.title}`}
-              className="h-4 w-4 cursor-pointer accent-primary"
-            />
-          </label>
-        )}
-        <span aria-hidden="true" className={`dot mt-2 lg:mt-0 ${meta.dot}`} />
+      <div className="flex min-w-0 flex-1 items-start gap-2.5 lg:items-center">
+        <span aria-hidden="true" className={`dot mt-1.5 flex-none lg:mt-0 ${meta.dot}`} />
         {/* A real button so the preview is reachable by keyboard, with the row
             actions kept outside it rather than nested inside a control. */}
         <button
           type="button"
           onClick={() => onOpen(s.id)}
           aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}`}
-          className="flex min-w-0 flex-1 flex-col items-stretch gap-3 text-left sm:flex-row sm:items-center sm:gap-4"
+          className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
         >
           <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-baseline gap-2 text-body-sm">
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-body-sm">
               {showSource ? (
                 <>
                   <span className="font-medium text-ink">{s.source_article.title}</span>
@@ -92,25 +68,14 @@ function SuggestionCard({
                 {s.target_article.title}
               </span>
               <span className="badge">{TARGET_ORIGIN_LABEL[s.target_origin]}</span>
-            </span>
-            <span className="mt-2 flex flex-wrap items-center gap-3">
-              {s.anchor_text && (
-                <span className="rounded-pill bg-surface-strong px-3 py-0.5 text-caption text-ink">
-                  &ldquo;{s.anchor_text}&rdquo;
-                </span>
-              )}
-              <span className="text-caption text-muted">{siteName}</span>
               {s.target_origin !== "internal" && (
                 <span className="text-caption text-muted">{s.target_site_name}</span>
               )}
-              <span className="rounded-pill border border-hairline px-2.5 py-1 text-caption-upper uppercase text-muted">
-                {method}
-              </span>
             </span>
           </span>
-          <span className="w-full flex-none text-left sm:w-[104px] sm:text-right">
+          <span className="flex w-[72px] flex-none flex-col items-end text-right sm:w-[104px]">
             <span className="block text-body-md font-medium text-ink">{pct(s.score)}</span>
-            <span className="mb-1 mt-2 block h-[3px] overflow-hidden rounded-pill bg-hairline">
+            <span className="mb-1 mt-1 block h-[3px] w-full overflow-hidden rounded-pill bg-hairline">
               <span
                 className="block h-full rounded-pill bg-primary"
                 style={{ width: pct(s.score) }}
@@ -120,25 +85,31 @@ function SuggestionCard({
           </span>
         </button>
       </div>
-      {/* Fixed to the widest reversible state so the status badge and Undo
-          stay inside their column instead of spilling over the score. */}
-      <div className="flex w-full flex-none flex-wrap items-center justify-end gap-2 lg:w-[272px]">
+      {/* Keep the decision column stable so row content never shifts when a
+          status badge or Undo action replaces Select and Reject. */}
+      <div className="flex w-full flex-none flex-wrap items-center justify-end gap-2 lg:w-[220px]">
         {s.status === "pending" ? (
           <>
             <button
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 onAccept(s.id);
               }}
+              aria-label={`Select suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+              disabled={actionsDisabled}
               className="btn btn-primary btn-sm"
             >
-              Accept
+              Select
             </button>
             <button
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 onReject(s.id);
               }}
+              aria-label={`Reject suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+              disabled={actionsDisabled}
               className="btn btn-outline btn-sm"
             >
               Reject
@@ -154,6 +125,8 @@ function SuggestionCard({
                   event.stopPropagation();
                   onUndo(s.id);
                 }}
+                aria-label={`Undo decision for suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+                disabled={actionsDisabled}
                 className="btn btn-outline btn-sm"
               >
                 Undo

@@ -4,6 +4,7 @@ import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
+import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
@@ -18,6 +19,7 @@ import {
   useSites,
 } from "../hooks/useSites";
 import { useActiveJobs } from "../hooks/useJobs";
+import { useIncrementalList } from "../hooks/useIncrementalList";
 import { errorDetail } from "../lib/errors";
 import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
@@ -54,16 +56,29 @@ export default function ContentPoolPage() {
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
   const [crawlJobs, setCrawlJobs] = useState<Record<number, string>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const activeJobs = useActiveJobs().data ?? [];
+  const activeJobsQuery = useActiveJobs();
+  const activeJobs = activeJobsQuery.data ?? [];
+  const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const mutationPending =
+    approve.isPending || revoke.isPending || reactivate.isPending || remove.isPending;
 
-  const visible = useMemo(() => {
+  const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return poolSources.filter(
       (site) =>
         (filter === "all" || status(site) === filter) &&
-        (!query || [site.name, site.base_url].some((value) => value.toLowerCase().includes(query))),
+        (!query ||
+          [site.name, site.base_url, "content pool"].some((value) =>
+            value.toLowerCase().includes(query),
+          )),
     );
   }, [filter, poolSources, search]);
+  const { visible, hasMore, showMore } = useIncrementalList(
+    filtered,
+    JSON.stringify([filter, search]),
+    50,
+    250,
+  );
 
   const runAction = async (label: string, action: () => Promise<unknown>) => {
     setNotice(null);
@@ -76,12 +91,18 @@ export default function ContentPoolPage() {
   };
 
   const crawl = async (site: Site) => {
-    if (crawlingId !== null) return;
+    const activeJob = activeJobs.find(
+      (job) => job.site_id === site.id && job.kind === "ingestion",
+    );
+    if (crawlingId !== null || activeJob || jobStatusUnavailable) return;
     setCrawlingId(site.id);
     setNotice(null);
     try {
       const job = await ingestSite(site.id);
       setCrawlJobs((current) => ({ ...current, [site.id]: job.job_id }));
+      // Hold the pending state until the job list has caught up, so the button
+      // is guarded by the running job itself rather than by a wall-clock timer.
+      await activeJobsQuery.refetch();
       setNotice({ message: `${site.name} crawl queued.`, tone: "info" });
     } catch (error) {
       setNotice({
@@ -93,10 +114,23 @@ export default function ContentPoolPage() {
   };
 
   const confirmDelete = () => {
-    if (!deleteSite) return;
+    if (!deleteSite || remove.isPending) return;
     const target = deleteSite;
-    setDeleteSite(null);
-    void runAction("Source deletion", () => remove.mutateAsync(target.id));
+    setNotice(null);
+    remove.mutate(
+      { id: target.id, confirmName: target.name },
+      {
+        onSuccess: () => {
+          setDeleteSite(null);
+          setNotice({ message: `${target.name} deleted.`, tone: "info" });
+        },
+        onError: (error) =>
+          setNotice({
+            message: errorDetail(error, `${target.name} could not be deleted.`),
+            tone: "error",
+          }),
+      },
+    );
   };
 
   return (
@@ -104,12 +138,14 @@ export default function ContentPoolPage() {
       <PageHeader
         title="Content Pool"
         sub={`${poolSources.length} external ${poolSources.length === 1 ? "source" : "sources"} available as read-only suggestion targets`}
+        actions={
+          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            + Connect pool source
+          </button>
+        }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            + Connect pool source
-          </button>
           <label className="min-w-48 flex-1 sm:max-w-sm">
             <span className="sr-only">Search pool sources</span>
             <input
@@ -136,6 +172,23 @@ export default function ContentPoolPage() {
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+        {activeJobsQuery.isError && (
+          <div
+            role="alert"
+            className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+          >
+            <span className="min-w-0 flex-1">
+              Live job status is unavailable. Refresh it before starting another crawl.
+            </span>
+            <button
+              type="button"
+              onClick={() => void activeJobsQuery.refetch()}
+              className="btn btn-outline btn-sm border-error/40 bg-surface-card text-error-ink hover:border-error"
+            >
+              Refresh job status
+            </button>
+          </div>
+        )}
         <div className="mb-4 rounded-lg border border-hairline bg-canvas-soft p-4 text-caption leading-relaxed text-muted">
           Pool sources are external, read-only references. Approve a trusted source before crawling
           it; repeated failures quarantine it automatically until an operator reactivates it.
@@ -153,7 +206,7 @@ export default function ContentPoolPage() {
         {!sitesQuery.isPending && !sitesQuery.isError && poolSources.length === 0 && (
           <EmptyPanel>Connect the first trusted RSS, Atom, or Wikipedia source.</EmptyPanel>
         )}
-        {!sitesQuery.isPending && poolSources.length > 0 && visible.length === 0 && (
+        {!sitesQuery.isPending && poolSources.length > 0 && filtered.length === 0 && (
           <EmptyPanel>No content-pool source matches these filters.</EmptyPanel>
         )}
 
@@ -169,7 +222,12 @@ export default function ContentPoolPage() {
               <div className="flex flex-wrap items-start gap-4">
                 <div className="min-w-56 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-body-md font-medium text-ink">{site.name}</h2>
+                    <h2
+                      id={`pool-source-${site.id}`}
+                      className="text-body-md font-medium text-ink"
+                    >
+                      {site.name}
+                    </h2>
                     <span className="badge">
                       <span
                         className={`dot ${
@@ -203,35 +261,101 @@ export default function ContentPoolPage() {
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-3 gap-4 text-caption text-muted">
-                  <div><span className="block text-ink">{formatCount(site.article_count ?? 0)}</span>Articles</div>
-                  <div><span className="block text-ink">{site.pool_source_consecutive_failures ?? 0}</span>Failures</div>
-                  <div title={site.last_crawl_at ?? undefined}><span className="block text-ink">{site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Never"}</span>Last crawl</div>
-                </div>
+                <dl className="grid grid-cols-3 gap-4 text-caption text-muted">
+                  <div>
+                    <dt className="sr-only">Articles</dt>
+                    <dd className="block text-ink">{formatCount(site.article_count ?? 0)}</dd>
+                    <span aria-hidden="true">Articles</span>
+                  </div>
+                  <div>
+                    <dt className="sr-only">Failures</dt>
+                    <dd className="block text-ink">
+                      {site.pool_source_consecutive_failures ?? 0}
+                    </dd>
+                    <span aria-hidden="true">Failures</span>
+                  </div>
+                  <div title={site.last_crawl_at ?? undefined}>
+                    <dt className="sr-only">Last crawl</dt>
+                    <dd className="block text-ink">
+                      {site.last_crawl_at ? (
+                        <time dateTime={site.last_crawl_at}>{timeAgo(site.last_crawl_at)}</time>
+                      ) : (
+                        "Never"
+                      )}
+                    </dd>
+                    <span aria-hidden="true">Last crawl</span>
+                  </div>
+                </dl>
                 <div className="flex flex-wrap gap-2">
                   {site.pool_source_approved && !site.pool_source_quarantined && (
                     <button
+                      type="button"
+                      aria-label={`Crawl ${site.name}`}
                       className="btn btn-outline btn-sm"
-                      disabled={crawlingId === site.id}
+                      disabled={
+                        crawlingId === site.id ||
+                        Boolean(activeJob) ||
+                        jobStatusUnavailable
+                      }
                       onClick={() => void crawl(site)}
                     >
-                      {crawlingId === site.id ? "Queueing…" : "Crawl"}
+                      {crawlingId === site.id && (
+                        <LogoLoadingAnimation size="xs" className="text-primary flex-none" />
+                      )}
+                      {crawlingId === site.id
+                        ? "Queueing…"
+                        : activeJob
+                          ? "Crawl active"
+                          : "Crawl"}
                     </button>
                   )}
                   <ActionMenu
                     label="Actions"
+                    ariaLabel={`Actions for ${site.name}`}
                     items={[
                       ...(!site.pool_source_approved
-                        ? [{ label: "Approve", onSelect: () => void runAction("Approval", () => approve.mutateAsync(site.id)) }]
+                        ? [
+                            {
+                              label: "Approve",
+                              disabled: mutationPending,
+                              onSelect: () =>
+                                void runAction(`${site.name} approval`, () =>
+                                  approve.mutateAsync(site.id),
+                                ),
+                            },
+                          ]
                         : []),
                       ...(site.pool_source_quarantined
-                        ? [{ label: "Reactivate", onSelect: () => void runAction("Reactivation", () => reactivate.mutateAsync(site.id)) }]
+                        ? [
+                            {
+                              label: "Reactivate",
+                              disabled: mutationPending,
+                              onSelect: () =>
+                                void runAction(`${site.name} reactivation`, () =>
+                                  reactivate.mutateAsync(site.id),
+                                ),
+                            },
+                          ]
                         : []),
                       ...(site.pool_source_approved
-                        ? [{ label: "Revoke approval", onSelect: () => void runAction("Approval revocation", () => revoke.mutateAsync(site.id)) }]
+                        ? [
+                            {
+                              label: "Revoke approval",
+                              disabled: mutationPending,
+                              onSelect: () =>
+                                void runAction(`${site.name} approval revocation`, () =>
+                                  revoke.mutateAsync(site.id),
+                                ),
+                            },
+                          ]
                         : []),
                       { label: "View history", onSelect: () => setAuditSite(site) },
-                      { label: "Delete source", danger: true, onSelect: () => setDeleteSite(site) },
+                      {
+                        label: "Delete source",
+                        danger: true,
+                        disabled: mutationPending,
+                        onSelect: () => setDeleteSite(site),
+                      },
                     ]}
                   />
                 </div>
@@ -241,6 +365,16 @@ export default function ContentPoolPage() {
             </article>
           ))}
         </div>
+        {hasMore && (
+          <div className="flex flex-col items-center gap-2 py-4">
+            <button type="button" onClick={showMore} className="btn btn-outline">
+              Show more sources
+            </button>
+            <span className="text-caption text-muted" aria-live="polite">
+              Showing {visible.length} of {filtered.length}
+            </span>
+          </div>
+        )}
       </div>
 
       {showAdd && (
@@ -257,6 +391,8 @@ export default function ContentPoolPage() {
           title={`Delete ${deleteSite.name}?`}
           description="This removes the source and its imported articles. Its immutable audit history is retained."
           confirmLabel="Delete source"
+          confirmPhrase={deleteSite.name}
+          confirmPhraseLabel="Type the source name to confirm:"
           danger
           pending={remove.isPending}
           onConfirm={confirmDelete}

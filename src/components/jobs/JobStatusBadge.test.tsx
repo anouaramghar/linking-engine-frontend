@@ -25,7 +25,7 @@ describe("JobStatusBadge", () => {
     );
 
     expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
-    expect(container.querySelectorAll(".job-activity-dot")).toHaveLength(3);
+    expect(container.querySelectorAll(".logo-loading-anim")).toHaveLength(1);
     expect(container.querySelectorAll(".dot")).toHaveLength(0);
   });
 
@@ -40,7 +40,7 @@ describe("JobStatusBadge", () => {
 
     expect(screen.getByRole("status", { name: "Analysis failed" })).not.toBeNull();
     expect(container.querySelector(".dot.bg-error")).not.toBeNull();
-    expect(container.querySelectorAll(".job-activity-dot")).toHaveLength(0);
+    expect(container.querySelectorAll(".logo-loading-anim")).toHaveLength(0);
   });
 
   it("keeps legacy RQ states understandable during a rolling deploy", () => {

@@ -29,6 +29,7 @@ export const usePipelineBatch = (batchId: number | null) => {
       if (isTerminalBatchStatus(batch.status)) {
         void queryClient.invalidateQueries({ queryKey: ["sites"] });
         void queryClient.invalidateQueries({ queryKey: ["suggestions"] });
+        void queryClient.invalidateQueries({ queryKey: ["jobs", "active"] });
       }
       return batch;
     },
@@ -56,16 +57,31 @@ export const usePipelineBatch = (batchId: number | null) => {
   return query;
 };
 
-export const useCreatePipelineBatch = () =>
-  useMutation({ mutationFn: createPipelineBatch });
+export const useCreatePipelineBatch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createPipelineBatch,
+    // Returned, not fired and forgotten: `mutateAsync` waits on this, so the
+    // caller's pending state covers the window where the batch exists but the
+    // job list has not caught up and would still report the sites as idle.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["jobs", "active"] }),
+        queryClient.invalidateQueries({ queryKey: ["sites"] }),
+      ]),
+  });
+};
 
 export const useRetryPipelineSite = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ batchId, siteId }: { batchId: number; siteId: number }) =>
       retryPipelineSite(batchId, siteId),
-    onSuccess: (batch) =>
-      queryClient.setQueryData(["pipeline-batch", batch.id], batch),
+    onSuccess: (batch) => {
+      queryClient.setQueryData(["pipeline-batch", batch.id], batch);
+      void queryClient.invalidateQueries({ queryKey: ["jobs", "active"] });
+      void queryClient.invalidateQueries({ queryKey: ["sites"] });
+    },
   });
 };
 

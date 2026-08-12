@@ -1,21 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-import { ingestSite, publishSite } from "../api/sites";
+import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
+import { ingestSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
+import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import SelectionControl from "../components/SelectionControl";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
-import ExternalLinkPolicyModal from "../components/sites/ExternalLinkPolicyModal";
 import EditorialRankingPolicyModal from "../components/sites/EditorialRankingPolicyModal";
+import ExternalLinkPolicyModal from "../components/sites/ExternalLinkPolicyModal";
+import SiteCredentialsModal from "../components/sites/SiteCredentialsModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
+import { useIncrementalList } from "../hooks/useIncrementalList";
 import {
   useCancelPipelineBatch,
   useCreatePipelineBatch,
@@ -23,12 +29,14 @@ import {
   useRetryPipelineSite,
 } from "../hooks/usePipeline";
 import { useDeleteSite, useSites } from "../hooks/useSites";
+
 import { errorDetail } from "../lib/errors";
 import {
   RQ_SCHEDULING_COPY,
   formatCount,
   initials,
   orbPlateClass,
+  sitePlatformLabel,
   timeAgo,
 } from "../lib/utils";
 import type { JobKind, JobRun } from "../types/job";
@@ -51,15 +59,24 @@ function SiteDetail({
   label,
   value,
   title,
+  dateTime,
 }: {
   label?: string;
   value: string;
   title?: string;
+  dateTime?: string | null;
 }) {
   return (
-    <span className="text-caption text-muted" title={title}>
+    <span
+      role={label ? "group" : undefined}
+      className="text-caption text-muted"
+      title={title}
+      aria-label={label ? `${label}: ${value}` : undefined}
+    >
       {label && <span className="xl:hidden">{label}: </span>}
-      <span className="font-medium text-ink">{value}</span>
+      <span className="font-medium text-ink">
+        {dateTime ? <time dateTime={dateTime}>{value}</time> : value}
+      </span>
     </span>
   );
 }
@@ -130,8 +147,28 @@ function SuggestionMethodBadge() {
   );
 }
 
+function SiteIdentity({ site, index }: { site: Site; index: number }) {
+  return (
+    <>
+      <span
+        className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
+      >
+        {initials(site.name)}
+      </span>
+      <div className="min-w-0">
+        <div className="truncate font-medium text-ink">{site.name}</div>
+        <div className="truncate text-caption text-muted">
+          {site.base_url.replace(/^https?:\/\//, "")}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function SitesPage() {
-  const sitesQuery = useSites();
+  const navigate = useNavigate();
+  const [search, setSearch] = useState("");
+  const sitesQuery = useSites(search);
   const sites = useMemo(
     () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
     [sitesQuery.data],
@@ -140,7 +177,11 @@ export default function SitesPage() {
     sites?.every((site) => site.article_count !== undefined)
       ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
       : null;
-  const activeJobs = useActiveJobs().data ?? [];
+  const activeJobsQuery = useActiveJobs();
+  const activeJobs = activeJobsQuery.data ?? [];
+  const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const hasActiveJob = (siteId: number, kind: JobKind) =>
+    activeJobs.some((job) => job.site_id === siteId && job.kind === kind);
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -148,10 +189,13 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [policySite, setPolicySite] = useState<Site | null>(null);
   const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
-  const [search, setSearch] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
+  const selectVisibleRef = useRef<HTMLInputElement>(null);
+  const selectVisibleMobileRef = useRef<HTMLInputElement>(null);
   const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
   const [confirmCancelBatch, setConfirmCancelBatch] = useState(false);
   const createBatch = useCreatePipelineBatch();
@@ -164,15 +208,49 @@ export default function SitesPage() {
     window.addEventListener("popstate", syncBatchFromUrl);
     return () => window.removeEventListener("popstate", syncBatchFromUrl);
   }, []);
-  const visibleSites = useMemo(() => {
+  const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
     return sites?.filter((site) =>
-      [site.name, site.base_url, site.platform].some((value) => value.toLowerCase().includes(query)),
+      [site.name, site.base_url, site.platform, sitePlatformLabel(site.platform)].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
     );
   }, [search, sites]);
+  const {
+    visible: visibleSites,
+    hasMore: hasMoreLoadedSites,
+    showMore: showMoreLoadedSites,
+  } = useIncrementalList(filteredSites ?? [], search, 50, 250);
+  const hasMoreSites = hasMoreLoadedSites || Boolean(sitesQuery.hasNextPage);
+  const showMoreSites = () => {
+    if (hasMoreLoadedSites) showMoreLoadedSites();
+    else void sitesQuery.fetchNextPage();
+  };
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
+  const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
+  const selectedVisibleCount = visibleSiteIds.filter((id) => selectedSiteIds.has(id)).length;
+  const allVisibleSelected =
+    visibleSiteIds.length > 0 && selectedVisibleCount === visibleSiteIds.length;
+  const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+  const selectedOutsideSearchCount = selectedSiteIds.size - selectedVisibleCount;
+  const batchLimitReached = selectedSiteIds.size >= MAX_PIPELINE_BATCH_SITES;
+  const selectedActiveCount = [...selectedSiteIds].filter((id) =>
+    hasActiveJob(id, "ingestion") ||
+    hasActiveJob(id, "analysis") ||
+    busy[busyKey(id, "Crawl")] ||
+    busy[busyKey(id, "Generate suggestions")],
+  ).length;
+  const batchBlocked =
+    jobStatusUnavailable || selectedActiveCount > 0 || selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES;
+
+  useEffect(() => {
+    if (selectVisibleRef.current) selectVisibleRef.current.indeterminate = someVisibleSelected;
+    if (selectVisibleMobileRef.current) {
+      selectVisibleMobileRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
 
   const toggleSelectedSite = (siteId: number) => {
     setSelectedSiteIds((current) => {
@@ -183,6 +261,29 @@ export default function SitesPage() {
     });
   };
 
+  const toggleAllVisible = () => {
+    setSelectedSiteIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected || (batchLimitReached && someVisibleSelected)) {
+        visibleSiteIds.forEach((id) => next.delete(id));
+      }
+      else {
+        let slots = MAX_PIPELINE_BATCH_SITES - next.size;
+        visibleSiteIds.forEach((id) => {
+          if (next.has(id) || slots <= 0) return;
+          next.add(id);
+          slots -= 1;
+        });
+      }
+      return next;
+    });
+  };
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedSiteIds(new Set());
+  };
+
   const showBatch = (nextBatchId: number) => {
     const url = new URL(window.location.href);
     url.searchParams.set("batch", String(nextBatchId));
@@ -191,11 +292,21 @@ export default function SitesPage() {
   };
 
   const launchBatch = async () => {
-    if (selectedSiteIds.size === 0 || createBatch.isPending) return;
+    if (
+      selectedSiteIds.size === 0 ||
+      selectedSiteIds.size > MAX_PIPELINE_BATCH_SITES ||
+      jobStatusUnavailable ||
+      selectedActiveCount > 0 ||
+      createBatch.isPending
+    ) {
+      return;
+    }
+    const batchSiteIds = [...selectedSiteIds];
     setNotice(null);
     try {
-      const batch = await createBatch.mutateAsync([...selectedSiteIds]);
+      const batch = await createBatch.mutateAsync(batchSiteIds);
       showBatch(batch.id);
+      setSelectionMode(false);
       setSelectedSiteIds(new Set());
       setNotice({ message: `Batch #${batch.id} started for ${batch.total} sites.`, tone: "info" });
     } catch (error) {
@@ -220,21 +331,6 @@ export default function SitesPage() {
     }
   };
 
-  const cancelActiveBatch = async () => {
-    if (batchId === null || cancelBatch.isPending) return;
-    setNotice(null);
-    try {
-      await cancelBatch.mutateAsync(batchId);
-      setConfirmCancelBatch(false);
-      setNotice({ message: `Batch #${batchId} cancelled safely.`, tone: "info" });
-    } catch (error) {
-      setNotice({
-        message: errorDetail(error, "The batch could not be cancelled."),
-        tone: "error",
-      });
-    }
-  };
-
   const run = async (
     siteId: number,
     label: string,
@@ -243,7 +339,7 @@ export default function SitesPage() {
     queuedMessage?: string,
   ) => {
     const key = busyKey(siteId, label);
-    if (busy[key]) return;
+    if (busy[key] || jobStatusUnavailable || hasActiveJob(siteId, kind)) return;
     setBusy((current) => ({ ...current, [key]: true }));
     setNotice(null);
     try {
@@ -253,6 +349,10 @@ export default function SitesPage() {
         ...current.filter((job) => !(job.siteId === siteId && job.label === label)),
         { siteId, label, kind, jobId: job_id },
       ]);
+      // Stay busy until the job list has caught up, so `hasActiveJob` — not a
+      // wall-clock guess — is what takes over guarding the button. A job that
+      // has already finished by then is legitimately runnable again.
+      await activeJobsQuery.refetch();
       setNotice({ message: queuedMessage ?? `${label} job queued.`, tone: "info" });
     } catch (error) {
       setNotice({
@@ -269,14 +369,40 @@ export default function SitesPage() {
     const { id, name } = pendingDelete;
     setPendingDelete(null);
     setNotice(null);
-    deleteSite.mutate(id, {
-      onSuccess: () => setNotice({ message: `${name} was deleted.`, tone: "info" }),
-      onError: (error) =>
-        setNotice({
-          message: errorDetail(error, `${name} could not be deleted. Please try again.`),
-          tone: "error",
-        }),
-    });
+    deleteSite.mutate(
+      { id, confirmName: name },
+      {
+        onSuccess: () => {
+          setSelectedSiteIds((current) => {
+            if (!current.has(id)) return current;
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          });
+          setNotice({ message: `${name} was deleted.`, tone: "info" });
+        },
+        onError: (error) =>
+          setNotice({
+            message: errorDetail(error, `${name} could not be deleted. Please try again.`),
+            tone: "error",
+          }),
+      },
+    );
+  };
+
+  const cancelActiveBatch = async () => {
+    if (batchId === null || cancelBatch.isPending) return;
+    setNotice(null);
+    try {
+      await cancelBatch.mutateAsync(batchId);
+      setConfirmCancelBatch(false);
+      setNotice({ message: `Batch #${batchId} cancelled safely.`, tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The batch could not be cancelled."),
+        tone: "error",
+      });
+    }
   };
 
   return (
@@ -286,27 +412,29 @@ export default function SitesPage() {
         sub={`${sites?.length ?? 0} connected ${
           (sites?.length ?? 0) === 1 ? "source" : "sources"
         } · ${
-          totalArticles === null ? "Soon" : formatCount(totalArticles)
+          totalArticles === null ? "Article count unavailable" : formatCount(totalArticles)
         } active articles normalized via ContentConnector`}
+        actions={
+          <>
+            <button type="button" onClick={() => setShowImport(true)} className="btn btn-primary">
+              Import CSV
+            </button>
+            <button type="button" onClick={() => setShowAdd(true)} className="btn btn-outline">
+              + Connect source
+            </button>
+            <button
+              type="button"
+              onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
+              aria-pressed={selectionMode}
+              className="btn btn-outline"
+            >
+              {selectionMode ? "Cancel selection" : "Select sites"}
+            </button>
+          </>
+        }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button onClick={() => setShowImport(true)} className="btn btn-primary">
-            Import CSV
-          </button>
-          <button onClick={() => setShowAdd(true)} className="btn btn-outline">
-            + Connect source
-          </button>
-          <button
-            type="button"
-            onClick={() => void launchBatch()}
-            disabled={selectedSiteIds.size === 0 || createBatch.isPending}
-            className="btn btn-outline"
-          >
-            {createBatch.isPending
-              ? "Starting batch…"
-              : `Run batch${selectedSiteIds.size ? ` (${selectedSiteIds.size})` : ""}`}
-          </button>
           <label className="min-w-52 flex-1 sm:max-w-sm">
             <span className="sr-only">Search sources</span>
             <input
@@ -323,6 +451,46 @@ export default function SitesPage() {
             </span>
           )}
         </div>
+
+        {selectionMode && (
+          <div className="card mb-4 flex items-center justify-between gap-3 px-3 py-2.5 lg:hidden">
+            <label className="flex min-h-11 cursor-pointer items-center gap-3">
+              <SelectionControl
+                inputRef={selectVisibleMobileRef}
+                label="Select all visible sites"
+                checked={allVisibleSelected}
+                indeterminate={someVisibleSelected}
+                disabled={
+                  visibleSiteIds.length === 0 ||
+                  (batchLimitReached && selectedVisibleCount === 0)
+                }
+                onChange={toggleAllVisible}
+              />
+              <span className="text-caption font-medium text-ink">Select visible sites</span>
+            </label>
+            <span className="text-caption text-muted">
+              {visibleSiteIds.length} visible
+            </span>
+          </div>
+        )}
+
+        {activeJobsQuery.isError && (
+          <div
+            role="alert"
+            className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+          >
+            <span className="min-w-0 flex-1">
+              Live job status is unavailable. Refresh it before starting another crawl or analysis.
+            </span>
+            <button
+              type="button"
+              onClick={() => void activeJobsQuery.refetch()}
+              className="btn btn-outline btn-sm border-error/40 bg-surface-card text-error-ink hover:border-error"
+            >
+              Refresh job status
+            </button>
+          </div>
+        )}
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
@@ -351,7 +519,24 @@ export default function SitesPage() {
         )}
 
         <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
-          <div>Site</div>
+          <div className="flex items-center gap-3">
+            {selectionMode && (
+              <label className="touch-target inline-flex cursor-pointer items-center justify-center">
+                <SelectionControl
+                  inputRef={selectVisibleRef}
+                  label="Select all visible sites"
+                  checked={allVisibleSelected}
+                  indeterminate={someVisibleSelected}
+                  disabled={
+                    visibleSiteIds.length === 0 ||
+                    (batchLimitReached && selectedVisibleCount === 0)
+                  }
+                  onChange={toggleAllVisible}
+                />
+              </label>
+            )}
+            <span>Site</span>
+          </div>
           <div>Connector</div>
           <div className="xl:hidden">Details</div>
           <div className="hidden xl:block">Articles</div>
@@ -383,83 +568,81 @@ export default function SitesPage() {
           {visibleSites?.map((site, index) => (
             <div
               key={site.id}
-              className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5`}
+              className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5 ${
+                selectedSiteIds.has(site.id) ? "border-ink bg-surface-strong" : ""
+              }`}
             >
-              <div className="flex items-center gap-3">
-                {site.platform !== "pool" && (
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 flex-none accent-primary"
-                    aria-label={`Select ${site.name} for batch`}
-                    checked={selectedSiteIds.has(site.id)}
-                    onChange={() => toggleSelectedSite(site.id)}
-                  />
+              <div
+                role="group"
+                aria-label={`Site ${site.name}`}
+                className="flex min-w-0 items-center gap-3"
+              >
+                {selectionMode ? (
+                  <label className="touch-target flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                    <SelectionControl
+                      label={`Select ${site.name} for batch`}
+                      checked={selectedSiteIds.has(site.id)}
+                      disabled={!selectedSiteIds.has(site.id) && batchLimitReached}
+                      onChange={() => toggleSelectedSite(site.id)}
+                    />
+                    <SiteIdentity site={site} index={index} />
+                  </label>
+                ) : (
+                  <SiteIdentity site={site} index={index} />
                 )}
-                {/* {component.voice-icon-circular}, wearing one of the five
-                    atmospheric stops — the row's only colour. */}
-                <span
-                  className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
-                >
-                  {initials(site.name)}
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-ink">{site.name}</div>
-                  <div className="truncate text-caption text-muted">
-                    {site.base_url.replace(/^https?:\/\//, "")}
-                  </div>
-                </div>
               </div>
               <div className="text-caption text-muted lg:text-body">
                 <span className="lg:hidden">Connector: </span>
                 <span className="font-medium text-ink lg:font-normal lg:text-body">
-                  {site.platform === "wordpress"
-                    ? "WP REST API"
-                    : site.platform === "pool"
-                      ? "Content pool"
-                      : "Sitemap crawl"}
+                  {sitePlatformLabel(site.platform)}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5 xl:hidden">
                 <SiteDetail
                   label="Articles"
                   value={
-                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                    site.article_count === undefined ? "Not available" : formatCount(site.article_count)
                   }
                 />
                 <SiteDetail
                   label="Int. links"
                   value={
                     site.internal_link_count === undefined
-                      ? "Soon"
+                      ? "Not available"
                       : formatCount(site.internal_link_count)
                   }
                 />
                 <SiteDetail
                   label="Last crawl"
-                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
+                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Never"}
                   title={site.last_crawl_at ?? undefined}
+                  dateTime={site.last_crawl_at}
                 />
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
+                  label="Articles"
                   value={
-                    site.article_count === undefined ? "Soon" : formatCount(site.article_count)
+                    site.article_count === undefined ? "Not available" : formatCount(site.article_count)
                   }
                 />
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
+                  label="Int. links"
                   value={
                     site.internal_link_count === undefined
-                      ? "Soon"
+                      ? "Not available"
                       : formatCount(site.internal_link_count)
                   }
                 />
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
-                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Soon"}
+                  label="Last crawl"
+                  value={site.last_crawl_at ? timeAgo(site.last_crawl_at) : "Never"}
                   title={site.last_crawl_at ?? undefined}
+                  dateTime={site.last_crawl_at}
                 />
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -474,13 +657,26 @@ export default function SitesPage() {
                 <button
                   type="button"
                   onClick={() => void run(site.id, "Crawl", "ingestion", ingestSite)}
-                  disabled={busy[busyKey(site.id, "Crawl")]}
+                  aria-label={`Crawl ${site.name}`}
+                  disabled={
+                    busy[busyKey(site.id, "Crawl")] ||
+                    jobStatusUnavailable ||
+                    hasActiveJob(site.id, "ingestion")
+                  }
                   className="btn btn-outline btn-sm"
                 >
-                  {busy[busyKey(site.id, "Crawl")] ? "Queueing…" : "Crawl"}
+                  {busy[busyKey(site.id, "Crawl")] && (
+                    <LogoLoadingAnimation size="xs" className="text-primary flex-none" />
+                  )}
+                  {busy[busyKey(site.id, "Crawl")]
+                    ? "Queueing…"
+                    : hasActiveJob(site.id, "ingestion")
+                      ? "Crawl active"
+                      : "Crawl"}
                 </button>
                 <ActionMenu
                   label="Actions"
+                  ariaLabel={`Actions for ${site.name}`}
                   items={[
                     ...(site.platform === "pool"
                       ? []
@@ -493,9 +689,8 @@ export default function SitesPage() {
                             disabled:
                               site.suggestion_slots_available === 0 ||
                               busy[busyKey(site.id, "Generate suggestions")] ||
-                              activeJobs.some(
-                                (job) => job.site_id === site.id && job.kind === "analysis",
-                              ),
+                              jobStatusUnavailable ||
+                              hasActiveJob(site.id, "analysis"),
                             onSelect: () =>
                               void run(
                                 site.id,
@@ -514,15 +709,25 @@ export default function SitesPage() {
                             onSelect: () => setRankingPolicySite(site),
                           },
                           {
-                            label: "Publish approved",
-                            disabled: busy[busyKey(site.id, "Publish approved")],
+                            // Was "Publish approved", and it published every
+                            // selected suggestion for the site with nobody
+                            // having seen the resulting edit. Publication is now
+                            // reachable only through the review that shows the
+                            // exact HTML and takes an explicit approval.
+                            label: "Review publication changes",
+                            disabled: false,
                             onSelect: () =>
-                              void run(
-                                site.id,
-                                "Publish approved",
-                                "publication",
-                                publishSite,
-                              ),
+                              navigate(`/queue?site=${site.id}&status=approved`),
+                          },
+                          {
+                            // The label carries the state, so the menu says
+                            // whether this site can publish at all without the
+                            // row needing another badge.
+                            label: site.has_wordpress_credentials
+                              ? "Replace WordPress account"
+                              : "Add WordPress account",
+                            disabled: false,
+                            onSelect: () => setCredentialsFor(site),
                           },
                         ]),
                     {
@@ -538,6 +743,22 @@ export default function SitesPage() {
           ))}
         </div>
 
+        {hasMoreSites && (
+          <div className="flex flex-col items-center gap-2 py-4">
+            <button
+              type="button"
+              onClick={showMoreSites}
+              disabled={sitesQuery.isFetchingNextPage}
+              className="btn btn-outline"
+            >
+              {sitesQuery.isFetchingNextPage ? "Loading…" : "Show more sources"}
+            </button>
+            <span className="text-caption text-muted" aria-live="polite">
+              Showing {visibleSites.length} of {filteredSites?.length ?? 0}
+            </span>
+          </div>
+        )}
+
         {!sitesQuery.isPending &&
           !sitesQuery.isError &&
           sites?.length !== 0 &&
@@ -552,9 +773,56 @@ export default function SitesPage() {
           </span>{" "}
           object before suggestion analysis. {RQ_SCHEDULING_COPY}
         </div>
+
+        {selectionMode && selectedSiteIds.size > 0 && (
+          <div
+            role="region"
+            aria-label="Batch selection"
+            className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-body-sm font-medium text-ink" aria-live="polite">
+                {selectedSiteIds.size} site{selectedSiteIds.size === 1 ? "" : "s"} selected
+              </div>
+              <div className="mt-1 text-caption text-muted">
+                {activeJobsQuery.isError
+                  ? "Live job status is unavailable. Refresh before starting a batch."
+                  : selectedActiveCount > 0
+                    ? `${selectedActiveCount} selected site${selectedActiveCount === 1 ? " is" : "s are"} already busy.`
+                    : batchLimitReached
+                      ? `Batch limit reached: ${MAX_PIPELINE_BATCH_SITES} sites maximum.`
+                      : selectedOutsideSearchCount > 0
+                  ? `${selectedOutsideSearchCount} selected outside this search.`
+                  : "Ready to run together."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedSiteIds(new Set())}
+              className="btn btn-outline btn-sm"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => void launchBatch()}
+              disabled={createBatch.isPending || batchBlocked}
+              className="btn btn-primary btn-sm sm:min-w-[10rem]"
+            >
+              {createBatch.isPending ? "Starting batch…" : `Run batch (${selectedSiteIds.size})`}
+            </button>
+          </div>
+        )}
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+      {credentialsFor && (
+        <SiteCredentialsModal
+          site={credentialsFor}
+          onClose={() => setCredentialsFor(null)}
+          onDone={(message) => setNotice({ message, tone: "info" })}
+        />
+      )}
       {policySite && (
         <ExternalLinkPolicyModal
           site={policySite}
@@ -574,6 +842,7 @@ export default function SitesPage() {
           title={`Delete ${pendingDelete.name}?`}
           description="This removes the site along with its articles, embeddings and suggestions. Links already published to the live site are not removed."
           confirmLabel="Delete site"
+          confirmPhrase={pendingDelete.name}
           danger
           pending={deleteSite.isPending}
           onConfirm={remove}

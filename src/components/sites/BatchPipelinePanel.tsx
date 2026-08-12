@@ -80,7 +80,7 @@ export default function BatchPipelinePanel({
         aria-valuenow={completed}
       >
         <div
-          className="h-full rounded-pill bg-primary transition-all"
+          className="h-full rounded-pill bg-primary transition-[width] motion-reduce:transition-none"
           style={{ width: `${batch.total ? (completed / batch.total) * 100 : 0}%` }}
         />
       </div>
@@ -105,7 +105,8 @@ export default function BatchPipelinePanel({
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
-                disabled={retryingSiteId === run.site_id}
+                aria-label={`Retry ${names.get(run.site_id) ?? `site ${run.site_id}`}`}
+                disabled={retryingSiteId !== null}
                 onClick={() => onRetry(run.site_id)}
               >
                 {retryingSiteId === run.site_id ? "Retrying…" : "Retry"}

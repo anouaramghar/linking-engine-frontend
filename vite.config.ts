@@ -42,7 +42,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), preloadFonts()],
     server: {
+      // Loopback only: the dev proxy injects the shared backend key, so binding
+      // to all interfaces would hand full API authority to the LAN.
+      host: "127.0.0.1",
       port: 5173,
+      strictPort: true,
       proxy: {
         "/api": {
           target: env.BACKEND_URL ?? "http://127.0.0.1:8000",

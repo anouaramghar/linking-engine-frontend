@@ -75,6 +75,6 @@ it("shows progress, errors, retry, and the filtered suggestions link", () => {
   expect(screen.getByRole("link", { name: "View suggestions" }).getAttribute("href")).toBe(
     "/queue?site=4",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  fireEvent.click(screen.getByRole("button", { name: "Retry Shawn" }));
   expect(retry).toHaveBeenCalledWith(5);
 });

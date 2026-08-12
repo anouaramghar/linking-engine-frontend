@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
 
+const navigate = vi.hoisted(() => vi.fn());
+
+vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
+
 const mocks = vi.hoisted(() => ({
   sites: {
     data: [] as unknown[],
@@ -14,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   activeJobs: {
     data: [] as unknown[],
+    refetch: vi.fn(),
   },
   batch: {
     data: undefined as unknown,
@@ -35,11 +40,15 @@ const mocks = vi.hoisted(() => ({
     isPending: false,
     mutateAsync: vi.fn(),
   },
+  setCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
+  clearCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetWordPressCredentials: () => mocks.setCredentials,
+  useClearWordPressCredentials: () => mocks.clearCredentials,
 }));
 
 vi.mock("../hooks/useJobs", () => ({
@@ -58,6 +67,7 @@ vi.mock("../hooks/usePipeline", () => ({
 }));
 
 beforeEach(() => {
+  navigate.mockReset();
   Object.assign(mocks.sites, {
     data: [],
     isPending: false,
@@ -78,6 +88,8 @@ beforeEach(() => {
   mocks.retryBatch.mutateAsync.mockReset();
   Object.assign(mocks.cancelBatch, { isPending: false });
   mocks.cancelBatch.mutateAsync.mockReset();
+  mocks.setCredentials.mutate.mockReset();
+  mocks.clearCredentials.mutate.mockReset();
   window.history.replaceState({}, "", "/sites");
 });
 
@@ -139,6 +151,7 @@ describe("SitesPage batch pipeline", () => {
     mocks.createBatch.mutateAsync.mockResolvedValue({ id: 12, total: 2 });
     render(<SitesPage />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Nona for batch" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Shawn for batch" }));
     expect(screen.queryByRole("checkbox", { name: "Select Pool for batch" })).toBeNull();
@@ -147,6 +160,84 @@ describe("SitesPage batch pipeline", () => {
     await waitFor(() => expect(mocks.createBatch.mutateAsync).toHaveBeenCalledWith([4, 5]));
     expect(window.location.search).toBe("?batch=12");
   });
+
+  it("selects all visible sites and exposes a clear selection tray", () => {
+    mocks.sites.data = [
+      {
+        id: 4,
+        name: "Nona",
+        base_url: "https://nona.example.com",
+        platform: "html",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+      {
+        id: 5,
+        name: "Shawn",
+        base_url: "https://shawn.example.com",
+        platform: "wordpress",
+        crawl_frequency: "manual",
+        created_at: "2026-08-04T08:00:00Z",
+      },
+    ];
+    render(<SitesPage />);
+
+    expect(screen.queryByRole("checkbox", { name: "Select Nona for batch" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Shawn for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
+      "2 sites selected",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    expect(screen.queryByRole("region", { name: "Batch selection" })).toBeNull();
+  });
+
+  // Renders 101 site rows and expands the list twice, which is by far the
+  // heaviest render in the suite. It sits close to the default 5s timeout on
+  // its own and crosses it whenever the runner is busy with other files, so the
+  // limit is raised rather than left to fail intermittently.
+  it("caps batch selection at the engine limit", () => {
+    mocks.sites.data = Array.from({ length: 101 }, (_, index) => ({
+      id: index + 1,
+      name: `Site ${index + 1}`,
+      base_url: `https://site-${index + 1}.example.com`,
+      platform: "html",
+      crawl_frequency: "manual",
+      created_at: "2026-08-04T08:00:00Z",
+    }));
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+
+    expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
+      "100 sites selected",
+    );
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Site 101 for batch" }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect((screen.getByRole("button", { name: "Run batch (100)" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  }, 20_000);
 
   it("restores batch monitoring from the page URL", () => {
     window.history.replaceState({}, "", "/sites?batch=27");
@@ -330,9 +421,6 @@ describe("SitesPage Hybrid standard", () => {
     base_url: "https://docs.example.com",
     platform: "wordpress",
     crawl_frequency: "daily",
-    suggestion_mode: "experimental",
-    suggestion_mode_managed: true,
-    suggestion_comparison_enabled: false,
     suggestion_slots_available: 3,
     created_at: "2026-07-28T08:00:00Z",
     last_ingestion_status: "succeeded",
@@ -347,7 +435,7 @@ describe("SitesPage Hybrid standard", () => {
 
     expect(document.body.textContent).toContain("Hybrid");
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Compare methods/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Suggestion method/ })).toBeNull();
@@ -357,7 +445,7 @@ describe("SitesPage Hybrid standard", () => {
     mocks.sites.data = [{ ...site, suggestion_slots_available: 0 }];
     render(<SitesPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     const generate = screen.getByRole("menuitem", {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
@@ -406,6 +494,121 @@ describe("SitesPage source controls", () => {
     ];
     render(<SitesPage />);
 
-    expect((screen.getByRole("button", { name: "Crawl" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Crawl Docs" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("SitesPage publication", () => {
+  const ownedSite = () => {
+    mocks.sites.data = [
+      {
+        id: 7,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+  };
+
+  it("has no action that publishes a site directly", () => {
+    ownedSite();
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    // "Publish approved" lived here and published every selected suggestion
+    // with nobody having seen the resulting edit.
+    expect(screen.queryByText("Publish approved")).toBeNull();
+    expect(document.body.textContent).not.toContain("Publish approved");
+  });
+
+  it("routes to the review that shows the exact edits instead", () => {
+    ownedSite();
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Review publication changes"));
+
+    expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
+  });
+});
+
+describe("SitesPage WordPress account", () => {
+  const withCredentials = (has: boolean) => {
+    mocks.sites.data = [
+      {
+        id: 7,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        has_wordpress_credentials: has,
+      },
+    ];
+  };
+
+  it("says whether the site has an account before it is opened", () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    expect(screen.getByText("Add WordPress account")).not.toBeNull();
+
+    cleanup();
+    withCredentials(true);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    expect(screen.getByText("Replace WordPress account")).not.toBeNull();
+  });
+
+  it("attaches an account to a site that already exists", async () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Add WordPress account"));
+
+    fireEvent.change(screen.getByLabelText("WordPress username"), {
+      target: { value: "editor" },
+    });
+    fireEvent.change(screen.getByLabelText("Application password"), {
+      target: { value: "abcd efgh ijkl mnop" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
+
+    await waitFor(() =>
+      expect(mocks.setCredentials.mutate).toHaveBeenCalledWith(
+        {
+          id: 7,
+          credentials: { wp_username: "editor", wp_app_password: "abcd efgh ijkl mnop" },
+        },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("refuses half a credential without asking the engine", () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Add WordPress account"));
+
+    fireEvent.change(screen.getByLabelText("WordPress username"), {
+      target: { value: "editor" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
+
+    expect(document.body.textContent).toContain("Both the username and the application");
+    expect(mocks.setCredentials.mutate).not.toHaveBeenCalled();
+  });
+
+  it("asks before detaching an account, because it stops publication", () => {
+    withCredentials(true);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Replace WordPress account"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove this account" }));
+    expect(mocks.clearCredentials.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove account" }));
+    expect(mocks.clearCredentials.mutate).toHaveBeenCalledWith(7, expect.anything());
   });
 });

@@ -1,3 +1,5 @@
+import Highlighted from "../Highlighted";
+import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import { errorDetail } from "../../lib/errors";
 import type { Placement } from "../../types/suggestion";
 
@@ -23,40 +25,18 @@ interface Props {
 const isUnconfigured = (error: unknown) =>
   (error as { response?: { status?: number } } | null)?.response?.status === 503;
 
-/**
- * The passage with its anchor marked. The engine guarantees the anchor is a
- * substring of the context, but this searches for it rather than assuming:
- * a mismatch should cost the highlight, not the passage the editor came to read.
- */
-function Highlighted({ context, anchor }: { context: string; anchor: string | null }) {
-  const at = anchor ? context.indexOf(anchor) : -1;
-  if (!anchor || at === -1) return <>{context}</>;
-  return (
-    <>
-      {context.slice(0, at)}
-      {/* Grey, not yellow: colour in this system carries status, and this is
-          not a status. The underline is what says "the link goes here". */}
-      <mark className="rounded bg-surface-strong px-0.5 font-medium text-ink underline decoration-hairline-control underline-offset-2">
-        {anchor}
-      </mark>
-      {context.slice(at + anchor.length)}
-    </>
-  );
-}
-
 function Body({ placement }: Props) {
   const { data, isLoading, error, onRetry } = placement;
 
   if (isLoading) {
     return (
-      <div className="mt-2 flex items-center gap-2 text-body-sm text-muted">
-        <span className="job-activity-dot" />
-        <span className="job-activity-dot job-activity-dot-2" />
-        <span className="job-activity-dot job-activity-dot-3" />
+      <div className="mt-2 flex items-center gap-2.5 text-body-sm text-muted">
+        <LogoLoadingAnimation size="sm" className="text-primary flex-none" label="Reading the article..." />
         <span>Reading the article&hellip;</span>
       </div>
     );
   }
+
 
   if (error) {
     // Two different situations. An unset API key is not fixed by trying again,
@@ -93,8 +73,8 @@ function Body({ placement }: Props) {
         <Highlighted context={data.placement_context} anchor={data.anchor_text} />
       </blockquote>
       <div className="mt-3 text-caption leading-normal text-muted">
-        Quoted from the source article. Accepting queues the link; it is not
-        written in-text yet.
+        Quoted from the source article. Selecting this suggestion starts the
+        review flow; it is not written in-text yet.
       </div>
     </>
   );

@@ -1,23 +1,51 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BulkReviewChunkError } from "../api/suggestions";
 import type { Suggestion } from "../types/suggestion";
 import ValidationPage from "./ValidationPage";
 
+/** Keeps legacy approval links observable while the queue owns the workflow. */
+function PublishStub() {
+  const { siteId } = useParams();
+  return <div>Legacy approval link for site {siteId}</div>;
+}
+
 /**
  * The queue keeps its filters in the URL so they can be linked to, which means
  * it needs a router even when a test never navigates. Entries let a test start
  * from a filtered queue the way a shared link would.
+ *
+ * Legacy approval routes remain mounted as stubs so old-link behavior stays
+ * observable, even though the current flow never navigates to them.
  */
 const renderQueue = (initialEntry = "/") =>
-  render(<ValidationPage />, {
-    wrapper: ({ children }) => (
-      <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>
-    ),
-  });
+  render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route path="/" element={<ValidationPage />} />
+        <Route path="/publish" element={<div>Approval site list</div>} />
+        <Route path="/publish/:siteId" element={<PublishStub />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+const realMatchMedia = window.matchMedia;
+
+const setNarrowViewport = () => {
+  window.matchMedia = vi.fn().mockImplementation((media: string) => ({
+    matches: true,
+    media,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+};
 
 const SITE = {
   id: 1,
@@ -33,20 +61,25 @@ const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
-  allFilteredMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
   filteredUndoMutate: vi.fn(),
-  publishMutate: vi.fn(),
+  prepareMutate: vi.fn(),
+  prepareReset: vi.fn(),
+  approveMutate: vi.fn(),
+  queueMutate: vi.fn(),
   /** Ids the engine reports it could not review, as a live publish would. */
   bulkSkipped: [] as number[],
   /** Undefined derives ids from the rule; null models a result over the cap. */
   filteredReviewedIds: undefined as number[] | null | undefined,
   filteredReviewedCount: undefined as number | undefined,
+  filteredUndoOperationId: null as string | null,
   bulkError: null as unknown,
   filteredBulkError: null as unknown,
   pendingPublication: [] as {
     site_id: number;
-    awaiting_publication: number;
+    selected_suggestions: number;
+    approved_plans: number;
+    can_publish?: boolean;
   }[],
   countsOverride: null as {
     pending: number;
@@ -58,7 +91,9 @@ const mocks = vi.hoisted(() => ({
     failed: number;
     total: number;
   } | null,
-  publicationPreview: {} as Record<string, unknown>,
+  /** Models the background refetch every review mutation sets off. */
+  countsFetching: false,
+  publicationPlans: {} as Record<string, unknown>,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
@@ -73,7 +108,7 @@ vi.mock("../hooks/useSuggestions", () => ({
     ...mocks.suggestionsQuery,
   }),
   // Placement is generated per open suggestion and is not what these tests are
-  // about; they assert on the queue and the keyboard, so it stays at rest.
+  // about; they assert on the queue and its review decisions, so it stays at rest.
   usePlacement: () => ({
     data: undefined,
     isPending: false,
@@ -124,24 +159,17 @@ vi.mock("../hooks/useSuggestions", () => ({
       },
       isPending: false,
       isError: false,
-      isFetching: false,
+      isFetching: mocks.countsFetching,
       refetch: vi.fn(),
     };
   },
   useReview: () => ({ mutate: mocks.reviewMutate }),
   useBulkReview: () => ({ mutate: mocks.bulkMutate, isPending: false }),
-  useAllFilteredSuggestionIds: () => ({
-    mutate: mocks.allFilteredMutate,
-    isPending: false,
-  }),
   useFilteredBulkReview: () => ({
     mutate: mocks.filteredBulkMutate,
     isPending: false,
   }),
-  useFilteredBulkUndo: () => ({
-    mutate: mocks.filteredUndoMutate,
-    isPending: false,
-  }),
+  useFilteredBulkUndo: () => ({ mutate: mocks.filteredUndoMutate, isPending: false }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -149,22 +177,23 @@ vi.mock("../hooks/useSites", () => ({
 }));
 
 vi.mock("../hooks/usePublish", () => ({
-  usePublishSites: () => ({ mutate: mocks.publishMutate, isPending: false }),
   usePendingPublication: () => ({
     data: mocks.pendingPublication,
     isPending: false,
     isError: false,
-    isFetching: false,
+    isFetching: mocks.countsFetching,
     refetch: vi.fn(),
   }),
-  usePublicationDryRun: () => ({
+  usePreparePublicationPlans: () => ({
     data: undefined,
     isPending: false,
     isError: false,
-    isFetching: false,
-    refetch: vi.fn(),
-    ...mocks.publicationPreview,
+    mutate: mocks.prepareMutate,
+    reset: mocks.prepareReset,
+    ...mocks.publicationPlans,
   }),
+  useApprovePlans: () => ({ mutate: mocks.approveMutate, isPending: false }),
+  useQueueApprovedPlans: () => ({ mutate: mocks.queueMutate, isPending: false }),
 }));
 
 const query = (overrides: Record<string, unknown> = {}) => ({
@@ -200,18 +229,21 @@ beforeEach(() => {
   );
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
-  mocks.allFilteredMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
   mocks.filteredUndoMutate.mockReset();
-  mocks.publishMutate.mockReset();
+  mocks.prepareMutate.mockReset();
+  mocks.prepareReset.mockReset();
+  mocks.approveMutate.mockReset();
+  mocks.queueMutate.mockReset();
   mocks.bulkSkipped = [];
   mocks.filteredReviewedIds = undefined;
   mocks.filteredReviewedCount = undefined;
+  mocks.filteredUndoOperationId = null;
   mocks.bulkError = null;
   mocks.filteredBulkError = null;
   mocks.pendingPublication = [];
   mocks.countsOverride = null;
-  mocks.publicationPreview = {};
+  mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
@@ -227,13 +259,6 @@ beforeEach(() => {
         status: variables.status,
       });
     },
-  );
-  mocks.allFilteredMutate.mockImplementation((_filters, options) =>
-    options?.onSuccess?.(
-      mocks.suggestions
-        .filter((item) => item.status === "pending")
-        .map((item) => item.id),
-    ),
   );
   mocks.filteredBulkMutate.mockImplementation(
     (
@@ -271,26 +296,61 @@ beforeEach(() => {
           targets.length - mocks.bulkSkipped.length,
         skipped: mocks.bulkSkipped.length,
         reviewed_ids: reviewedIds,
-        undo_operation_id: "operation-1",
+        undo_operation_id: mocks.filteredUndoOperationId,
         status: variables.status,
       });
     },
   );
-  mocks.filteredUndoMutate.mockImplementation((_operationId, options) =>
-    options?.onSuccess?.({
-      restored: mocks.filteredReviewedCount ?? 0,
-      skipped: 0,
-      status: "pending",
-      already_undone: false,
-    }),
-  );
   mocks.sitesQuery = query();
   mocks.suggestionsQuery = query();
+  mocks.countsFetching = false;
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.matchMedia = realMatchMedia;
+});
 
 describe("ValidationPage live review state", () => {
+  // Reviewing a row invalidates the counts and the publication summary, so
+  // every decision leaves them refetching. If that state paused the queue, an
+  // editor working down it with `a` would be locked out after every row.
+  it("keeps reviewing while the counts refetch behind a decision", () => {
+    mocks.countsFetching = true;
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 2, approved_plans: 0 },
+    ];
+    renderQueue();
+
+    expect(
+      (screen.getByRole("button", {
+        name: /Select suggestion from Example site: Source 1/,
+      }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: /^Select ≥/ }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(screen.queryByText(/Review actions are paused/)).toBeNull();
+    // Publication review is opened from the selected suggestion detail, not a
+    // second toolbar attached to the queue.
+    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
+  });
+
+  it("pauses review actions while filtered results are being replaced", () => {
+    mocks.suggestionsQuery = query({ isPlaceholderData: true });
+    renderQueue();
+
+    expect(
+      (screen.getByRole("button", {
+        name: /Select suggestion from Example site: Source 1/,
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: /^Select ≥/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("Review actions are paused");
+  });
+
   it("shows server counts beyond the suggestions loaded on the first page", () => {
     mocks.countsOverride = {
       pending: 2400,
@@ -406,16 +466,18 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
-    expect(screen.getByRole("alertdialog").textContent).toContain("1 pending suggestion");
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    expect(screen.getByRole("region", { name: /1 pending suggestion/ }).textContent).toContain(
+      "1 pending suggestion",
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     expect(mocks.filteredBulkMutate).toHaveBeenCalledWith(
       { siteId: undefined, status: "approved", thresholdPercent: 80 },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
-    expect(screen.getByRole("status").textContent).toContain("1 suggestion queued for publish");
-    await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
+    expect(screen.getByRole("status").textContent).toContain("1 suggestion selected for exact-edit review");
+    await user.click(screen.getByRole("button", { name: /Selected.*1/ }));
     expect(screen.getByText("Source 1")).not.toBeNull();
   });
 
@@ -423,79 +485,28 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    await user.click(
+      screen.getByRole("button", { name: /Select suggestion from Example site: Source 1/ }),
+    );
 
     expect(mocks.reviewMutate).toHaveBeenCalledWith(
       { id: 1, status: "approved" },
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
-    await user.click(screen.getByRole("button", { name: /Queued for publish.*1/ }));
+    await user.click(screen.getByRole("button", { name: /Selected.*1/ }));
     expect(screen.getByText("Source 1")).not.toBeNull();
-  });
-
-  it("accepts only the suggestions selected by checkbox after confirmation", async () => {
-    const user = userEvent.setup();
-    renderQueue();
-
-    const checkboxes = screen.getAllByRole("checkbox", {
-      name: /^Select suggestion:/,
-    });
-    await user.click(checkboxes[0]);
-    await user.click(checkboxes[1]);
-
-    expect(screen.getByText("2 selected")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Accept selected" }));
-    expect(mocks.bulkMutate).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("alertdialog", { name: "Confirm selected suggestions" })
-        .textContent,
-    ).toContain("Accept 2 selected suggestions");
-
-    await user.click(
-      screen.getByRole("button", { name: "Confirm selected accept" }),
-    );
-
-    expect(mocks.bulkMutate).toHaveBeenCalledWith(
-      { ids: [1, 2], status: "approved" },
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    );
-    expect(screen.getByRole("status").textContent).toContain(
-      "2 suggestions queued for publish",
-    );
-    expect(screen.queryByText("2 selected")).toBeNull();
-  });
-
-  it("selects visible pending rows and rejects them together", async () => {
-    const user = userEvent.setup();
-    renderQueue("/?status=all");
-
-    // The applied row is visible too, but only the two pending rows are selectable.
-    await user.click(screen.getByRole("button", { name: "Select visible (2)" }));
-    expect(screen.getByText("2 selected")).not.toBeNull();
-    expect(screen.getAllByRole("checkbox", { name: /^Select suggestion:/ })).toHaveLength(2);
-
-    await user.click(screen.getByRole("button", { name: "Reject selected" }));
-    await user.click(
-      screen.getByRole("button", { name: "Confirm selected reject" }),
-    );
-
-    expect(mocks.bulkMutate).toHaveBeenCalledWith(
-      { ids: [1, 2], status: "rejected" },
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    );
-    expect(screen.getByRole("status").textContent).toContain("2 suggestions rejected");
   });
 
   it("cancels a bulk action without sending or changing decisions", async () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("region", { name: /pending suggestion/ })).toBeNull();
     expect(screen.getByText("Source 1")).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*0/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*0/ })).not.toBeNull();
     expect(mocks.filteredBulkMutate).not.toHaveBeenCalled();
   });
 
@@ -503,8 +514,8 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
     mocks.bulkMutate.mockClear();
 
     await user.click(screen.getByRole("button", { name: "Undo" }));
@@ -524,17 +535,17 @@ describe("ValidationPage live review state", () => {
 
     // The worker claims suggestion 1 between the decision and this batch.
     mocks.bulkSkipped = [1];
-    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     const notice = screen.getByRole("alert");
-    expect(notice.textContent).toContain("1 suggestion queued for publish");
+    expect(notice.textContent).toContain("1 suggestion selected for exact-edit review");
     expect(notice.textContent).toContain(
       "1 suggestion was already picked up for publishing or had expired",
     );
     // Only the row that actually moved leaves the pending list.
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*1/ })).not.toBeNull();
   });
 
   it("uses only the engine's reviewed ids for local batch state", async () => {
@@ -545,14 +556,14 @@ describe("ValidationPage live review state", () => {
     mocks.filteredReviewedIds = [4];
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     expect(screen.getByRole("status").textContent).toContain(
-      "1 suggestion queued for publish",
+      "1 suggestion selected for exact-edit review",
     );
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*1/ })).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(mocks.bulkMutate).toHaveBeenLastCalledWith(
@@ -569,8 +580,8 @@ describe("ValidationPage live review state", () => {
     );
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*3/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
     mocks.bulkError = new BulkReviewChunkError(
       { reviewed: [1], reviewedCount: 1, skipped: [], status: "pending" },
       [4],
@@ -585,7 +596,7 @@ describe("ValidationPage live review state", () => {
     );
     expect(notice.textContent).toContain("1 later suggestion was not attempted");
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*2/ })).not.toBeNull();
   });
 
   it("says so plainly when a batch changed nothing at all", async () => {
@@ -593,8 +604,8 @@ describe("ValidationPage live review state", () => {
     renderQueue();
 
     mocks.bulkSkipped = [1];
-    await user.click(screen.getByRole("button", { name: /Accept.*1/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     const notice = screen.getByRole("alert");
     expect(notice.textContent).toContain("Nothing changed");
@@ -603,7 +614,7 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
   });
 
-  it("offers exact server-side undo for a rule larger than one API page", async () => {
+  it("keeps a large rule result undoable through its server-side cohort", async () => {
     const user = userEvent.setup();
     mocks.suggestions.splice(
       0,
@@ -614,24 +625,20 @@ describe("ValidationPage live review state", () => {
     );
     mocks.filteredReviewedIds = null;
     mocks.filteredReviewedCount = 1001;
+    mocks.filteredUndoOperationId = "operation-large";
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*1001/ }));
-    expect(screen.getByRole("alertdialog").textContent).toContain(
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    expect(screen.getByRole("region", { name: /1001 pending suggestions/ }).textContent).toContain(
       "The decision can be undone",
     );
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
-    expect(screen.getByRole("status").textContent).toContain(
-      "exact server-side cohort can be undone in one step",
-    );
+    expect(screen.getByRole("status").textContent).toContain("server-side cohort can be undone");
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(mocks.filteredUndoMutate).toHaveBeenCalledWith(
-      "operation-1",
-      expect.any(Object),
-    );
-    expect(screen.getByRole("status").textContent).toContain(
-      "1001 suggestions restored to pending review",
+      "operation-large",
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
   });
 
@@ -645,7 +652,7 @@ describe("ValidationPage live review state", () => {
       (screen.getByRole("button", { name: /^Reject </ }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(
-      (screen.getByRole("button", { name: /^Accept ≥/ }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: /^Select ≥/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(document.body.textContent).toContain("Switch to Pending review or All to use bulk review");
   });
@@ -660,175 +667,226 @@ describe("ValidationPage live review state", () => {
   });
 });
 
-describe("ValidationPage publish handoff", () => {
-  it("stays quiet while nothing is approved", () => {
+describe("ValidationPage hand-over to approval", () => {
+  const tray = () => screen.queryByRole("link", { name: "Review selected links" });
+
+  it("stays quiet while nothing is selected or approved", () => {
     renderQueue();
 
+    expect(tray()).toBeNull();
+    expect(document.body.textContent).not.toContain("waiting for review");
     expect(document.body.textContent).not.toContain("waiting to be published");
   });
 
-  it("surfaces an approved backlog and publishes the sites holding it", async () => {
-    const user = userEvent.setup();
-    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 24 }];
+  it("keeps every publication control off the queue", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 24, approved_plans: 0 },
+    ];
     renderQueue();
 
-    expect(document.body.textContent).toContain("waiting to be published");
-    await user.click(screen.getByRole("button", { name: "Publish 1 site" }));
-
-    expect(mocks.publishMutate).toHaveBeenCalledWith([1], expect.anything());
+    // Selecting rows is not consent to write to a customer's site, so the tray
+    // navigates and nothing here can approve or queue anything.
+    expect(screen.queryByRole("button", { name: /^Publish \d+ site/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish this site" })).toBeNull();
+    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
   });
 
-  it("shows the exact WordPress HTML before publishing", async () => {
-    const user = userEvent.setup();
-    mocks.pendingPublication = [{ site_id: 1, awaiting_publication: 1 }];
-    mocks.publicationPreview = {
-      data: {
-        site_id: 1,
-        approved: 1,
-        previewed: 1,
-        placements_missing: 0,
-        inserted: 1,
-        block: 0,
-        already_present: 0,
-        planned: [],
-        errors: [],
-        truncated: false,
-        articles: [
-          {
-            source_article_id: 10,
-            source_url: "https://example.com/source",
-            original_html: "<p>solar panel costs</p>",
-            updated_html: '<p><a href="/target">solar panel</a> costs</p>',
-            links: [
-              {
-                suggestion_id: 1,
-                source_article_id: 10,
-                source_url: "https://example.com/source",
-                target_url: "https://example.com/target",
-                outcome: "inserted",
-                anchor_text: "solar panel",
-              },
-            ],
-          },
-        ],
-      },
-    };
+  it("says what is selected and points at the scalable publication inbox", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 24, approved_plans: 0 },
+    ];
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: "Preview edits" }));
+    expect(document.body.textContent).toContain("24 links selected on 1 site");
+    expect(tray()?.getAttribute("href")).toBe("/publish");
+  });
 
-    expect(screen.getByRole("dialog")).not.toBeNull();
-    expect(document.body.textContent).toContain("Compare exact HTML");
-    expect(document.body.textContent).toContain("<p>solar panel costs</p>");
-    expect(document.body.textContent).toContain('<p><a href="/target">solar panel</a> costs</p>');
+  it("points at the site list when more than one site is waiting", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 4, approved_plans: 0 },
+      { site_id: 2, selected_suggestions: 9, approved_plans: 0 },
+    ];
+    renderQueue();
+
+    expect(document.body.textContent).toContain("13 links selected on 2 sites");
+    const reviewLinks = screen.getAllByRole("link", { name: "Review selected links" });
+    expect(reviewLinks).toHaveLength(1);
+    expect(reviewLinks[0].getAttribute("href")).toBe("/publish");
+  });
+
+  it("opens the filtered site's exact edits directly", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 3, approved_plans: 0 },
+      { site_id: 2, selected_suggestions: 9, approved_plans: 0 },
+    ];
+    renderQueue("/?site=1&status=approved");
+
+    expect(tray()?.getAttribute("href")).toBe("/publish/1");
+  });
+
+  it("keeps the review action visible outside the long scrolling queue", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 35, approved_plans: 0 },
+    ];
+    renderQueue();
+
+    const queueScroller = screen.getByRole("region", { name: "Suggestion queue" });
+    const reviewLink = screen.getByRole("link", { name: "Review selected links" });
+
+    expect(queueScroller.contains(reviewLink)).toBe(false);
+  });
+
+  it("leaves connection diagnosis to the publication inbox", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
+    ];
+    renderQueue();
+
+    expect(tray()?.getAttribute("href")).toBe("/publish");
+  });
+
+  it("shows progress while a selection is being saved", async () => {
+    const user = userEvent.setup();
+    mocks.reviewMutate.mockImplementation(() => undefined);
+    renderQueue();
+
+    await user.click(
+      screen.getByRole("button", { name: /Select suggestion from Example site: Source 1/ }),
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("Saving selection");
+  });
+
+  it("confirms a saved selection without opening a second surface", async () => {
+    const user = userEvent.setup();
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
+    ];
+    renderQueue();
+
+    await user.click(
+      screen.getByRole("button", { name: /Select suggestion from Example site: Source 1/ }),
+    );
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "1 suggestion selected for exact-edit review",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does not prepare, approve, or queue until the operator follows the inbox CTA", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(
+      screen.getByRole("button", { name: /Select suggestion from Example site: Source 1/ }),
+    );
+
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    expect(mocks.queueMutate).not.toHaveBeenCalled();
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does not put a second exact-edit action inside an approved row", async () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 1, approved_plans: 0 },
+    ];
+    mocks.suggestions[0] = suggestion(1, { status: "approved" });
+    renderQueue("/?status=approved");
+
+    expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
+    expect(tray()?.getAttribute("href")).toBe("/publish");
+  });
+
+  it("ignores legacy review query parameters", () => {
+    renderQueue("/?status=approved&review=1");
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
+  });
+
+  it("does not eagerly prepare an unpublishable site", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
+    ];
+    renderQueue();
+
+    expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
   });
 });
 
-describe("ValidationPage keyboard review", () => {
-  it("moves a cursor through the queue and decides without the mouse", async () => {
-    const user = userEvent.setup();
+describe("ValidationPage detail panel", () => {
+  it("reserves the desktop detail rail before a suggestion is selected", () => {
     renderQueue();
 
-    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
-
-    await user.keyboard("j");
-    expect(within(preview()).getByText("Source 1")).not.toBeNull();
-
-    await user.keyboard("j");
-    expect(within(preview()).getByText("Source 2")).not.toBeNull();
-
-    await user.keyboard("r");
-    expect(mocks.reviewMutate).toHaveBeenCalledWith(
-      { id: 2, status: "rejected" },
-      expect.anything(),
-    );
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(preview).getByText("Select a suggestion")).not.toBeNull();
+    expect(within(preview).getByText(/placement context, target article/i)).not.toBeNull();
   });
 
-  it("hands the cursor to the next row after a decision", async () => {
-    const user = userEvent.setup();
+  it("uses the overlay layout below the desktop rail breakpoint", () => {
+    setNarrowViewport();
     renderQueue();
 
-    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
-
-    await user.keyboard("j");
-    expect(within(preview()).getByText("Source 1")).not.toBeNull();
-
-    // Accepting drops the row out of the pending filter. The cursor has to
-    // follow the queue forward, or the next 'j' restarts from the top.
-    await user.keyboard("a");
-    expect(within(preview()).getByText("Source 2")).not.toBeNull();
-
-    await user.keyboard("a");
-    expect(mocks.reviewMutate).toHaveBeenLastCalledWith(
-      { id: 2, status: "approved" },
-      expect.anything(),
-    );
-  });
-
-  it("resumes from the editor's place when a batch removes the cursor row", async () => {
-    const user = userEvent.setup();
-    // Pending order is [1 @80%, 2 @79%, 4 @50%, 5 @95%]; a "below 80%" rule
-    // takes 2 and 4, so the cursor row goes but the row after it survives.
-    mocks.suggestions.push(suggestion(4, { score: 0.5 }), suggestion(5, { score: 0.95 }));
-    renderQueue();
-
-    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
-
-    await user.keyboard("jjj"); // cursor on the third pending row, id 4
-    expect(within(preview()).getByText("Source 4")).not.toBeNull();
-
-    // A bulk reject takes that row without going through `decide`.
-    await user.click(screen.getByRole("button", { name: /Reject.*2/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm reject" }));
-    await user.keyboard("j");
-
-    // Index 2 now holds id 5 — not id 1 back at the top of the queue.
-    expect(within(preview()).getByText("Source 5")).not.toBeNull();
-  });
-
-  it("resumes at the true vacated position when a batch also removes rows above", async () => {
-    const user = userEvent.setup();
-    // After ids 2 and 4 leave [1, 2, 4, 5, 6], id 5 slides from index 3 to 1.
-    // Id 6 keeps the stale pre-removal index in bounds so clamping cannot hide
-    // an incorrect resume position.
-    mocks.suggestions.push(
-      suggestion(4, { score: 0.5 }),
-      suggestion(5, { score: 0.95 }),
-      suggestion(6, { score: 0.9 }),
-    );
-    renderQueue();
-
-    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
-
-    await user.keyboard("jjj");
-    expect(within(preview()).getByText("Source 4")).not.toBeNull();
-
-    await user.click(screen.getByRole("button", { name: /Reject.*2/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm reject" }));
-    await user.keyboard("j");
-
-    expect(within(preview()).getByText("Source 5")).not.toBeNull();
-  });
-
-  it("closes the preview on Escape", async () => {
-    const user = userEvent.setup();
-    renderQueue();
-
-    await user.keyboard("j");
-    expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
-
-    await user.keyboard("{Escape}");
     expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
   });
 
-  it("ignores shortcuts while a field has focus", async () => {
+  it("hands the panel to the next row after a decision", async () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByLabelText("Score threshold"));
-    await user.keyboard("r");
+    const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
 
-    expect(mocks.reviewMutate).not.toHaveBeenCalled();
+    await user.click(screen.getAllByRole("button", { name: /^Open suggestion:/ })[0]);
+    expect(within(preview()).getByText("Source 1")).not.toBeNull();
+
+    // Selecting drops the row out of the pending filter. The panel has to follow
+    // the queue forward, or it is left standing on a row that has gone.
+    await user.click(
+      within(preview()).getByRole("button", { name: "Select for review" }),
+    );
+
+    expect(within(preview()).getByText("Source 2")).not.toBeNull();
+  });
+
+  it("keeps the queue scroll position when selecting from the detail panel", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      renderQueue();
+
+      const preview = () => screen.getByRole("complementary", { name: "Suggestion detail" });
+      await user.click(screen.getAllByRole("button", { name: /^Open suggestion:/ })[0]);
+      scrollIntoView.mockClear();
+
+      await user.click(
+        within(preview()).getByRole("button", { name: "Select for review" }),
+      );
+
+      const nextPreview = screen.getByRole("complementary", {
+        name: "Suggestion detail",
+      });
+      expect(nextPreview.contains(document.activeElement)).toBe(true);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      if (original) {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      }
+    }
   });
 
   it("opens a suggestion from the keyboard", async () => {
@@ -888,7 +946,7 @@ describe("ValidationPage mixed-method queue", () => {
       ...overrides,
     });
 
-  it("lists baseline and hybrid rows side by side", () => {
+  it("lists baseline and hybrid rows without method metadata", () => {
     mocks.suggestions.splice(
       0,
       mocks.suggestions.length,
@@ -899,8 +957,8 @@ describe("ValidationPage mixed-method queue", () => {
 
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByText("Source 2")).not.toBeNull();
-    expect(screen.getByText("hybrid BM25")).not.toBeNull();
-    expect(screen.getByText("cosine")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("hybrid BM25");
+    expect(document.body.textContent).not.toContain("cosine");
   });
 
   it("counts a hybrid row in the status chips like any other", () => {
@@ -914,7 +972,7 @@ describe("ValidationPage mixed-method queue", () => {
     renderQueue();
 
     expect(screen.getByRole("button", { name: /Pending.*2/ })).not.toBeNull();
-    expect(screen.getByRole("button", { name: /Queued for publish.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Selected.*1/ })).not.toBeNull();
   });
 
   it("reviews a hybrid row through the same mutation as a baseline row", async () => {
@@ -922,7 +980,7 @@ describe("ValidationPage mixed-method queue", () => {
     mocks.suggestions.splice(0, mocks.suggestions.length, hybrid(2));
     renderQueue();
 
-    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    await user.click(screen.getByRole("button", { name: /^Select suggestion/ }));
 
     expect(mocks.reviewMutate).toHaveBeenCalledWith(
       { id: 2, status: "approved" },
@@ -940,9 +998,11 @@ describe("ValidationPage mixed-method queue", () => {
     );
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Accept.*2/ }));
-    expect(screen.getByRole("alertdialog").textContent).toContain("2 pending suggestion");
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    expect(screen.getByRole("region", { name: /2 pending suggestions/ }).textContent).toContain(
+      "2 pending suggestions",
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     // The rule carries no method, so it reaches the hybrid row too.
     const [rule] = mocks.filteredBulkMutate.mock.calls[0];

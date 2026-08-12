@@ -37,7 +37,11 @@ const placement = {
   onRetry: vi.fn(),
 };
 
-const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
+const renderPreview = (
+  status: Suggestion["status"],
+  onUndo = vi.fn(),
+  onReviewPublication?: () => void,
+) =>
   render(
     <SuggestionPreview
       suggestion={suggestion(status)}
@@ -47,6 +51,7 @@ const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
       onAccept={vi.fn()}
       onReject={vi.fn()}
       onUndo={onUndo}
+      onReviewPublication={onReviewPublication}
     />,
   );
 
@@ -80,11 +85,21 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText(/Selected by BM25/)).toBeNull();
   });
 
-  it("identifies an approved suggestion as queued but not live", () => {
+  it("identifies a selected suggestion as chosen but not yet approved", () => {
     renderPreview("approved");
 
-    expect(screen.getByText("Queued for publish")).not.toBeNull();
-    expect(screen.getByText("Queued for the next publish batch. Not live yet.")).not.toBeNull();
+    expect(screen.getByText("Selected for review")).not.toBeNull();
+    expect(
+      screen.getByText("Selected for review. Not scheduled and not live until its exact edit is approved."),
+    ).not.toBeNull();
+  });
+
+  it("offers a direct exact-edit review action for a selected suggestion", () => {
+    const onReviewPublication = vi.fn();
+    renderPreview("approved", vi.fn(), onReviewPublication);
+
+    fireEvent.click(screen.getByRole("button", { name: "Review exact edit" }));
+    expect(onReviewPublication).toHaveBeenCalledTimes(1);
   });
 
   it("identifies an in-progress publication", () => {
@@ -126,17 +141,15 @@ describe("SuggestionPreview publication state", () => {
         suggestion={suggestion("approved")}
         siteName="Example site"
         selected={false}
-        checked={false}
         onOpen={onOpen}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={onUndo}
-        onCheckedChange={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("Queued for publish")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByText("Selected for review")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
@@ -147,34 +160,30 @@ describe("SuggestionPreview publication state", () => {
         suggestion={suggestion("applied")}
         siteName="Example site"
         selected={false}
-        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={vi.fn()}
-        onCheckedChange={vi.fn()}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo decision/ })).toBeNull();
   });
 
-  it("shows the Hybrid method on a current card", () => {
+  it("keeps method details out of the compact queue row", () => {
     render(
       <SuggestionCard
         suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
         siteName="Example site"
         selected={false}
-        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={vi.fn()}
-        onCheckedChange={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("hybrid BM25")).not.toBeNull();
+    expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
   it("identifies a content-pool target as an external link", () => {
@@ -255,17 +264,15 @@ describe("SuggestionPreview publication state", () => {
         suggestion={suggestion("failed")}
         siteName="Example site"
         selected={false}
-        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={onUndo}
-        onCheckedChange={vi.fn()}
       />,
     );
 
     expect(screen.getByText("Publishing failed")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
   });
 
@@ -293,7 +300,7 @@ describe("SuggestionPreview publication state", () => {
     );
   });
 
-  it("shows the origin on a queue card", () => {
+  it("keeps the target origin on a compact queue card", () => {
     render(
       <SuggestionCard
         suggestion={{
@@ -303,12 +310,10 @@ describe("SuggestionPreview publication state", () => {
         }}
         siteName="Example site"
         selected={false}
-        checked={false}
         onOpen={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
         onUndo={vi.fn()}
-        onCheckedChange={vi.fn()}
       />,
     );
 

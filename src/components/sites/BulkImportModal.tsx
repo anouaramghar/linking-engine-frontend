@@ -20,7 +20,7 @@ const TEMPLATE = [
  * {colors.semantic-error} — the rest stay neutral rather than inventing a
  * success and a warning hue the system does not have.
  */
-const CHIP_ERROR = "border border-error/30 bg-error/5 text-error";
+const CHIP_ERROR = "border border-error/30 bg-error/5 text-error-ink";
 
 export default function BulkImportModal({ onClose }: { onClose: () => void }) {
   const bulk = useBulkCreateSites();

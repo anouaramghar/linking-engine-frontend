@@ -1,6 +1,9 @@
 import { api } from "./client";
 import type { PipelineBatch } from "../types/pipeline";
 
+/** Mirrors PipelineBatchCreate.site_ids max_length in the engine schema. */
+export const MAX_PIPELINE_BATCH_SITES = 100;
+
 export const createPipelineBatch = (siteIds: number[]) =>
   api
     .post<PipelineBatch>("/pipelines/batches", { site_ids: siteIds })

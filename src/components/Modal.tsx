@@ -10,6 +10,8 @@ interface Props {
   panelClassName?: string;
   role?: "dialog" | "alertdialog";
   ariaLabel?: string;
+  /** Protected workflows should close only through an explicit action. */
+  dismissOnBackdrop?: boolean;
 }
 
 export default function Modal({
@@ -19,6 +21,7 @@ export default function Modal({
   panelClassName = "",
   role = "dialog",
   ariaLabel,
+  dismissOnBackdrop = true,
 }: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -31,7 +34,7 @@ export default function Modal({
       // mousedown, not click: releasing a text selection outside the panel must
       // not count as a click on the backdrop and discard the user's input.
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (dismissOnBackdrop && event.target === event.currentTarget) onClose();
       }}
     >
       <div
