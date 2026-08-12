@@ -1149,7 +1149,7 @@ export default function ValidationPage() {
                       {renderLimitReached
                         ? "Render limit reached"
                         : suggestionsQuery.isFetchingNextPage
-                          ? "Loading more..."
+                          ? "Loading more…"
                           : "Show more"}
                     </button>
                     {/* Paging and filtering both change this line and nothing

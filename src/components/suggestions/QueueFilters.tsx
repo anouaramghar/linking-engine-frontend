@@ -50,7 +50,7 @@ export default function QueueFilters({
             onChange={(event) => search.change(event.target.value)}
             onBlur={search.flush}
             maxLength={MAX_SEARCH_TERM}
-            placeholder="Search titles..."
+            placeholder="Search titles…"
             className={`${control} w-full`}
           />
         </label>

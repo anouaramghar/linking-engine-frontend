@@ -25,7 +25,7 @@ function RouteFallback() {
       aria-label="Loading page"
       className="flex min-h-0 flex-1 items-center justify-center px-4 text-caption text-muted"
     >
-      Loading page...
+      Loading page…
     </div>
   );
 }

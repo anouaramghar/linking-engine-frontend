@@ -1,5 +1,6 @@
 import { pct } from "../../lib/utils";
 import type { Suggestion, SuggestionEvent } from "../../types/suggestion";
+import { LogoLoadingIndicator } from "../LogoLoadingAnimation";
 
 export interface SuggestionTraceState {
   data: SuggestionEvent[] | undefined;
@@ -294,8 +295,11 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
 
       <div className="mt-4 border-t border-hairline pt-4">
         <div className="eyebrow">Activity</div>
+        {/* Inline rather than a `SkeletonRows` panel: this is a section inside a
+            card, and the dashed panel is the shape the app uses for a whole
+            region. */}
         {trace.isLoading && (
-          <p className="mt-2 text-caption text-muted">Loading history...</p>
+          <LogoLoadingIndicator text="Loading history…" className="mt-2 text-caption text-muted" />
         )}
         {Boolean(trace.error) && !trace.isLoading && (
           <div className="mt-2 flex items-center justify-between gap-3">

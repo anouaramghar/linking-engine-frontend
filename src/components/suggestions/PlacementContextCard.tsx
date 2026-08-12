@@ -1,5 +1,5 @@
 import Highlighted from "../Highlighted";
-import LogoLoadingAnimation from "../LogoLoadingAnimation";
+import { LogoLoadingIndicator } from "../LogoLoadingAnimation";
 import { errorDetail } from "../../lib/errors";
 import type { Placement } from "../../types/suggestion";
 
@@ -30,10 +30,10 @@ function Body({ placement }: Props) {
 
   if (isLoading) {
     return (
-      <div className="mt-2 flex items-center gap-2.5 text-body-sm text-muted">
-        <LogoLoadingAnimation size="sm" className="text-primary flex-none" label="Reading the article..." />
-        <span>Reading the article&hellip;</span>
-      </div>
+      <LogoLoadingIndicator
+        text="Reading the article…"
+        className="mt-2 gap-2.5 text-body-sm text-muted"
+      />
     );
   }
 

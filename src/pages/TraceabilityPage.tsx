@@ -103,7 +103,7 @@ export default function TraceabilityPage() {
         sub="Search every lifecycle event from generation through editorial review and publishing"
         badge="Audit"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <section className="card p-4 sm:p-5" aria-label="Traceability filters">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label className="text-caption text-muted">

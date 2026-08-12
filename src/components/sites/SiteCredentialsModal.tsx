@@ -78,7 +78,14 @@ export default function SiteCredentialsModal({
     });
 
   return (
-    <Modal title={`WordPress account · ${site.name}`} onClose={onClose}>
+    <Modal
+      title={`WordPress account · ${site.name}`}
+      onClose={onClose}
+      // `Modal` is `w-full` with no cap of its own, so a panel that passes no
+      // width fills the viewport. Two fields do not need 1400px; `max-w-md` is
+      // the width the other credential-shaped dialog (AddSiteModal) already uses.
+      panelClassName="max-w-md"
+    >
       <form onSubmit={submit}>
         <p id={hintId} className="text-caption leading-relaxed text-muted">
           {attached

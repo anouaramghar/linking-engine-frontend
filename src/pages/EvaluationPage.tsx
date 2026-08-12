@@ -707,7 +707,7 @@ export default function EvaluationPage() {
             onClick={() => void query.refetch()}
             disabled={query.isFetching}
           >
-            {query.isFetching ? "Refreshing..." : "Refresh"}
+            {query.isFetching ? "Refreshing…" : "Refresh"}
           </button>
           <button
             type="button"
@@ -715,7 +715,7 @@ export default function EvaluationPage() {
             onClick={() => void exportCsv()}
             disabled={isExporting}
           >
-            {isExporting ? "Exporting..." : "Export CSV"}
+            {isExporting ? "Exporting…" : "Export CSV"}
           </button>
           {exportError && (
             <span role="alert" className="w-full text-caption text-error-ink">

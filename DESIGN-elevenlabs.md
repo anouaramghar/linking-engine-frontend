@@ -347,6 +347,35 @@ These appear ONLY as soft radial-gradient atmospheric orbs inside `{component.gr
 - **Subtle letter-spacing on body.** Inter at +0.15-0.18px tracking — slightly looser than default Inter for a more editorial feel.
 - **Negative letter-spacing on display.** Waldenburg pulls -0.32px to -1.92px tighter on display sizes.
 
+### Product surfaces run one step down the scale
+
+The table above is the **marketing** scale. The dashboard runs the same tokens
+shifted down one step, and this is deliberate rather than drift:
+
+| Role | Marketing | Dashboard |
+|---|---|---|
+| Default running text | `{typography.body-md}` 16px | `{typography.caption}` 14px |
+| Secondary / metadata | `{typography.caption}` 14px | `caption-sm` 12px |
+| Section label | `caption-uppercase` 12px | `caption-uppercase` 12px |
+
+A marketing page holds a paragraph a visitor reads once. A review queue holds
+hundreds of rows an operator scans all day, and 16px running text costs about
+two rows of every screenful. The measured split in the app is ~180 uses of
+`text-caption` against ~12 of `text-body-md`.
+
+What does **not** shift: display sizes and their weight 300, the eyebrow, and
+`{typography.button}` / `{typography.nav-link}` at 15px/500. `body-md` survives
+in the dashboard only for prose a person stops to read — a dialog's explanatory
+paragraph, an empty state.
+
+Two tokens are marketing-only and unused in the product: `{typography.title-sm}`
+and `{typography.body-strong}` (the dashboard builds emphasis by composing
+`font-medium` onto a size, which is what the config's weightless body sizes are
+for).
+
+**When adding a screen, take 14px as the default body size**, not the 16px this
+document's table shows.
+
 ### Note on Font Substitutes
 Waldenburg is licensed. Open-source substitute: **EB Garamond** at weight 300 (slightly more humanist) or **GT Sectra** (closer to Waldenburg's modernity). Use Inter directly for body — it's the same family ElevenLabs uses.
 

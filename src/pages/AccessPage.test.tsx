@@ -77,7 +77,10 @@ describe("AccessPage", () => {
     renderAccess();
 
     expect(await screen.findByRole("button", { name: "Approve" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(2);
+    // Two Revoke buttons render, but one of them is your own row: it is
+    // disabled and its accessible name carries the reason, so it no longer
+    // answers to the bare label. `/^Revoke/` matches both.
+    expect(screen.getAllByRole("button", { name: /^Revoke/ })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Make admin" })).toHaveLength(1);
   });
 
@@ -117,9 +120,21 @@ describe("AccessPage", () => {
 
     // Both are refused by the API for the same reason: the last admin out
     // locks the door behind them.
-    const demote = screen.getByRole("button", { name: "Remove admin" });
-    const revokes = screen.getAllByRole("button", { name: "Revoke" });
+    //
+    // The reason has to reach a screen reader too. A disabled button takes no
+    // focus, so the `title` tooltip is mouse-only and the accessible name is
+    // the only channel left — these queries match on it deliberately.
+    const demote = screen.getByRole("button", {
+      name: "Remove admin. You cannot remove your own admin rights",
+    });
+    const revokeSelf = screen.getByRole("button", {
+      name: "Revoke. You cannot revoke your own access",
+    });
     expect(demote.hasAttribute("disabled")).toBe(true);
-    expect(revokes.some((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(revokeSelf.hasAttribute("disabled")).toBe(true);
+
+    // The other row's Revoke is available, and keeps its plain label.
+    const revokeOther = screen.getByRole("button", { name: "Revoke" });
+    expect(revokeOther.hasAttribute("disabled")).toBe(false);
   });
 });

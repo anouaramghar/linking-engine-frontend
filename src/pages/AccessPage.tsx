@@ -33,6 +33,21 @@ function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
+/**
+ * The reason a control is unavailable, said in both channels at once.
+ *
+ * A `title` is a tooltip, and a tooltip on a disabled button is mouse-only:
+ * the element takes no focus, so nothing else ever surfaces it. Repeating the
+ * reason in the accessible name is what lets a screen reader read it off the
+ * button — the rule `SiteStatusBadge` states for its own tooltip.
+ *
+ * Returns nothing when there is no reason, so an available control keeps its
+ * label as its name.
+ */
+function disabledReason(reason: string | undefined, label: string) {
+  return reason ? { title: reason, "aria-label": `${label}. ${reason}` } : {};
+}
+
 export default function AccessPage() {
   const queryClient = useQueryClient();
   const { data: me } = useSession();
@@ -130,11 +145,17 @@ export default function AccessPage() {
                           // The last admin demoting themselves leaves a
                           // dashboard nobody can admit into, so the API refuses
                           // it and the button does not offer it.
-                          title={
+                          //
+                          // The reason rides in the accessible name as well as
+                          // the tooltip. A disabled button takes no focus, so a
+                          // `title` alone is a reason only a mouse can read —
+                          // the same rule {component.SiteStatusBadge} follows.
+                          {...disabledReason(
                             isSelf && user.is_admin
                               ? "You cannot remove your own admin rights"
-                              : undefined
-                          }
+                              : undefined,
+                            user.is_admin ? "Remove admin" : "Make admin",
+                          )}
                           className="btn btn-outline btn-sm disabled:opacity-50"
                         >
                           {user.is_admin ? "Remove admin" : "Make admin"}
@@ -149,7 +170,10 @@ export default function AccessPage() {
                             onClick={() => change.mutate({ id: user.id, action: "revoke" })}
                             // Locking yourself out is recoverable only by someone
                             // else, and possibly by nobody at all.
-                            title={isSelf ? "You cannot revoke your own access" : undefined}
+                            {...disabledReason(
+                              isSelf ? "You cannot revoke your own access" : undefined,
+                              "Revoke",
+                            )}
                             className="btn btn-outline btn-sm disabled:opacity-50"
                           >
                             Revoke

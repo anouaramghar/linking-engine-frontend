@@ -63,7 +63,12 @@ const PAIRS: Array<[string, string, number]> = [
   ["error-ink", "surface-card", 4.5],
   ["on-primary", "primary", 4.5],
   ["on-dark", "surface-dark", 4.5],
+  // The two grounds that stay dark in both themes, so both take `on-dark`
+  // rather than `on-primary`: the Notice banner and the `.btn-danger` pill.
+  // `on-primary` inverts with the theme and measured 4.09:1 here, which is how
+  // the danger button lost its contrast in dark without any test noticing.
   ["on-dark", "error", 4.5],
+  ["on-dark", "error-active", 4.5],
   ["on-dark-soft", "surface-dark", 4.5],
   // Selected text is still text. This pair is the reason selection has its own
   // two tokens rather than borrowing the lavender orb, which travels.

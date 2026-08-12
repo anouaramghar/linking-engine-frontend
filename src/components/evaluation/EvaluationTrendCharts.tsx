@@ -77,7 +77,7 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
                     y2={y}
                     className="stroke-hairline"
                   />
-                  <text x={0} y={y + 4} className="fill-muted text-[11px]">
+                  <text x={0} y={y + 4} className="fill-muted text-caption-sm">
                     {Math.round(rate * 100)}%
                   </text>
                 </g>
@@ -113,7 +113,7 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
                   x={xAt(index, points.length)}
                   y={HEIGHT - 10}
                   textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}
-                  className="fill-muted text-[11px]"
+                  className="fill-muted text-caption-sm"
                 >
                   {shortDate(points[index].bucket_start)}
                 </text>
@@ -199,20 +199,20 @@ export function OrphanTrend({ points }: { points: OrphanTrendPoint[] }) {
               </circle>
             );
           })}
-          <text x={0} y={TOP + 4} className="fill-muted text-[11px]">
+          <text x={0} y={TOP + 4} className="fill-muted text-caption-sm">
             {formatCount(max)}
           </text>
-          <text x={0} y={HEIGHT - BOTTOM + 4} className="fill-muted text-[11px]">
+          <text x={0} y={HEIGHT - BOTTOM + 4} className="fill-muted text-caption-sm">
             {formatCount(min)}
           </text>
-          <text x={LEFT} y={HEIGHT - 10} className="fill-muted text-[11px]">
+          <text x={LEFT} y={HEIGHT - 10} className="fill-muted text-caption-sm">
             {shortDate(points[0].snapshot_date)}
           </text>
           <text
             x={WIDTH - RIGHT}
             y={HEIGHT - 10}
             textAnchor="end"
-            className="fill-muted text-[11px]"
+            className="fill-muted text-caption-sm"
           >
             {shortDate(points[points.length - 1].snapshot_date)}
           </text>

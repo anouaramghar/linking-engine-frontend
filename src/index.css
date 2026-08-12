@@ -164,7 +164,12 @@
 
   --c-success: 34 197 94;
   --c-error: 220 38 38;
-  --c-error-active: 239 68 68;
+  /* Darker than `error`, the same direction light takes, because this token has
+     exactly one job: the `.btn-danger` hover fill under a white label. Dark used
+     to brighten it to #ef4444, which is the reflex for a dark theme and wrong
+     for a filled button — it dropped the label to 3.76:1. It still clears 3:1
+     against the page (3.05), so the pill keeps its own edge. */
+  --c-error-active: 185 28 28;
   --c-error-ink: 252 165 165;
 
   /* Black on near-black says little, so the shadow leans on depth rather than
@@ -265,11 +270,17 @@ input[type="number"] {
 
   /* Destructive confirm. Not in the system — it documents no danger action, but
      deleting a site with its articles and embeddings must not wear the same
-     ink pill as "Connect site". Uses {colors.semantic-error} unchanged. */
+     ink pill as "Connect site". Uses {colors.semantic-error} unchanged.
+
+     The label is `on-dark`, not `on-primary`. The error fill is one of the two
+     grounds that do not invert, so the pair that travels with the theme is the
+     wrong one here: `on-primary` flips to near-black and leaves the label at
+     4.09:1 on the red in dark. `on-dark` stays white and holds 4.83:1 in both,
+     which is the same reasoning {component.Notice} already follows. */
   .btn-danger {
-    @apply border-error bg-error text-on-primary hover:border-error-active
-      hover:bg-error-active disabled:border-hairline disabled:bg-hairline
-      disabled:text-muted-soft;
+    @apply border-error bg-error text-on-dark focus-ring-inverse
+      hover:border-error-active hover:bg-error-active
+      disabled:border-hairline disabled:bg-hairline disabled:text-muted-soft;
   }
 
   /* Row-level actions. Same pill: 44px on mobile, 32px in pointer-dense layouts.

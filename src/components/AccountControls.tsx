@@ -23,7 +23,10 @@ const getUserAvatarUrl = (user: DashboardUser) => {
 export const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: "sm" | "md" }) => {
   const [imgError, setImgError] = useState(false);
   const initial = initialOf(user);
-  const dim = size === "sm" ? "h-7 w-7 text-xs" : "h-8 w-8 text-caption";
+  // `text-caption-sm`, not Tailwind's `text-xs`: same 12px, but the stock scale
+  // is the one the config deliberately does not own, so a reader cannot check it
+  // against the system.
+  const dim = size === "sm" ? "h-7 w-7 text-caption-sm" : "h-8 w-8 text-caption";
   const avatarUrl = getUserAvatarUrl(user);
 
   if (avatarUrl && !imgError) {
@@ -32,14 +35,14 @@ export const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: 
         src={avatarUrl}
         alt={describeUser(user)}
         onError={() => setImgError(true)}
-        className={`${dim} flex-none rounded-full object-cover ring-1 ring-primary/25 shadow-xs`}
+        className={`${dim} flex-none rounded-full object-cover ring-1 ring-primary/25`}
       />
     );
   }
 
   return (
     <div
-      className={`flex ${dim} flex-none items-center justify-center rounded-full bg-primary/10 text-primary font-semibold ring-1 ring-primary/25 shadow-xs`}
+      className={`flex ${dim} flex-none items-center justify-center rounded-full bg-primary/10 text-primary font-semibold ring-1 ring-primary/25`}
     >
       <span>{initial}</span>
     </div>
@@ -93,9 +96,13 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
     );
   }
 
+  // A card, so it is drawn as one. The alpha-derived pair this used
+  // (`border-hairline/70 bg-surface-card/70` lifting to solid on hover) was
+  // inventing a surface one step below {component.feature-card}; the system
+  // already says what a hovered card does — it takes the single soft shadow tier.
   if (layout === "stack") {
     return (
-      <div className="flex min-w-0 items-center justify-between gap-2.5 rounded-xl border border-hairline/70 bg-surface-card/70 p-2.5 transition-all duration-150 hover:border-hairline hover:bg-surface-card">
+      <div className="card flex min-w-0 items-center justify-between gap-2.5 p-2.5 hover:shadow-soft">
         <div className="flex min-w-0 items-center gap-2.5">
           <UserAvatar user={user} size="md" />
           <div className="min-w-0 flex-1">
@@ -134,7 +141,7 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
   }
 
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-hairline/70 bg-surface-card/70 p-2.5">
+    <div className="card flex min-w-0 items-center justify-between gap-3 p-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
         <UserAvatar user={user} size="sm" />
         <div className="min-w-0">
@@ -147,7 +154,7 @@ export default function AccountControls({ layout = "row" }: { layout?: Layout } 
         type="button"
         onClick={() => logout.mutate()}
         disabled={logout.isPending}
-        className="inline-flex h-8 items-center gap-1.5 rounded-pill bg-surface-strong/70 px-3 text-caption font-medium text-muted transition-colors hover:bg-error/10 hover:text-error-ink disabled:opacity-50"
+        className="inline-flex h-8 items-center gap-1.5 rounded-pill bg-surface-strong px-3 text-caption font-medium text-muted transition-colors hover:bg-error/10 hover:text-error-ink disabled:opacity-50"
       >
         <svg
           aria-hidden="true"
