@@ -3,7 +3,8 @@ export type PipelineBatchStatus =
   | "running"
   | "succeeded"
   | "failed"
-  | "partial_failed";
+  | "partial_failed"
+  | "cancelled";
 
 export type PipelineSiteStatus =
   | "queued"
@@ -11,7 +12,8 @@ export type PipelineSiteStatus =
   | "analysis_queued"
   | "analysis_running"
   | "succeeded"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface PipelineSiteRun {
   id: number;
@@ -34,6 +36,7 @@ export interface PipelineBatch {
   active: number;
   succeeded: number;
   failed: number;
+  cancelled: number;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

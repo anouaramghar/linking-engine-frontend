@@ -14,6 +14,7 @@ const AccessPage = lazy(() => import("./pages/AccessPage"));
 const EvaluationPage = lazy(() => import("./pages/EvaluationPage"));
 const ContentPoolPage = lazy(() => import("./pages/ContentPoolPage"));
 const SitesPage = lazy(() => import("./pages/SitesPage"));
+const TraceabilityPage = lazy(() => import("./pages/TraceabilityPage"));
 const ValidationPage = lazy(() => import("./pages/ValidationPage"));
 const PublishPage = lazy(() => import("./pages/PublishPage"));
 
@@ -105,6 +106,17 @@ const MANAGED: NavItem[] = [
         <path d="M18 17V9" />
         <path d="M13 17V5" />
         <path d="M8 17v-3" />
+      </>
+    ),
+  },
+  {
+    to: "/traceability",
+    label: "Traceability",
+    short: "Trace",
+    icon: (
+      <>
+        <path d="M4 4h16v16H4z" />
+        <path d="M8 9h8M8 13h8M8 17h5" />
       </>
     ),
   },
@@ -298,7 +310,7 @@ function RailNavigation({
 /** The mobile row stays flat: the columns are already the grouping. */
 function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
   return (
-    <nav aria-label="Mobile navigation" className="grid grid-cols-5 gap-1 px-2 pb-2">
+    <nav aria-label="Mobile navigation" className="grid grid-cols-6 gap-1 px-2 pb-2">
       {NAV.map((item) => (
         <NavLink
           key={item.to}
@@ -538,6 +550,7 @@ export default function App() {
             <Route path="/sites" element={<SitesPage />} />
             <Route path="/content-pool" element={<ContentPoolPage />} />
             <Route path="/evaluation" element={<EvaluationPage />} />
+            <Route path="/traceability" element={<TraceabilityPage />} />
             <Route path="/access" element={<AccessPage />} />
             <Route path="*" element={<Navigate to="/queue" replace />} />
           </Routes>

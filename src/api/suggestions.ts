@@ -3,6 +3,7 @@ import type {
   Placement,
   ReviewStatus,
   Suggestion,
+  SuggestionEvent,
   SuggestionStatus,
   SuggestionTargetOrigin,
 } from "../types/suggestion";
@@ -102,6 +103,40 @@ export const reviewSuggestion = (id: number, status: ReviewStatus) =>
 export const getPlacement = (id: number) =>
   api.get<Placement>(`/suggestions/${id}/placement`).then((r) => r.data);
 
+/** Lifecycle history is loaded only for the open drawer, never for queue rows. */
+export const getSuggestionEvents = (id: number) =>
+  api
+    .get<SuggestionEvent[]>(`/suggestions/${id}/events`, { params: { limit: 50 } })
+    .then((response) => response.data);
+
+/**
+ * Resolve the complete pending selection behind the current queue filters.
+ *
+ * The visible list is deliberately incremental, so its mounted rows are not a
+ * safe definition of "all filtered". Walk the engine cursor instead and retain
+ * only ids; review still uses the bounded, chunked endpoint below.
+ */
+export const listAllSuggestionIds = async (filters: SuggestionQueueFilters) => {
+  const ids: number[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: SuggestionCursor | null = null;
+
+  do {
+    const page = await listSuggestionPage(filters, cursor);
+    ids.push(...page.items.map((suggestion) => suggestion.id));
+    cursor = page.next_cursor;
+    if (cursor) {
+      const key = `${cursor.score}:${cursor.id}`;
+      if (seenCursors.has(key)) {
+        throw new Error("The suggestion cursor repeated while selecting all filtered results.");
+      }
+      seenCursors.add(key);
+    }
+  } while (cursor);
+
+  return ids;
+};
+
 export interface BulkReviewResult {
   /** Rows that actually moved. */
   reviewed: number[];
@@ -116,7 +151,15 @@ export interface FilteredBulkReviewResult {
   reviewed: number;
   skipped: number;
   reviewed_ids: number[] | null;
+  undo_operation_id: string | null;
   status: Exclude<ReviewStatus, "pending">;
+}
+
+export interface FilteredBulkUndoResult {
+  restored: number;
+  skipped: number;
+  status: ReviewStatus;
+  already_undone: boolean;
 }
 
 export interface FilteredBulkReviewRule {
@@ -147,6 +190,13 @@ export const bulkReviewByFilter = (rule: FilteredBulkReviewRule) =>
         : { target_origin: rule.targetOrigin }),
       ...(rule.excludeReciprocal ? { exclude_reciprocal: true } : {}),
     })
+    .then((response) => response.data);
+
+export const undoFilteredBulkReview = (operationId: string) =>
+  api
+    .post<FilteredBulkUndoResult>(
+      `/suggestions/bulk-review-operations/${operationId}/undo`,
+    )
     .then((response) => response.data);
 
 interface BulkReviewResponse {

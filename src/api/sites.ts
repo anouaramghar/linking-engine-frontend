@@ -4,6 +4,11 @@ import type {
   Site,
   SiteCreate,
   PoolAuditEvent,
+  ExternalLinkPolicy,
+  ExternalLinkPolicyUpdate,
+  ExternalSourceEvaluation,
+  EditorialRankingPolicy,
+  EditorialRankingPolicyUpdate,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -70,3 +75,40 @@ export const listPoolAuditEvents = (
       params: { limit, offset },
     })
     .then((r) => r.data);
+
+export const getExternalLinkPolicy = (siteId: number) =>
+  api.get<ExternalLinkPolicy>(`/sites/${siteId}/external-link-policy`).then((r) => r.data);
+
+export const updateExternalLinkPolicy = ({
+  siteId,
+  policy,
+}: {
+  siteId: number;
+  policy: ExternalLinkPolicyUpdate;
+}) =>
+  api
+    .put<ExternalLinkPolicy>(`/sites/${siteId}/external-link-policy`, policy)
+    .then((r) => r.data);
+
+export const listExternalSourceEvaluations = (siteId: number) =>
+  api
+    .get<{ items: ExternalSourceEvaluation[] }>(
+      `/sites/${siteId}/external-link-policy/sources`,
+    )
+    .then((r) => r.data.items);
+
+export const getEditorialRankingPolicy = (siteId: number) =>
+  api
+    .get<EditorialRankingPolicy>(`/sites/${siteId}/editorial-ranking-policy`)
+    .then((response) => response.data);
+
+export const updateEditorialRankingPolicy = ({
+  siteId,
+  policy,
+}: {
+  siteId: number;
+  policy: EditorialRankingPolicyUpdate;
+}) =>
+  api
+    .put<EditorialRankingPolicy>(`/sites/${siteId}/editorial-ranking-policy`, policy)
+    .then((response) => response.data);

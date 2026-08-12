@@ -37,7 +37,22 @@ export interface Site {
   pool_source_quarantine_reason?: string | null;
   pool_source_last_reactivated_at?: string | null;
   pool_source_last_reactivated_by?: string | null;
+  domain_registered_at?: string | null;
+  editorial_feedback_enabled?: boolean;
+  editorial_min_score_percent?: number;
+  editorial_feedback_weight?: number;
+  editorial_feedback_min_samples?: number;
 }
+
+export interface EditorialRankingPolicy {
+  site_id: number;
+  enabled: boolean;
+  min_score_percent: number;
+  feedback_weight: number;
+  min_samples: number;
+}
+
+export type EditorialRankingPolicyUpdate = Omit<EditorialRankingPolicy, "site_id">;
 
 export interface PoolAuditEvent {
   id: number;
@@ -56,6 +71,56 @@ export interface SiteCreate {
   platform: "wordpress" | "html" | "pool";
   wp_username?: string;
   wp_app_password?: string;
+  domain_registered_at?: string;
+}
+
+export interface ExternalLinkPolicy {
+  site_id: number;
+  external_links_enabled: boolean;
+  require_https: boolean;
+  min_trust_score: number;
+  min_domain_age_days: number;
+  trusted_tlds: string[];
+  allowlist_domains: string[];
+  blocklist_domains: string[];
+  competitor_domains: string[];
+  owned_domain_protection: true;
+  expired_suggestions: number;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export type ExternalLinkPolicyUpdate = Pick<
+  ExternalLinkPolicy,
+  | "external_links_enabled"
+  | "require_https"
+  | "min_trust_score"
+  | "min_domain_age_days"
+  | "trusted_tlds"
+  | "allowlist_domains"
+  | "blocklist_domains"
+  | "competitor_domains"
+>;
+
+export interface ExternalSourceEvaluation {
+  site_id: number;
+  site_name: string;
+  domain: string;
+  trust_score: number;
+  eligible: boolean;
+  eligible_articles: number;
+  blocked_articles: number;
+  reasons: string[];
+  checks: {
+    https: boolean;
+    trusted_tld: boolean;
+    domain_age_days: number | null;
+    allowlisted: boolean;
+    blocklisted: boolean;
+    competitor: boolean;
+    owned_domain: boolean;
+    approved_source: boolean;
+  };
 }
 
 export interface BulkCreated {

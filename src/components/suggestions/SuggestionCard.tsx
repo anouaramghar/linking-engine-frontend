@@ -68,6 +68,9 @@ function SuggestionCard({
                 {s.target_article.title}
               </span>
               <span className="badge">{TARGET_ORIGIN_LABEL[s.target_origin]}</span>
+              {s.target_origin !== "internal" && (
+                <span className="text-caption text-muted">{s.target_site_name}</span>
+              )}
             </span>
           </span>
           <span className="flex w-[72px] flex-none flex-col items-end text-right sm:w-[104px]">

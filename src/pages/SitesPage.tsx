@@ -16,11 +16,14 @@ import SelectionControl from "../components/SelectionControl";
 import AddSiteModal from "../components/sites/AddSiteModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
+import EditorialRankingPolicyModal from "../components/sites/EditorialRankingPolicyModal";
+import ExternalLinkPolicyModal from "../components/sites/ExternalLinkPolicyModal";
 import SiteCredentialsModal from "../components/sites/SiteCredentialsModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import {
+  useCancelPipelineBatch,
   useCreatePipelineBatch,
   usePipelineBatch,
   useRetryPipelineSite,
@@ -225,14 +228,18 @@ export default function SitesPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
   const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
+  const [policySite, setPolicySite] = useState<Site | null>(null);
+  const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
   const selectVisibleRef = useRef<HTMLInputElement>(null);
   const selectVisibleMobileRef = useRef<HTMLInputElement>(null);
   const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
+  const [confirmCancelBatch, setConfirmCancelBatch] = useState(false);
   const createBatch = useCreatePipelineBatch();
   const batchQuery = usePipelineBatch(batchId);
   const retryPipelineSite = useRetryPipelineSite();
+  const cancelBatch = useCancelPipelineBatch();
 
   useEffect(() => {
     const syncBatchFromUrl = () => setBatchId(batchIdFromUrl());
@@ -421,6 +428,21 @@ export default function SitesPage() {
     );
   };
 
+  const cancelActiveBatch = async () => {
+    if (batchId === null || cancelBatch.isPending) return;
+    setNotice(null);
+    try {
+      await cancelBatch.mutateAsync(batchId);
+      setConfirmCancelBatch(false);
+      setNotice({ message: `Batch #${batchId} cancelled safely.`, tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The batch could not be cancelled."),
+        tone: "error",
+      });
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -518,6 +540,8 @@ export default function SitesPage() {
               retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
             }
             onRetry={(siteId) => void retryBatchSite(siteId)}
+            cancelling={cancelBatch.isPending}
+            onCancel={() => setConfirmCancelBatch(true)}
           />
         )}
 
@@ -716,6 +740,14 @@ export default function SitesPage() {
                               ),
                           },
                           {
+                            label: "External link policy",
+                            onSelect: () => setPolicySite(site),
+                          },
+                          {
+                            label: "Editorial ranking policy",
+                            onSelect: () => setRankingPolicySite(site),
+                          },
+                          {
                             // Was "Publish approved", and it published every
                             // selected suggestion for the site with nobody
                             // having seen the resulting edit. Publication is now
@@ -830,6 +862,20 @@ export default function SitesPage() {
           onDone={(message) => setNotice({ message, tone: "info" })}
         />
       )}
+      {policySite && (
+        <ExternalLinkPolicyModal
+          site={policySite}
+          onClose={() => setPolicySite(null)}
+          onSaved={(message) => setNotice({ message, tone: "info" })}
+        />
+      )}
+      {rankingPolicySite && (
+        <EditorialRankingPolicyModal
+          site={rankingPolicySite}
+          onClose={() => setRankingPolicySite(null)}
+          onSaved={(message) => setNotice({ message, tone: "info" })}
+        />
+      )}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}
@@ -840,6 +886,17 @@ export default function SitesPage() {
           pending={deleteSite.isPending}
           onConfirm={remove}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+      {confirmCancelBatch && batchId !== null && (
+        <ConfirmDialog
+          title={`Cancel batch #${batchId}?`}
+          description="Queued work will be removed and running stages will be stopped. Completed sites stay completed; unfinished sites are marked cancelled."
+          confirmLabel="Cancel batch"
+          danger
+          pending={cancelBatch.isPending}
+          onConfirm={() => void cancelActiveBatch()}
+          onCancel={() => setConfirmCancelBatch(false)}
         />
       )}
     </>

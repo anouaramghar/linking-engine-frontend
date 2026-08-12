@@ -125,11 +125,12 @@ describe("Rail collapse", () => {
       "Sites",
       "Content Pool",
       "Evaluation",
+      "Traceability",
       "Access",
     ]) {
       expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
-    expect(rail().querySelectorAll("a")).toHaveLength(5);
+    expect(rail().querySelectorAll("a")).toHaveLength(6);
   });
 
   it("carries each count when the badge cannot show it", async () => {

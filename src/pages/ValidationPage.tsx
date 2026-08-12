@@ -5,13 +5,14 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { BulkReviewChunkError } from "../api/suggestions";
-import { ENGINE_PAGE_LIMIT } from "../api/engineLimits";
 import type {
   SuggestionCounts,
   SuggestionQueueFilters,
 } from "../api/suggestions";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
+import BulkRecoveryPanel from "../components/suggestions/BulkRecoveryPanel";
+import type { BulkRecovery } from "../components/suggestions/BulkRecoveryPanel";
 import QueueFilters from "../components/suggestions/QueueFilters";
 import { useQueueFilters } from "../hooks/useQueueFilters";
 import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
@@ -28,9 +29,11 @@ import { usePendingPublication } from "../hooks/usePublish";
 import {
   useBulkReview,
   useFilteredBulkReview,
+  useFilteredBulkUndo,
   usePlacement,
   useReview,
   useSuggestionCounts,
+  useSuggestionEvents,
   useSuggestions,
 } from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
@@ -132,6 +135,7 @@ export default function ValidationPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [bulkRecovery, setBulkRecovery] = useState<BulkRecovery | null>(null);
   const overrideOrder = useRef<number[]>([]);
   const focusAfterReview = useRef<number | "main" | null>(null);
 
@@ -242,6 +246,7 @@ export default function ValidationPage() {
   const review = useReview();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
+  const filteredUndo = useFilteredBulkUndo();
 
   // The suggestions query stays disabled until sites arrive, so it reports
   // "pending" before it has any work to do — gate it on the sites we have.
@@ -266,7 +271,7 @@ export default function ValidationPage() {
   const supportQueryFailed =
     bulkCountQueryFailed || pendingPublicationQuery.isError;
   const actionMutationPending = Boolean(
-    review.isPending || bulkReview.isPending || filteredReview.isPending,
+    review.isPending || bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending,
   );
   const bulkControlsBlocked =
     failed || queueUpdating || bulkCountQueryFailed || actionMutationPending;
@@ -465,6 +470,7 @@ export default function ValidationPage() {
     describe: (count: number) => string,
     failure?: BatchFailure,
     reviewedCount = reviewed.length,
+    undoOperationId?: string | null,
   ) => {
     const applied = reviewed;
     const confirmedCount = Math.max(reviewedCount, applied.length);
@@ -529,6 +535,8 @@ export default function ValidationPage() {
       tone: skippedCount || failure ? "error" : "info",
       // Undoing an undo is just a re-review; only decisions offer it.
       undoIds: status === "pending" || unknownIdCount ? undefined : applied,
+      undoOperationId:
+        status === "pending" || unknownIdCount ? undefined : undoOperationId ?? undefined,
     });
   };
 
@@ -538,6 +546,11 @@ export default function ValidationPage() {
     describe: (count: number) => string,
   ) => {
     if (!(error instanceof BulkReviewChunkError)) return false;
+    setBulkRecovery({
+      status,
+      failedIds: error.failedIds,
+      notAttemptedIds: error.notAttemptedIds,
+    });
     applyBatch(
       error.completed.reviewed,
       status,
@@ -550,6 +563,68 @@ export default function ValidationPage() {
       error.completed.reviewedCount,
     );
     return true;
+  };
+
+  const runRecovery = (ids: number[], preserve: BulkRecovery) => {
+    if (!ids.length) return;
+    setNotice(null);
+    bulkReview.mutate(
+      { ids, status: preserve.status },
+      {
+        onSuccess: ({ reviewed, reviewedCount, skipped }) => {
+          const next = {
+            ...preserve,
+            failedIds: preserve.failedIds.filter((id) => !ids.includes(id)),
+            notAttemptedIds: preserve.notAttemptedIds.filter((id) => !ids.includes(id)),
+          };
+          setBulkRecovery(next.failedIds.length || next.notAttemptedIds.length ? next : null);
+          applyBatch(
+            reviewed,
+            preserve.status,
+            skipped,
+            (count) => `${count} retried ${plural(count)} saved.`,
+            undefined,
+            reviewedCount,
+          );
+        },
+        onError: (error) => {
+          if (!(error instanceof BulkReviewChunkError)) {
+            setNotice({
+              message: "The recovery request failed. The exact IDs remain below.",
+              tone: "error",
+            });
+            return;
+          }
+          const untouchedFailed = preserve.failedIds.filter((id) => !ids.includes(id));
+          const untouchedLater = preserve.notAttemptedIds.filter((id) => !ids.includes(id));
+          const next = {
+            status: preserve.status,
+            failedIds: [...untouchedFailed, ...error.failedIds],
+            notAttemptedIds: [...untouchedLater, ...error.notAttemptedIds],
+          } satisfies BulkRecovery;
+          setBulkRecovery(next);
+          applyBatch(
+            error.completed.reviewed,
+            preserve.status,
+            error.completed.skipped,
+            (count) => `${count} retried ${plural(count)} saved.`,
+            {
+              failed: error.failedIds.length,
+              notAttempted: error.notAttemptedIds.length,
+            },
+            error.completed.reviewedCount,
+          );
+        },
+      },
+    );
+  };
+
+  const retryFailedOnly = () => {
+    if (bulkRecovery) runRecovery(bulkRecovery.failedIds, bulkRecovery);
+  };
+
+  const continueNotAttempted = () => {
+    if (bulkRecovery) runRecovery(bulkRecovery.notAttemptedIds, bulkRecovery);
   };
 
   /**
@@ -641,6 +716,32 @@ export default function ValidationPage() {
     );
   };
 
+  const undoFiltered = (operationId: string) => {
+    setNotice(null);
+    filteredUndo.mutate(operationId, {
+      onSuccess: ({ restored, skipped }) => {
+        setSelectedId(null);
+        setNotice({
+          message: [
+            `${restored} ${plural(restored)} restored to pending review.`,
+            skipped
+              ? `${skipped} ${plural(skipped)} had changed or entered publishing and were left untouched.`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          tone: skipped ? "error" : "info",
+        });
+      },
+      onError: () =>
+        setNotice({
+          message: "That filtered bulk undo could not be saved. Please try again.",
+          tone: "error",
+          undoOperationId: operationId,
+        }),
+    });
+  };
+
   /**
    * Row handlers that never change identity.
    *
@@ -676,7 +777,7 @@ export default function ValidationPage() {
       count,
       threshold,
       siteLabel: siteFilter === 0 ? "All sites" : siteName(siteFilter),
-      undoAvailable: count <= ENGINE_PAGE_LIMIT,
+      undoAvailable: true,
     });
   };
 
@@ -702,9 +803,22 @@ export default function ValidationPage() {
         thresholdPercent: confirmation.threshold,
       },
       {
-        onSuccess: ({ reviewed, skipped, reviewed_ids: reviewedIds }) => {
+        onSuccess: ({
+          reviewed,
+          skipped,
+          reviewed_ids: reviewedIds,
+          undo_operation_id: undoOperationId,
+        }) => {
           if (reviewedIds !== null) {
-            applyBatch(reviewedIds, status, skipped, describe);
+            applyBatch(
+              reviewedIds,
+              status,
+              skipped,
+              describe,
+              undefined,
+              reviewed,
+              undoOperationId,
+            );
             return;
           }
           setSelectedId(null);
@@ -714,11 +828,14 @@ export default function ValidationPage() {
               skipped
                 ? `${skipped} ${plural(skipped)} could not be changed because publishing had already claimed them or they had expired.`
                 : "",
-              "This change was too large to undo in one step. The queue has been refreshed.",
+              undoOperationId
+                ? "The exact server-side cohort can be undone from this message."
+                : "The queue has been refreshed.",
             ]
               .filter(Boolean)
               .join(" "),
             tone: skipped ? "error" : "info",
+            undoOperationId: undoOperationId ?? undefined,
           });
         },
         onError: () =>
@@ -773,6 +890,7 @@ export default function ValidationPage() {
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.
   const placementQuery = usePlacement(selected?.id ?? null);
+  const traceQuery = useSuggestionEvents(selected?.id ?? null);
 
   useEffect(() => {
     const target = focusAfterReview.current;
@@ -879,8 +997,28 @@ export default function ValidationPage() {
             <Notice
               notice={notice}
               onDismiss={() => setNotice(null)}
-              onUndo={notice.undoIds ? () => undo(notice.undoIds!) : undefined}
-              undoPending={bulkReview.isPending || filteredReview.isPending}
+              onUndo={
+                notice.undoOperationId
+                  ? () => undoFiltered(notice.undoOperationId!)
+                  : notice.undoIds
+                    ? () => undo(notice.undoIds!)
+                    : undefined
+              }
+              undoPending={
+                bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending
+              }
+              onRetry={bulkRecovery?.failedIds.length ? retryFailedOnly : undefined}
+              retryPending={bulkReview.isPending}
+            />
+          )}
+
+          {bulkRecovery && (
+            <BulkRecoveryPanel
+              recovery={bulkRecovery}
+              busy={bulkReview.isPending}
+              onRetryFailed={retryFailedOnly}
+              onContinue={continueNotAttempted}
+              onDismiss={() => setBulkRecovery(null)}
             />
           )}
 
@@ -1102,14 +1240,20 @@ export default function ValidationPage() {
           <SuggestionPreview
             suggestion={selected}
             siteName={siteName(selected.site_id)}
-            placement={{
+              placement={{
               data: placementQuery.data,
               // `isFetching` too, so a retry replaces the error with progress
               // instead of leaving the old message under a dead button.
               isLoading: placementQuery.isPending || placementQuery.isFetching,
               error: placementQuery.error,
-              onRetry: () => void placementQuery.refetch(),
-            }}
+                onRetry: () => void placementQuery.refetch(),
+              }}
+              trace={{
+                data: traceQuery.data,
+                isLoading: traceQuery.isPending || traceQuery.isFetching,
+                error: traceQuery.error,
+                onRetry: () => void traceQuery.refetch(),
+              }}
             actionsDisabled={queueUpdating || actionMutationPending}
             onClose={() => setSelectedId(null)}
             // Collapsing puts the column away, so it also lets the open

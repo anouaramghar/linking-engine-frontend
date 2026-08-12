@@ -74,4 +74,18 @@ describe("Notice", () => {
     vi.advanceTimersByTime(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it("offers a retry for a recoverable failed operation", () => {
+    const onRetry = vi.fn();
+    render(
+      <Notice
+        notice={{ message: "Some suggestions failed.", tone: "error" }}
+        onDismiss={vi.fn()}
+        onRetry={onRetry}
+      />,
+    );
+
+    screen.getByRole("button", { name: "Retry failed only" }).click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });

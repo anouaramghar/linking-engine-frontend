@@ -17,6 +17,8 @@ interface Props {
   children: React.ReactNode;
   /** Sizing and layout for the panel; the chrome is owned by this component. */
   panelClassName?: string;
+  role?: "dialog" | "alertdialog";
+  ariaLabel?: string;
   /** Protected workflows should close only through an explicit action. */
   dismissOnBackdrop?: boolean;
 }
@@ -27,6 +29,8 @@ export default function Modal({
   onClose,
   children,
   panelClassName = "",
+  role = "dialog",
+  ariaLabel,
   dismissOnBackdrop = true,
 }: Props) {
   const panel = useRef<HTMLDivElement>(null);
@@ -45,9 +49,10 @@ export default function Modal({
     >
       <div
         ref={panel}
-        role="dialog"
+        role={role}
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabel ? undefined : titleId}
         tabIndex={-1}
         onKeyDown={onKeyDown}
         className={`flex max-h-[85vh] w-full flex-col rounded-xl border border-hairline bg-canvas-soft p-5 focus:outline-none sm:p-8 ${panelClassName}`}

@@ -7,18 +7,19 @@ export interface NoticeState {
   tone: NoticeTone;
   /** Suggestions this notice can walk back, when the action is reversible. */
   undoIds?: number[];
+  /** Server-side cohort used when a filtered operation is too large to return IDs. */
+  undoOperationId?: string;
 }
 
 /**
- * A confirmation is the ink surface the system already uses for its dark
- * inversions; a failure is the one place {colors.semantic-error} earns a fill.
+ * A successful operation uses the success fill; a failure uses the error fill.
  *
  * Both invert, so both flip the focus ring with them — the app's ink ring is
  * invisible on either, and Undo is the last control that should be hard to
  * find with a keyboard.
  */
 const TONE: Record<NoticeTone, string> = {
-  info: "bg-surface-dark text-on-dark focus-ring-inverse",
+  info: "bg-success text-on-dark focus-ring-inverse",
   error: "bg-error text-on-dark focus-ring-inverse",
 };
 
@@ -30,10 +31,20 @@ interface Props {
   onDismiss: () => void;
   onUndo?: () => void;
   undoPending?: boolean;
+  onRetry?: () => void;
+  retryPending?: boolean;
 }
 
-export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props) {
-  const canUndo = !!onUndo && !!notice.undoIds?.length;
+export default function Notice({
+  notice,
+  onDismiss,
+  onUndo,
+  undoPending,
+  onRetry,
+  retryPending,
+}: Props) {
+  const canUndo =
+    !!onUndo && (!!notice.undoIds?.length || !!notice.undoOperationId);
 
   // Held in a ref so an inline parent callback can't restart the countdown on
   // every re-render — the timer belongs to this notice, not to this render.
@@ -125,16 +136,26 @@ export default function Notice({ notice, onDismiss, onUndo, undoPending }: Props
           type="button"
           onClick={onUndo}
           disabled={undoPending}
-          className="touch-target inline-flex min-h-11 items-center rounded-pill border border-on-dark/40 px-3 text-caption font-medium hover:bg-on-dark/15 disabled:opacity-50 sm:min-h-8"
+          className="inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
         >
           {undoPending ? "Undoing…" : "Undo"}
+        </button>
+      )}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retryPending}
+          className="inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
+        >
+          {retryPending ? "Retrying…" : "Retry failed only"}
         </button>
       )}
       <button
         type="button"
         aria-label="Dismiss message"
         onClick={onDismiss}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-body-md leading-none text-on-dark-soft hover:bg-on-dark/15 hover:text-on-dark"
+        className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-pill text-body-md leading-none text-on-dark hover:bg-on-dark/15"
       >
         &times;
       </button>

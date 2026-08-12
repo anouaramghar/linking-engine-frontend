@@ -26,6 +26,24 @@ describe("Modal", () => {
     expect(screen.getByRole("heading", { name: "Connect a site" })).not.toBeNull();
   });
 
+  it("can announce a destructive confirmation as an alert dialog", () => {
+    render(
+      <Modal
+        title="Reject selected suggestions?"
+        ariaLabel="Confirm selected suggestions"
+        role="alertdialog"
+        onClose={vi.fn()}
+      >
+        <button type="button">Confirm</button>
+      </Modal>,
+    );
+
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Confirm selected suggestions",
+    });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+  });
+
   it("moves focus in on open and restores it on close", async () => {
     const opener = document.createElement("button");
     document.body.append(opener);

@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => ({
   reviewMutate: vi.fn(),
   bulkMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
+  filteredUndoMutate: vi.fn(),
   prepareMutate: vi.fn(),
   prepareReset: vi.fn(),
   approveMutate: vi.fn(),
@@ -71,6 +72,7 @@ const mocks = vi.hoisted(() => ({
   /** Undefined derives ids from the rule; null models a result over the cap. */
   filteredReviewedIds: undefined as number[] | null | undefined,
   filteredReviewedCount: undefined as number | undefined,
+  filteredUndoOperationId: null as string | null,
   bulkError: null as unknown,
   filteredBulkError: null as unknown,
   pendingPublication: [] as {
@@ -109,6 +111,13 @@ vi.mock("../hooks/useSuggestions", () => ({
   // about; they assert on the queue and its review decisions, so it stays at rest.
   usePlacement: () => ({
     data: undefined,
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+  useSuggestionEvents: () => ({
+    data: [],
     isPending: false,
     isFetching: false,
     error: null,
@@ -160,6 +169,7 @@ vi.mock("../hooks/useSuggestions", () => ({
     mutate: mocks.filteredBulkMutate,
     isPending: false,
   }),
+  useFilteredBulkUndo: () => ({ mutate: mocks.filteredUndoMutate, isPending: false }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -220,6 +230,7 @@ beforeEach(() => {
   mocks.reviewMutate.mockReset();
   mocks.bulkMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
+  mocks.filteredUndoMutate.mockReset();
   mocks.prepareMutate.mockReset();
   mocks.prepareReset.mockReset();
   mocks.approveMutate.mockReset();
@@ -227,6 +238,7 @@ beforeEach(() => {
   mocks.bulkSkipped = [];
   mocks.filteredReviewedIds = undefined;
   mocks.filteredReviewedCount = undefined;
+  mocks.filteredUndoOperationId = null;
   mocks.bulkError = null;
   mocks.filteredBulkError = null;
   mocks.pendingPublication = [];
@@ -284,6 +296,7 @@ beforeEach(() => {
           targets.length - mocks.bulkSkipped.length,
         skipped: mocks.bulkSkipped.length,
         reviewed_ids: reviewedIds,
+        undo_operation_id: mocks.filteredUndoOperationId,
         status: variables.status,
       });
     },
@@ -601,7 +614,7 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
   });
 
-  it("refetches a large rule result without offering impossible undo", async () => {
+  it("keeps a large rule result undoable through its server-side cohort", async () => {
     const user = userEvent.setup();
     mocks.suggestions.splice(
       0,
@@ -612,18 +625,21 @@ describe("ValidationPage live review state", () => {
     );
     mocks.filteredReviewedIds = null;
     mocks.filteredReviewedCount = 1001;
+    mocks.filteredUndoOperationId = "operation-large";
     renderQueue();
 
     await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
     expect(screen.getByRole("region", { name: /1001 pending suggestions/ }).textContent).toContain(
-      "too large to undo in one step",
+      "The decision can be undone",
     );
     await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
-    expect(screen.getByRole("status").textContent).toContain(
-      "This change was too large to undo in one step",
+    expect(screen.getByRole("status").textContent).toContain("server-side cohort can be undone");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(mocks.filteredUndoMutate).toHaveBeenCalledWith(
+      "operation-large",
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
   it("never targets suggestions hidden by the active status filter", async () => {

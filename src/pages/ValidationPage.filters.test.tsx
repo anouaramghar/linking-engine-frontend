@@ -62,6 +62,13 @@ vi.mock("../hooks/useSuggestions", () => ({
     error: null,
     refetch: vi.fn(),
   }),
+  useSuggestionEvents: () => ({
+    data: [],
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   useSuggestionCounts: () => ({
     data: {
       pending: 1,
@@ -69,6 +76,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       rejected: 0,
       applying: 0,
       applied: 0,
+      failed: 0,
       expired: 0,
       total: 1,
     },
@@ -83,6 +91,8 @@ vi.mock("../hooks/useSuggestions", () => ({
     mutate: mocks.filteredBulkMutate,
     isPending: false,
   }),
+  useFilteredBulkUndo: () => ({ mutate: vi.fn(), isPending: false }),
+  useAllFilteredSuggestionIds: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -160,6 +170,16 @@ describe("queue filters", () => {
     await user.selectOptions(screen.getByLabelText("Target filter"), "content_pool");
 
     await waitFor(() => expect(currentSearch).toContain("origin=content_pool"));
+  });
+
+  it("supports a shareable Tavily-only queue", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.selectOptions(screen.getByLabelText("Target filter"), "web_search");
+
+    await waitFor(() => expect(currentSearch).toContain("origin=web_search"));
+    expect(mocks.queueFilters?.targetOrigin).toBe("web_search");
   });
 
   it("restores a queue from a shared link", () => {

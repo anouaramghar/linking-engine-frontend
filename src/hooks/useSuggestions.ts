@@ -12,8 +12,11 @@ import {
   bulkReviewByFilter,
   countSuggestions,
   getPlacement,
+  getSuggestionEvents,
+  listAllSuggestionIds,
   listSuggestionPage,
   reviewSuggestion,
+  undoFilteredBulkReview,
 } from "../api/suggestions";
 import type {
   SuggestionCursor,
@@ -86,11 +89,20 @@ export const usePlacement = (suggestionId: number | null) =>
     retry: 1,
   });
 
+/** Lazy audit history for the one suggestion whose detail drawer is open. */
+export const useSuggestionEvents = (suggestionId: number | null) =>
+  useQuery({
+    queryKey: ["suggestion-events", suggestionId],
+    queryFn: () => getSuggestionEvents(suggestionId as number),
+    enabled: suggestionId !== null,
+  });
+
 const useInvalidateQueue = () => {
   const qc = useQueryClient();
   return () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["suggestions"] }),
+      qc.invalidateQueries({ queryKey: ["suggestion-events"] }),
       qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
     ]);
 };
@@ -139,3 +151,14 @@ export const useFilteredBulkReview = () => {
     onSettled: invalidate,
   });
 };
+
+export const useFilteredBulkUndo = () => {
+  const invalidate = useInvalidateQueue();
+  return useMutation({
+    mutationFn: undoFilteredBulkReview,
+    onSettled: invalidate,
+  });
+};
+
+export const useAllFilteredSuggestionIds = () =>
+  useMutation({ mutationFn: listAllSuggestionIds });

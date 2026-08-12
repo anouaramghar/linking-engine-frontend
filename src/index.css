@@ -328,7 +328,6 @@ input[type="number"] {
     @apply h-2 w-2 flex-none rounded-full;
   }
 }
-
 /**
  * What the dark theme needs beyond the palette swap, and nothing more.
  *
@@ -526,4 +525,3 @@ input[type="number"] {
     transform: none;
   }
 }
-

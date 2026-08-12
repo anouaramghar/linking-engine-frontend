@@ -32,7 +32,6 @@ export function ErrorPanel({
     </div>
   );
 }
-
 export function EmptyPanel({ children }: { children: React.ReactNode }) {
   return <div className={`${PANEL} text-body-sm text-muted`}>{children}</div>;
 }
@@ -79,4 +78,3 @@ export function SkeletonRows({ count = 4, label }: { count?: number; label: stri
     </div>
   );
 }
-

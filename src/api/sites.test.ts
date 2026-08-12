@@ -4,22 +4,61 @@ import {
   approvePoolSource,
   bulkCreateSites,
   deleteSite,
+  getExternalLinkPolicy,
+  listExternalSourceEvaluations,
   listPoolAuditEvents,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
+  updateExternalLinkPolicy,
 } from "./sites";
 
 const get = vi.hoisted(() => vi.fn());
 const post = vi.hoisted(() => vi.fn());
 const del = vi.hoisted(() => vi.fn());
+const put = vi.hoisted(() => vi.fn());
 
-vi.mock("./client", () => ({ api: { get, post, delete: del } }));
+vi.mock("./client", () => ({ api: { get, post, put, delete: del } }));
 
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
   del.mockReset();
+  put.mockReset();
+});
+
+describe("external-link policy", () => {
+  it("reads and updates one managed site's policy", async () => {
+    const policy = { site_id: 8, min_trust_score: 70 };
+    get.mockResolvedValue({ data: policy });
+    put.mockResolvedValue({ data: policy });
+
+    await expect(getExternalLinkPolicy(8)).resolves.toEqual(policy);
+    expect(get).toHaveBeenCalledWith("/sites/8/external-link-policy");
+
+    const update = {
+      external_links_enabled: true,
+      require_https: true,
+      min_trust_score: 70,
+      min_domain_age_days: 30,
+      trusted_tlds: ["org"],
+      allowlist_domains: [],
+      blocklist_domains: [],
+      competitor_domains: ["competitor.example"],
+    };
+    await expect(updateExternalLinkPolicy({ siteId: 8, policy: update })).resolves.toEqual(
+      policy,
+    );
+    expect(put).toHaveBeenCalledWith("/sites/8/external-link-policy", update);
+  });
+
+  it("returns the source evaluation items", async () => {
+    const items = [{ site_id: 4, trust_score: 90 }];
+    get.mockResolvedValue({ data: { items } });
+
+    await expect(listExternalSourceEvaluations(8)).resolves.toEqual(items);
+    expect(get).toHaveBeenCalledWith("/sites/8/external-link-policy/sources");
+  });
 });
 describe("listSites", () => {
   it("loads one bounded server page with optional search", async () => {

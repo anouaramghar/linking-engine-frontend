@@ -56,10 +56,9 @@ const renderPreview = (
   );
 
 describe("SuggestionPreview publication state", () => {
-  it("keeps the live cosine score without advertising unsupported future signals", () => {
+  it("keeps suggestion details without advertising unsupported future signals", () => {
     renderPreview("pending");
 
-    expect(screen.getByText("90%")).not.toBeNull();
     expect(screen.getByText("Internal link")).not.toBeNull();
     expect(screen.getByText("Placement context")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Soon");
@@ -67,7 +66,7 @@ describe("SuggestionPreview publication state", () => {
     expect(document.body.textContent).not.toContain("Shared taxonomy");
   });
 
-  it("labels Hybrid suggestions without calling the score BM25 confidence", () => {
+  it("does not render the removed similarity summary card", () => {
     const hybrid = { ...suggestion("pending"), method: "hybrid_bm25" };
     render(
       <SuggestionPreview
@@ -81,44 +80,8 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Semantic similarity")).not.toBeNull();
+    expect(screen.queryByText("Semantic similarity")).toBeNull();
     expect(screen.queryByText("Cosine baseline")).toBeNull();
-  });
-
-  it("reports the BM25 selection score as its own raw number", () => {
-    // The percentage is similarity; BM25 is what chose the row. Showing BM25 as a
-    // second percentage would read as a confidence, which it is not.
-    const hybrid: Suggestion = {
-      ...suggestion("pending"),
-      method: "hybrid_bm25",
-      score_components: {
-        version: "hybrid_bm25_v1",
-        final_order: "bm25_512",
-        bm25_score: 12.47,
-        semantic: 0.9,
-      },
-    };
-    render(
-      <SuggestionPreview
-        suggestion={hybrid}
-        siteName="Example site"
-        placement={placement}
-        onClose={vi.fn()}
-        onAccept={vi.fn()}
-        onReject={vi.fn()}
-        onUndo={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText("Selected by BM25 · score 12.5")).not.toBeNull();
-    expect(screen.getByText("90%")).not.toBeNull();
-    expect(screen.queryByText("12%")).toBeNull();
-  });
-
-  it("shows no selection score when the engine reported none", () => {
-    // A baseline row, or an engine that predates the components.
-    renderPreview("pending");
-
     expect(screen.queryByText(/Selected by BM25/)).toBeNull();
   });
 
@@ -253,6 +216,43 @@ describe("SuggestionPreview publication state", () => {
     );
   });
 
+  it("shows a direct Tavily target with its discovery context", () => {
+    const webSearch: Suggestion = {
+      ...suggestion("pending"),
+      target_article: {
+        id: null,
+        title: "Independent SEO guide",
+        url: "https://reference.example/seo-guide",
+      },
+      target_origin: "web_search",
+      target_site_name: "Tavily",
+      method: "external_search",
+      external_snippet: "Independent guidance about useful SEO links.",
+      search_query: "SEO Orlando",
+    };
+    render(
+      <SuggestionPreview
+        suggestion={webSearch}
+        siteName="Example site"
+        placement={placement}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("External link · Tavily")).not.toBeNull();
+    expect(screen.getByText("Tavily")).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "Independent guidance about useful SEO links.",
+    );
+    expect(document.body.textContent).toContain("Search query: SEO Orlando");
+    expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
+      "https://reference.example/seo-guide",
+    );
+  });
+
   it("renders a quarantined row and offers the only way back", () => {
     // The worker returns 'failed' rows in the default queue. A status the
     // client does not know about reads its metadata off undefined, which takes
@@ -318,6 +318,6 @@ describe("SuggestionPreview publication state", () => {
     );
 
     expect(screen.getByText("External link · Content pool")).not.toBeNull();
-    expect(screen.queryByText("Wikipedia")).toBeNull();
+    expect(screen.getByText("Wikipedia")).not.toBeNull();
   });
 });
