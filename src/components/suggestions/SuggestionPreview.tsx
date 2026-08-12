@@ -10,6 +10,7 @@ import {
   pct,
 } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
+import DetailPanelToggle from "./DetailPanelToggle";
 import PlacementContextCard from "./PlacementContextCard";
 import type { PlacementState } from "./PlacementContextCard";
 
@@ -20,6 +21,13 @@ interface Props {
    *  one is open rather than by this component. */
   placement: PlacementState;
   onClose: () => void;
+  /**
+   * Put the whole column away, not just this suggestion. Given only where the
+   * panel is a column the queue has to share width with — over the list it is
+   * already a dismissable drawer, and a second "away" control there would say
+   * the same thing twice.
+   */
+  onCollapse?: () => void;
   onAccept: () => void;
   onReject: () => void;
   onUndo: () => void;
@@ -32,6 +40,7 @@ export default function SuggestionPreview({
   siteName,
   placement,
   onClose,
+  onCollapse,
   onAccept,
   onReject,
   onUndo,
@@ -58,13 +67,16 @@ export default function SuggestionPreview({
     <>
       <div className="mb-5 flex items-center justify-between">
         <div className="eyebrow">Suggestion #{String(s.id).padStart(3, "0")}</div>
-        <button
-          aria-label="Close preview"
-          onClick={onClose}
-          className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
-        >
-          &times;
-        </button>
+        <div className="-mr-2 -mt-2 flex items-center">
+          {onCollapse && <DetailPanelToggle collapsed={false} onToggle={onCollapse} />}
+          <button
+            aria-label="Close preview"
+            onClick={onClose}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
+          >
+            &times;
+          </button>
+        </div>
       </div>
 
       <div className="eyebrow mb-2">Source article</div>

@@ -11,6 +11,13 @@ export interface DashboardUser {
   display_name: string | null;
   photo_url?: string | null;
   status: DashboardUserStatus;
+  /**
+   * Whether this account may approve, revoke, and promote other accounts.
+   * Optional so an engine that predates the admin group reads as "not an
+   * admin" — the API is the gate, and a stale UI guessing `true` would only
+   * offer buttons that come back 403.
+   */
+  is_admin?: boolean;
   requested_at: string;
   approved_at: string | null;
   approved_by: string | null;
@@ -49,6 +56,12 @@ export const approveDashboardUser = (id: number) =>
 
 export const revokeDashboardUser = (id: number) =>
   api.post<DashboardUser>(`/auth/users/${id}/revoke`).then((response) => response.data);
+
+export const grantDashboardAdmin = (id: number) =>
+  api.post<DashboardUser>(`/auth/users/${id}/admin`).then((response) => response.data);
+
+export const revokeDashboardAdmin = (id: number) =>
+  api.delete<DashboardUser>(`/auth/users/${id}/admin`).then((response) => response.data);
 
 /**
  * 429 is the proxy rate-limiting login starts; 503 is the API saying Telegram

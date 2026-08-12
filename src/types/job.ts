@@ -28,10 +28,19 @@ export interface JobAccepted {
   job_run_id?: number | null;
 }
 
-export interface JobStatus {
+/**
+ * One polled job.
+ *
+ * `result` is whatever the worker that produced this job stores, so the caller
+ * that knows which job it started is the one that can name the shape. The
+ * default keeps every caller that does not care compiling unchanged, and it is
+ * deliberately not a registry of job kinds: the endpoint stays general, and only
+ * the consumer narrows it.
+ */
+export interface JobStatus<TResult = Record<string, unknown>> {
   job_id: string;
   status: JobStatusValue;
-  result: Record<string, unknown> | null;
+  result: TResult | null;
   progress: JobProgress | null;
   progress_at: string | null;
   error: string | null;

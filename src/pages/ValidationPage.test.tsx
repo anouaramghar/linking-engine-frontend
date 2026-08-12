@@ -883,6 +883,72 @@ describe("ValidationPage detail panel", () => {
 
     expect(screen.getByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
   });
+
+  it("folds the column away and gives the width back to the queue", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Collapse suggestion detail" }));
+
+    const strip = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(strip).queryByText("Select a suggestion")).toBeNull();
+    expect(within(strip).getByRole("button", { name: "Expand suggestion detail" })).not.toBeNull();
+  });
+
+  it("brings the collapsed column back when a suggestion is opened", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Collapse suggestion detail" }));
+    await user.click(screen.getAllByRole("button", { name: /^Open suggestion:/ })[0]);
+
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(preview).getByText("Source 1")).not.toBeNull();
+  });
+
+  it("lets go of the open suggestion when the column is folded away", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(screen.getAllByRole("button", { name: /^Open suggestion:/ })[0]);
+    await user.click(screen.getByRole("button", { name: "Collapse suggestion detail" }));
+
+    // A selection nothing can show is one the keyboard would keep acting on
+    // invisibly.
+    const strip = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(strip).queryByText("Source 1")).toBeNull();
+  });
+
+  it("remembers the collapsed column across a reload", async () => {
+    // This jsdom build ships no `localStorage`, which is why the hook reaches
+    // for it optionally and inside a `catch`. The stub is real enough to fail
+    // if the hook stops writing.
+    const store = new Map<string, string>();
+    const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, String(value)),
+        removeItem: (key: string) => void store.delete(key),
+        clear: () => store.clear(),
+      },
+    });
+
+    try {
+      const user = userEvent.setup();
+      const { unmount } = renderQueue();
+      await user.click(screen.getByRole("button", { name: "Collapse suggestion detail" }));
+      unmount();
+
+      renderQueue();
+
+      expect(screen.getByRole("button", { name: "Expand suggestion detail" })).not.toBeNull();
+    } finally {
+      if (original) Object.defineProperty(window, "localStorage", original);
+      else Reflect.deleteProperty(window as unknown as Record<string, unknown>, "localStorage");
+    }
+  });
 });
 
 describe("ValidationPage load states", () => {

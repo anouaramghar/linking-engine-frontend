@@ -15,9 +15,16 @@ export interface Site {
   has_wordpress_credentials?: boolean;
   created_at: string;
   last_ingestion_status: string | null;
+  /**
+   * Why the last crawl failed, in the crawler's own words. Present only for a
+   * failed run, and optional so an engine that predates the field simply shows
+   * the badge without a reason.
+   */
+  last_ingestion_error?: string | null;
   // Last finished analysis job — "Indexed" and "Analyzed" are different states.
   last_analysis_status?: string | null;
   last_analysis_at?: string | null;
+  last_analysis_error?: string | null;
   article_count?: number;
   internal_link_count?: number;
   last_crawl_at?: string | null;

@@ -254,7 +254,18 @@ export default function ContentPoolPage() {
                       <JobStatusBadge jobId={trackedJobId} kind="ingestion" />
                     ) : null}
                   </div>
-                  <div className="mt-1 break-all text-caption text-muted">{site.base_url}</div>
+                  {/* A source you cannot open is a source you cannot check.
+                      Same reason as the icon on the Sites page: nobody should
+                      have to copy a URL out of a table by hand. */}
+                  <a
+                    href={site.base_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${site.name} in a new tab`}
+                    className="mt-1 block break-all text-caption text-muted underline underline-offset-2 hover:text-ink"
+                  >
+                    {site.base_url}
+                  </a>
                   {site.pool_source_quarantine_reason && (
                     <div className="mt-2 text-caption text-error-ink">
                       {site.pool_source_quarantine_reason}

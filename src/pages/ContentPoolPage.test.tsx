@@ -102,6 +102,27 @@ describe("ContentPoolPage", () => {
     await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith(3));
   });
 
+  it("opens a pool source in a new tab instead of asking for a copy and paste", () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "Industry feed",
+        base_url: "https://news.example.com/feed",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_quarantined: false,
+      },
+    ];
+    render(<ContentPoolPage />);
+
+    const link = screen.getByRole("link", { name: "Open Industry feed in a new tab" });
+    expect(link.getAttribute("href")).toBe("https://news.example.com/feed");
+    // A new tab keeps the operator's place in the pool, and `noreferrer` keeps
+    // the dashboard's address out of a third party's logs.
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
   it("opens a creation form fixed to the content-pool connector", () => {
     render(<ContentPoolPage />);
 

@@ -51,7 +51,11 @@ export const usePreparePublicationPlans = (initialJobId: string | null = null) =
   const [jobId, setJobId] = useState<string | null>(initialJobId);
   const callbacks = useRef<PrepareCallbacks | undefined>(undefined);
   const delivered = useRef<string | null>(null);
-  const job = useJob(jobId);
+  // The job this hook starts is the publication-preparation worker, whose
+  // result the backend now builds from a named Pydantic model. Naming the same
+  // shape here is what replaced two `as unknown as` casts: a contract change
+  // fails to compile instead of failing in front of an operator.
+  const job = useJob<PublicationPreparation>(jobId);
   const enqueue = useMutation({
     mutationFn: (siteId: number) => preparePublicationPlans(siteId),
   });
@@ -61,8 +65,7 @@ export const usePreparePublicationPlans = (initialJobId: string | null = null) =
     if (delivered.current === jobId) return;
     delivered.current = jobId;
     if (job.data.status === "succeeded" && job.data.result) {
-      const preparation = job.data.result as unknown as PublicationPreparation;
-      callbacks.current?.onSuccess?.(preparation);
+      callbacks.current?.onSuccess?.(job.data.result);
       return;
     }
     const error = new Error(job.data.error ?? "The exact edits could not be prepared.");
@@ -91,10 +94,8 @@ export const usePreparePublicationPlans = (initialJobId: string | null = null) =
     setJobId(null);
   };
 
-  const succeeded = job.data?.status === "succeeded" && job.data.result;
-  const data = succeeded
-    ? (job.data?.result as unknown as PublicationPreparation)
-    : undefined;
+  const data =
+    job.data?.status === "succeeded" ? (job.data.result ?? undefined) : undefined;
   const terminalError =
     job.data && isTerminalJobStatus(job.data.status) && job.data.status !== "succeeded"
       ? new Error(job.data.error ?? "The exact edits could not be prepared.")

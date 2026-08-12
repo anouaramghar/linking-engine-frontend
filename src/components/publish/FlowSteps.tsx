@@ -1,4 +1,9 @@
-const STEPS = ["Select links", "Review exact edits (recommended)", "Approve and queue"];
+/**
+ * Step 2 used to read "(recommended)". The team lead ruled on 2026-08-11 that
+ * reading each exact edit is mandatory, and a step that calls itself optional
+ * is the first thing an operator believes.
+ */
+const STEPS = ["Select links", "Review exact edits (required)", "Approve and queue"];
 
 /**
  * The three steps between a suggestion and a live link, shown in the queue

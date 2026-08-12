@@ -49,9 +49,6 @@ const outcomeLabel = {
   already_present: "Already present",
 } as const;
 
-/** How many articles open with their change shown. */
-const AUTO_EXPANDED = 3;
-
 const plural = (count: number, word: string) =>
   `${count} ${count === 1 ? word : `${word}s`}`;
 
@@ -283,18 +280,58 @@ export default function PublicationReview({
   }, [someSelected]);
 
   /**
-   * Which articles are showing their change. A batch of ten with every change
-   * open is a page nobody scrolls to the end of, so the ones most likely to be
-   * read open themselves and the rest ask.
+   * Which articles are showing their change. Every article starts closed: an
+   * article that opened itself was never read on purpose, and a batch of ten
+   * with every change open is a page nobody scrolls to the end of.
    */
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  const isExpanded = (planId: number, index: number) =>
-    expanded[planId] ?? index < AUTO_EXPANDED;
-  const toggleExpanded = (planId: number, index: number) =>
-    setExpanded((current) => ({
-      ...current,
-      [planId]: !(current[planId] ?? index < AUTO_EXPANDED),
-    }));
+  const isExpanded = (planId: number) => expanded[planId] ?? false;
+
+  /**
+   * Articles whose change has been on screen at least once.
+   *
+   * Reviewing used to be "strongly recommended, but optional", with a Skip
+   * review link straight to the button. The team lead ruled the other way on
+   * 2026-08-11: reviewing the edit is mandatory. So the approval stays out of
+   * reach until every ticked article's change has been opened by an explicit
+   * act of the operator. Where an article sits in the batch says nothing about
+   * whether anybody read it, so position never enters this set.
+   *
+   * Recorded when the change is opened rather than derived from what is open
+   * now: closing a change you have read is tidying up, not unreading it.
+   */
+  const [opened, setOpened] = useState<Set<number>>(() => new Set());
+  const isRead = (planId: number) => opened.has(planId);
+
+  const open = (planId: number) => {
+    setExpanded((current) => ({ ...current, [planId]: true }));
+    setOpened((current) => (current.has(planId) ? current : new Set(current).add(planId)));
+  };
+
+  const toggleExpanded = (planId: number) => {
+    if (isExpanded(planId)) {
+      setExpanded((current) => ({ ...current, [planId]: false }));
+      return;
+    }
+    open(planId);
+  };
+
+  /**
+   * Ticked articles nobody has opened. Unticking an unread article drops it
+   * from this list — that is a decision not to publish it, not a shortcut —
+   * and reticking it puts the reading requirement straight back.
+   */
+  const unread = selectedPlans.filter((plan) => !isRead(plan.id));
+  const nextUnread = unread[0];
+
+  /** Open the next unread change and put it under the operator's eyes. */
+  const showNextUnread = () => {
+    if (!nextUnread) return;
+    open(nextUnread.id);
+    document
+      .getElementById(`publication-plan-${nextUnread.id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <section aria-label="Exact edit review">
@@ -381,17 +418,13 @@ export default function PublicationReview({
             {plans.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
                 <p className="max-w-2xl text-caption leading-normal text-body">
-                  Reviewing each exact edit is{" "}
-                  <span className="font-medium text-ink">strongly recommended</span>, but
-                  optional. If you trust your selected links, you can approve the prepared batch
-                  as-is.
+                  Every selected article's change has to be{" "}
+                  <span className="font-medium text-ink">read before it can be approved</span>.
+                  Open the ones still closed, or untick an article to leave it for later.
                 </p>
-                <a
-                  href="#approval-actions"
-                  className="touch-target inline-flex items-center text-caption font-medium text-ink underline underline-offset-2 hover:text-primary"
-                >
-                  Skip review
-                </a>
+                <span className="text-caption text-muted" aria-live="polite">
+                  {selectedPlans.length - unread.length} of {selectedPlans.length} read
+                </span>
               </div>
             )}
           </div>
@@ -429,13 +462,14 @@ export default function PublicationReview({
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {plans.map((plan, index) => {
+              {plans.map((plan) => {
                 const selected = selectedIds.has(plan.id);
-                const open = isExpanded(plan.id, index);
+                const open = isExpanded(plan.id);
                 return (
                   <section
                     key={plan.id}
-                    className={`card px-4 py-4 transition-colors sm:px-5 ${
+                    id={`publication-plan-${plan.id}`}
+                    className={`card scroll-mt-4 px-4 py-4 transition-colors sm:px-5 ${
                       selected ? "border-ink" : ""
                     }`}
                   >
@@ -477,13 +511,22 @@ export default function PublicationReview({
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:pl-8">
                       <button
                         type="button"
-                        onClick={() => toggleExpanded(plan.id, index)}
+                        onClick={() => toggleExpanded(plan.id)}
                         aria-expanded={open}
                         className="touch-target inline-flex items-center text-caption font-medium text-ink underline underline-offset-2 hover:text-primary"
                       >
                         {open ? "Hide the change" : "Show the change"}
                       </button>
-                      <span className="text-caption-sm text-muted">Exact artifact verified</span>
+                      {/* Says which articles are still holding the approval
+                          back, on the article itself rather than only in the
+                          count at the top of the page. */}
+                      <span className="text-caption-sm text-muted">
+                        {!selected
+                          ? "Excluded from this approval"
+                          : isRead(plan.id)
+                            ? "Exact artifact verified"
+                            : "Not read yet"}
+                      </span>
                     </div>
 
                     {open && <ExactHtml siteId={siteId} planId={plan.id} />}
@@ -505,11 +548,13 @@ export default function PublicationReview({
               {/* An unticked article is otherwise silent: the operator sees no
                   trace of the decision they just made not to publish it. */}
               <div className="text-muted">
-                {excludedCount > 0
-                  ? `${excludedCount} ${
-                      excludedCount === 1 ? "article stays" : "articles stay"
-                    } unpublished and can be reviewed later.`
-                  : "Nothing is live yet."}
+                {unread.length > 0
+                  ? `${plural(unread.length, "article")} still to read before this can be approved.`
+                  : excludedCount > 0
+                    ? `${excludedCount} ${
+                        excludedCount === 1 ? "article stays" : "articles stay"
+                      } unpublished and can be reviewed later.`
+                    : "Nothing is live yet."}
               </div>
             </div>
             {approvedNotQueued ? (
@@ -521,6 +566,17 @@ export default function PublicationReview({
               >
                 {busy ? "Queueing…" : "Queue approved edits"}
               </button>
+            ) : unread.length > 0 ? (
+              /* Not a disabled Approve with a tooltip: the operator is not
+                 blocked, they have a step left, and this is the step. */
+              <button
+                type="button"
+                onClick={showNextUnread}
+                disabled={busy}
+                className="btn btn-primary flex-none"
+              >
+                Read the next change
+              </button>
             ) : (
               <button
                 type="button"
@@ -530,7 +586,7 @@ export default function PublicationReview({
               >
                 {busy
                   ? "Approving…"
-                  : `Approve and queue ${plural(selectedPlans.length, "article")}`}
+                  : `Approve and queue ${plural(selectedPlans.length, "exact edit")}`}
               </button>
             )}
           </div>

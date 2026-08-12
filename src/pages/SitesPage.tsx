@@ -119,8 +119,10 @@ function CurrentSiteStatus({
     <SiteStatusBadge
       status={site.last_ingestion_status}
       lastCrawlAt={site.last_crawl_at}
+      ingestionError={site.last_ingestion_error}
       analysisStatus={site.last_analysis_status}
       lastAnalysisAt={site.last_analysis_at}
+      analysisError={site.last_analysis_error}
     />
   );
 }
@@ -141,6 +143,42 @@ function SuggestionMethodBadge() {
       <span className="dot bg-primary" />
       Hybrid
     </span>
+  );
+}
+
+/**
+ * Open the live site in a new tab.
+ *
+ * Sits outside the selection label on purpose: inside it, every click meant to
+ * open the site would tick the batch checkbox instead. `noreferrer` because a
+ * customer's site has no business learning where the operator came from.
+ */
+function OpenSiteLink({ site }: { site: Site }) {
+  return (
+    <a
+      href={site.base_url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${site.name} in a new tab`}
+      title={`Open ${site.base_url} in a new tab`}
+      className="touch-target inline-flex h-8 w-8 flex-none items-center justify-center rounded-pill text-muted transition-colors hover:bg-surface-strong hover:text-ink"
+    >
+      <svg
+        aria-hidden="true"
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M15 3h6v6" />
+        <path d="M10 14 21 3" />
+        <path d="M20 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5" />
+      </svg>
+    </a>
   );
 }
 
@@ -566,6 +604,7 @@ export default function SitesPage() {
                 ) : (
                   <SiteIdentity site={site} index={index} />
                 )}
+                <OpenSiteLink site={site} />
               </div>
               <div className="text-caption text-muted lg:text-body">
                 <span className="lg:hidden">Connector: </span>

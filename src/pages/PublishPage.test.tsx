@@ -246,12 +246,13 @@ describe("PublishPage site list", () => {
     expect(mocks.prepareMutate).not.toHaveBeenCalled();
   });
 
-  it("marks exact-edit review as recommended but optional", () => {
+  it("marks exact-edit review as required", () => {
     preparedFor(1);
     renderPublish("/publish");
 
-    expect(document.body.textContent).toContain("Recommended");
-    expect(document.body.textContent).toContain("Optional");
+    expect(document.body.textContent).toContain("Required");
+    expect(document.body.textContent).toContain("Nothing publishes unread");
+    expect(document.body.textContent).not.toContain("Optional");
   });
 
   it("offers no review for a site with no WordPress account", () => {
@@ -279,7 +280,7 @@ describe("PublishPage site list", () => {
     // Reading the live articles a second time for a site already read is the
     // cost this cache exists to refuse.
     expect(mocks.prepareMutate).toHaveBeenCalledTimes(1);
-    expect(document.body.textContent).toContain("View exact HTML (advanced)");
+    expect(document.body.textContent).toContain(PLAN.source_url);
   });
 
   it("keeps the ticks of a site the operator walked away from", async () => {
@@ -296,7 +297,7 @@ describe("PublishPage site list", () => {
     await user.click(screen.getByRole("link", { name: "All sites waiting" }));
     await user.click(screen.getAllByRole("link", { name: "Back to the edits" })[0]);
 
-    expect(document.body.textContent).toContain("1 article stays unpublished");
+    expect(document.body.textContent).toContain("1 of 2 selected");
   });
 
   it("does not prepare a site that holds nothing", () => {
@@ -307,15 +308,155 @@ describe("PublishPage site list", () => {
   });
 });
 
+/** One more article for a batch, distinct in every field a test reads. */
+const extraPlan = (n: number): PublicationPlan => ({
+  ...PLAN,
+  id: 60 + n,
+  plan_hash: String(n % 10).repeat(64),
+  source_article_id: 20 + n,
+  source_url: `https://example.com/source-${n}`,
+  links: [{ ...PLAN.links[0], suggestion_id: 100 + n }],
+});
+
+/**
+ * Do what an operator now has to do before any approval: open every selected
+ * article's change once. Reviewing is mandatory, so most approval tests start
+ * by working through the batch.
+ */
+const readEveryChange = async (user: ReturnType<typeof userEvent.setup>) => {
+  for (;;) {
+    const next = screen.queryByRole("button", { name: "Read the next change" });
+    if (!next) return;
+    await user.click(next);
+  }
+};
+
 describe("PublishPage approval", () => {
-  it("offers a clear path to approval without reading every edit", () => {
+  // jsdom implements no layout, so it ships no scrollIntoView.
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("refuses to approve until every selected article's change has been opened", async () => {
+    const user = userEvent.setup();
+    preparedFor(1, {}, [PLAN, extraPlan(1), extraPlan(2), extraPlan(3)]);
+    renderPublish();
+
+    // Nothing counts as read from where it sits in the batch. An article that
+    // opened itself was never read on purpose.
+    expect(document.body.textContent).toContain("0 of 4 read");
+    expect(document.body.textContent).toContain("4 articles still to read");
+    expect(screen.queryByRole("button", { name: /^Approve and queue/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Skip review" })).toBeNull();
+
+    // One click reviews one article, so the count is a true record of reading.
+    await user.click(screen.getByRole("button", { name: "Read the next change" }));
+
+    expect(document.body.textContent).toContain("1 of 4 read");
+    expect(screen.queryByRole("button", { name: /^Approve and queue/ })).toBeNull();
+
+    await readEveryChange(user);
+
+    expect(document.body.textContent).toContain("4 of 4 read");
+    expect(
+      screen
+        .getByRole("button", { name: "Approve and queue 4 exact edits" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+  });
+
+  it("requires review of a batch small enough to fit on one screen", async () => {
+    const user = userEvent.setup();
+    preparedFor(1, {}, [PLAN, SECOND_PLAN, extraPlan(1)]);
+    renderPublish();
+
+    // A batch of three used to arrive fully "read", so approval was one click
+    // away with nothing on screen having been opened.
+    expect(document.body.textContent).toContain("0 of 3 read");
+    expect(screen.getAllByRole("button", { name: "Show the change" })).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: /^Approve and queue/ })).toBeNull();
+
+    await readEveryChange(user);
+
+    expect(
+      screen.getByRole("button", { name: "Approve and queue 3 exact edits" }),
+    ).not.toBeNull();
+  });
+
+  it("requires review of a single-article batch", () => {
     preparedFor(1);
     renderPublish();
 
-    const skip = screen.getByRole("link", { name: "Skip review" });
-    expect(skip.getAttribute("href")).toBe("#approval-actions");
-    expect(document.getElementById("approval-actions")).not.toBeNull();
-    expect(document.body.textContent).toContain("strongly recommended");
+    expect(document.body.textContent).toContain("0 of 1 read");
+    expect(screen.queryByRole("button", { name: /^Approve and queue/ })).toBeNull();
+  });
+
+  it("keeps an article read after the operator closes it again", async () => {
+    const user = userEvent.setup();
+    preparedFor(1);
+    renderPublish();
+
+    await user.click(screen.getByRole("button", { name: "Show the change" }));
+    expect(document.body.textContent).toContain("1 of 1 read");
+
+    await user.click(screen.getByRole("button", { name: "Hide the change" }));
+
+    // Closing a change you have read is tidying up, not unreading it.
+    expect(document.body.textContent).toContain("1 of 1 read");
+    expect(
+      screen.getByRole("button", { name: "Approve and queue 1 exact edit" }),
+    ).not.toBeNull();
+  });
+
+  it("stops requiring an article nobody publishes, and asks again if it returns", async () => {
+    const user = userEvent.setup();
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    renderPublish();
+
+    await user.click(screen.getByRole("button", { name: "Read the next change" }));
+    const box = screen.getByRole("checkbox", {
+      name: `Include the edit to ${SECOND_PLAN.source_url} in approval`,
+    });
+
+    // Leaving it out of the batch is a decision too, and it removes the only
+    // change standing between this operator and the approval.
+    await user.click(box);
+
+    expect(
+      screen
+        .getByRole("button", { name: "Approve and queue 1 exact edit" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+
+    // Putting it back puts the reading requirement back with it.
+    await user.click(box);
+
+    expect(screen.queryByRole("button", { name: /^Approve and queue/ })).toBeNull();
+    expect(document.body.textContent).toContain("1 article still to read");
+  });
+
+  it("calls the review step required, never recommended", () => {
+    preparedFor(1);
+    renderPublish();
+
+    expect(document.body.textContent).toContain("Review exact edits (required)");
+    expect(document.body.textContent).not.toContain("recommended");
+  });
+
+  it("approves without anyone opening the raw HTML", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+    preparedFor(1);
+    renderPublish();
+
+    await readEveryChange(user);
+    await user.click(screen.getByRole("button", { name: "Approve and queue 1 exact edit" }));
+
+    // The human-readable change is the required surface. Raw before/after HTML
+    // is an advanced tool, and no approval may depend on reading it.
+    expect(mocks.getPlanHtml).not.toHaveBeenCalled();
+    expect(mocks.approveMutate).toHaveBeenCalled();
   });
 
   it("reviews a site beyond the fleet list without loading the first thousand sites", () => {
@@ -353,6 +494,8 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
+    await user.click(screen.getByRole("button", { name: "Show the change" }));
+
     expect(document.body.textContent).toContain("View exact HTML (advanced)");
     expect(mocks.getPlanHtml).not.toHaveBeenCalled();
 
@@ -378,7 +521,8 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
-    await user.click(screen.getByRole("button", { name: /^Approve and queue 1 article$/ }));
+    await readEveryChange(user);
+    await user.click(screen.getByRole("button", { name: /^Approve and queue 1 exact edit$/ }));
 
     expect(mocks.approveMutate).toHaveBeenCalledWith(
       { siteId: 1, plans: [{ id: 55, plan_hash: PLAN.plan_hash }] },
@@ -402,6 +546,7 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
 
     expect(document.body.textContent).toContain("The publish job is queued");
@@ -417,6 +562,7 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
 
     expect(mocks.queueMutate).not.toHaveBeenCalled();
@@ -430,6 +576,7 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
 
     // This message used to be written to the queue page underneath a modal,
@@ -450,6 +597,7 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
 
     expect(document.body.textContent).toContain("approved but not queued");
@@ -480,6 +628,7 @@ describe("PublishPage approval", () => {
     });
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
 
     // One plan was shown; `has_more` and the failed source describe work that is
@@ -491,14 +640,17 @@ describe("PublishPage approval", () => {
     expect(document.body.textContent).toContain("left out of this batch");
   });
 
-  it("ticks every prepared article, so the normal case is still one click", () => {
+  it("ticks every prepared article, so nothing but reading stands in the way", async () => {
+    const user = userEvent.setup();
     preparedFor(1, {}, [PLAN, SECOND_PLAN]);
     renderPublish();
 
-    expect(
-      screen.getByRole("button", { name: /^Approve and queue 2 articles$/ }),
-    ).not.toBeNull();
     expect(document.body.textContent).toContain("2 of 2 selected");
+    await readEveryChange(user);
+
+    expect(
+      screen.getByRole("button", { name: /^Approve and queue 2 exact edits$/ }),
+    ).not.toBeNull();
   });
 
   it("approves only the articles left ticked, and says what it held back", async () => {
@@ -507,6 +659,7 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN]);
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(
       screen.getByRole("checkbox", {
         name: `Include the edit to ${SECOND_PLAN.source_url} in approval`,
@@ -514,7 +667,7 @@ describe("PublishPage approval", () => {
     );
 
     expect(document.body.textContent).toContain("1 article stays unpublished");
-    await user.click(screen.getByRole("button", { name: /^Approve and queue 1 article$/ }));
+    await user.click(screen.getByRole("button", { name: /^Approve and queue 1 exact edit$/ }));
 
     // The unticked article is as absent from the request as a failed source is.
     expect(mocks.approveMutate).toHaveBeenCalledWith(
@@ -535,7 +688,7 @@ describe("PublishPage approval", () => {
     await user.click(screen.getByRole("checkbox", { name: "Select all prepared articles" }));
 
     expect(
-      screen.getByRole("button", { name: /^Approve and queue 0 articles$/ }),
+      screen.getByRole("button", { name: /^Approve and queue 0 exact edits$/ }),
     ).toHaveProperty("disabled", true);
     expect(mocks.approveMutate).not.toHaveBeenCalled();
   });
@@ -549,6 +702,7 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN]);
     renderPublish();
 
+    await readEveryChange(user);
     await user.click(
       screen.getByRole("checkbox", {
         name: `Include the edit to ${SECOND_PLAN.source_url} in approval`,
@@ -567,9 +721,12 @@ describe("PublishPage approval", () => {
     );
   });
 
-  it("shows the change as the sentence it lands in, not only as HTML", () => {
+  it("shows the change as the sentence it lands in, not only as HTML", async () => {
+    const user = userEvent.setup();
     preparedFor(1);
     renderPublish();
+
+    await user.click(screen.getByRole("button", { name: "Show the change" }));
 
     // The passage is read back out of the stored HTML, so what is on screen is
     // the artifact the approval names.
@@ -580,12 +737,15 @@ describe("PublishPage approval", () => {
     );
   });
 
-  it("prints a link once, not in a summary list and again in a change panel", () => {
+  it("prints a link once, not in a summary list and again in a change panel", async () => {
+    const user = userEvent.setup();
     preparedFor(1);
     renderPublish();
 
-    // The article opens with its change shown, and the target used to be
-    // written twice inside it — a batch of ten said everything twice.
+    await user.click(screen.getByRole("button", { name: "Show the change" }));
+
+    // An open article used to write its target twice — once in a summary list
+    // and once in the change panel — so a batch of ten said everything twice.
     expect(screen.getAllByText(PLAN.links[0].target_url)).toHaveLength(1);
   });
 
@@ -613,7 +773,8 @@ describe("PublishPage approval", () => {
     expect(document.body.textContent).toContain("1 link to write · 1 already present");
   });
 
-  it("keeps a change readable when the passage cannot be located", () => {
+  it("keeps a change readable when the passage cannot be located", async () => {
+    const user = userEvent.setup();
     preparedFor(1, {}, [
       {
         ...PLAN,
@@ -623,12 +784,14 @@ describe("PublishPage approval", () => {
     ]);
     renderPublish();
 
+    await user.click(screen.getByRole("button", { name: "Show the change" }));
+
     expect(document.body.textContent).toContain(
       'A link to https://example.com/target is added on "solar panel"',
     );
   });
 
-  it("opens the first three changes and leaves the rest to ask", () => {
+  it("starts every change closed, so opening one is always an operator's act", () => {
     const plans = [1, 2, 3, 4].map((offset) => ({
       ...PLAN,
       id: 60 + offset,
@@ -638,8 +801,8 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, plans);
     renderPublish();
 
-    expect(screen.getAllByRole("button", { name: "Hide the change" })).toHaveLength(3);
-    expect(screen.getAllByRole("button", { name: "Show the change" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Show the change" })).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Hide the change" })).toBeNull();
   });
 
   it("shows a change the operator asks for", async () => {
@@ -647,9 +810,10 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN, { ...PLAN, id: 57 }, { ...PLAN, id: 58 }]);
     renderPublish();
 
-    await user.click(screen.getByRole("button", { name: "Show the change" }));
+    await user.click(screen.getAllByRole("button", { name: "Show the change" })[1]);
 
-    expect(screen.queryByRole("button", { name: "Show the change" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Show the change" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Hide the change" })).toHaveLength(1);
   });
 
   it("returns one link to the queue and prepares the article again", async () => {
@@ -699,5 +863,180 @@ describe("PublishPage approval", () => {
 
     expect(document.body.textContent).toContain("The edits could not be prepared");
     expect(document.body.textContent).toContain("No article was changed");
+  });
+});
+
+/**
+ * An approval is written to the database, so it outlives the tab that made it.
+ * These tests enter the page the way a reload or a second browser does: with no
+ * session state at all, and only the server's counts to go on.
+ */
+describe("PublishPage approved-plan recovery", () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  const approvedOnly = (count = 2) => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 0, approved_plans: count },
+    ];
+  };
+
+  it("does not prepare a site whose only pending work is already approved", () => {
+    approvedOnly();
+    renderPublish("/publish/1");
+
+    // Preparation renders new editorial intent. There is none here, and asking
+    // spends a live request per article to arrive at an empty review.
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("The edits could not be prepared");
+    expect(document.body.textContent).not.toContain("There are no edits ready to approve");
+  });
+
+  it("offers the queue action on a fresh visit, with no session state behind it", () => {
+    approvedOnly();
+    renderPublish("/publish/1");
+
+    expect(document.body.textContent).toContain(
+      "2 exact edits already approved and waiting to be queued",
+    );
+    expect(screen.getByRole("button", { name: "Queue approved exact edits" })).not.toBeNull();
+  });
+
+  it("recovers by naming no plan ids, which is the documented site-wide path", async () => {
+    const user = userEvent.setup();
+    approvedOnly(1);
+    renderPublish("/publish/1");
+
+    await user.click(screen.getByRole("button", { name: "Queue approved exact edits" }));
+
+    // This browser never saw the approval, so a guessed id list would be a 409
+    // on every plan it got wrong.
+    expect(mocks.queueMutate.mock.calls[0][0]).toStrictEqual({
+      siteId: 1,
+      planIds: undefined,
+    });
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+  });
+
+  it("shows the queued confirmation once the recovery job starts", async () => {
+    const user = userEvent.setup();
+    mocks.queueMutate.mockImplementation((_variables, options) => {
+      mocks.pendingPublication = [];
+      options?.onSuccess?.();
+    });
+    approvedOnly(1);
+    renderPublish("/publish/1");
+
+    await user.click(screen.getByRole("button", { name: "Queue approved exact edits" }));
+
+    expect(document.body.textContent).toContain("The publish job is queued");
+  });
+
+  it("keeps a way back when the recovery request fails", async () => {
+    const user = userEvent.setup();
+    mocks.queueMutate.mockImplementation((_variables, options) =>
+      options?.onError?.(new Error("redis is down")),
+    );
+    approvedOnly(1);
+    renderPublish("/publish/1");
+
+    await user.click(screen.getByRole("button", { name: "Queue approved exact edits" }));
+
+    expect(document.body.textContent).toContain("could not be started");
+    expect(document.body.textContent).not.toContain("The publish job is queued");
+    expect(screen.getByRole("button", { name: "Queue approved exact edits" })).not.toBeNull();
+  });
+
+  it("calls a queue conflict a conflict rather than a success", async () => {
+    const user = userEvent.setup();
+    mocks.queueMutate.mockImplementation((_variables, options) =>
+      options?.onError?.({ response: { status: 409 } }),
+    );
+    approvedOnly(1);
+    renderPublish("/publish/1");
+
+    await user.click(screen.getByRole("button", { name: "Queue approved exact edits" }));
+
+    expect(document.body.textContent).toContain("already publishing");
+    expect(document.body.textContent).not.toContain("The publish job is queued");
+  });
+
+  it("keeps approved edits and newly selected links as separate work", async () => {
+    const user = userEvent.setup();
+    preparedFor(1);
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 1, approved_plans: 3 },
+    ];
+    renderPublish("/publish/1");
+
+    // Both paths are on screen, and neither one claims the other's work.
+    expect(mocks.prepareMutate).toHaveBeenCalledWith(1, expect.anything());
+    expect(document.body.textContent).toContain(
+      "3 exact edits already approved and waiting to be queued",
+    );
+    expect(document.body.textContent).toContain(
+      "The newly selected links below are separate work",
+    );
+    expect(screen.getByRole("button", { name: "Show the change" })).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Queue approved exact edits" }));
+
+    // The freshly prepared plan was never approved, so the recovery job must
+    // not pretend to carry it.
+    expect(mocks.queueMutate.mock.calls[0][0]).toStrictEqual({
+      siteId: 1,
+      planIds: undefined,
+    });
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+  });
+
+  it("prefers the exact subset this browser approved over site-wide recovery", async () => {
+    const user = userEvent.setup();
+    mocks.approveMutate.mockImplementation((_variables, options) => {
+      // Approval invalidates the pending query, so the server starts reporting
+      // the durable plan this session has just created.
+      mocks.pendingPublication = [
+        { site_id: 1, selected_suggestions: 0, approved_plans: 1 },
+      ];
+      options?.onSuccess?.();
+    });
+    mocks.queueMutate.mockImplementation((_variables, options) =>
+      options?.onError?.(new Error("redis is down")),
+    );
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    renderPublish("/publish/1");
+
+    await readEveryChange(user);
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: `Include the edit to ${SECOND_PLAN.source_url} in approval`,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Approve and queue/ }));
+
+    // Plan 56 was excluded, so site-wide recovery here would be a broader claim
+    // than the operator made. The exact retry is the one that is offered.
+    expect(screen.queryByRole("button", { name: "Queue approved exact edits" })).toBeNull();
+    mocks.queueMutate.mockClear();
+    await user.click(screen.getByRole("button", { name: "Queue approved edits" }));
+
+    expect(mocks.queueMutate).toHaveBeenCalledWith(
+      { siteId: 1, planIds: [55] },
+      expect.anything(),
+    );
+  });
+
+  it("names the action each waiting site actually needs on the index", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 0, approved_plans: 2 },
+      { site_id: 2, selected_suggestions: 5, approved_plans: 0 },
+    ];
+    renderPublish("/publish");
+
+    expect(screen.getByRole("link", { name: "Queue approved edits" })).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Review exact edits" })).not.toBeNull();
+    expect(document.body.textContent).toContain("2 exact edits approved and waiting to be queued");
+    expect(document.body.textContent).toContain("5 links selected");
   });
 });

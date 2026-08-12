@@ -605,3 +605,49 @@ describe("SitesPage WordPress account", () => {
     expect(mocks.clearCredentials.mutate).toHaveBeenCalledWith(7, expect.anything());
   });
 });
+
+describe("SitesPage row affordances", () => {
+  const CRAWLED_SITE = {
+    id: 9,
+    name: "Vibe",
+    base_url: "https://www.vibe.com",
+    platform: "wordpress",
+    crawl_frequency: "manual",
+    created_at: "2026-08-04T08:00:00Z",
+    last_ingestion_status: "failed",
+    last_crawl_at: "2026-08-11T08:00:00Z",
+    last_ingestion_error: "403 from https://www.vibe.com/wp-json/wp/v2/posts",
+  };
+
+  it("says why a crawl failed, where the failure is shown", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    // The tooltip is mouse-only, so the reason has to live in the accessible
+    // name as well — that is the copy this asserts on.
+    const badge = screen.getByLabelText(/Crawl failed\./);
+    expect(badge.getAttribute("title")).toContain(
+      "403 from https://www.vibe.com/wp-json/wp/v2/posts",
+    );
+  });
+
+  it("opens the live site in a new tab instead of asking for a copy and paste", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
+    expect(link.getAttribute("href")).toBe("https://www.vibe.com");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("keeps that link out of the batch selection label", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+
+    // Inside the label, every click meant to open the site would tick the box.
+    const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
+    expect(link.closest("label")).toBeNull();
+  });
+});

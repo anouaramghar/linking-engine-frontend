@@ -73,21 +73,29 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
     : [];
 
   return (
-    <Modal title="Import sites from CSV" onClose={onClose} panelClassName="max-w-3xl">
-      <p className="-mt-3 mb-5 flex-none text-caption text-muted">
-        Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
-        <code>platform</code> (<code>wordpress</code>, <code>html</code>, or <code>pool</code>),{" "}
-        <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
-        {formatCount(MAX_BULK_SITES)} sites per file.{" "}
-        <a
-          href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
-          download="linkmesh-sites.csv"
-          className="underline underline-offset-2 hover:text-ink"
-        >
-          Download a template
-        </a>
-      </p>
-
+    <Modal
+      title="Import sites from CSV"
+      onClose={onClose}
+      panelClassName="max-w-3xl"
+      // In the header, not the body: the body scrolls, and this used to be
+      // pulled up under the heading by a negative margin, so the first line of
+      // the column list sat behind the title.
+      description={
+        <>
+          Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
+          <code>platform</code> (<code>wordpress</code>, <code>html</code>, or{" "}
+          <code>pool</code>), <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
+          {formatCount(MAX_BULK_SITES)} sites per file.{" "}
+          <a
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
+            download="linkmesh-sites.csv"
+            className="underline underline-offset-2 hover:text-ink"
+          >
+            Download a template
+          </a>
+        </>
+      }
+    >
       {!result && (
         // `sr-only`, never `hidden`: display:none takes the input out of the
         // tab order and out of the accessibility tree entirely, which left the

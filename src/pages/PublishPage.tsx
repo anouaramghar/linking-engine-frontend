@@ -93,19 +93,37 @@ function SiteIndex({
               <span className="text-body-md font-medium text-ink">{site.name}</span>
               {prepared.has(site.id) && <span className="badge">Prepared</span>}
             </div>
+            {/* Two counts that ask for two different things, so they are never
+                added together into one "awaiting publication". */}
             <div className="mt-1 text-caption text-muted">
-              {plural(site.selectedSuggestions, "link")} selected
-              {site.approvedPlans > 0 &&
-                ` · ${plural(site.approvedPlans, "article")} already approved`}
+              {[
+                site.selectedSuggestions > 0 &&
+                  `${plural(site.selectedSuggestions, "link")} selected`,
+                site.approvedPlans > 0 &&
+                  `${plural(site.approvedPlans, "exact edit")} approved and waiting to be queued`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           </div>
           {site.canPublish ? (
             <div className="flex flex-none flex-col items-start gap-1 sm:items-end">
-              <span className="text-caption-sm text-muted">
-                <span className="font-medium text-ink">Recommended</span> &middot; Optional
-              </span>
+              {site.selectedSuggestions > 0 ? (
+                <span className="text-caption-sm text-muted">
+                  <span className="font-medium text-ink">Required</span> &middot; Nothing publishes
+                  unread
+                </span>
+              ) : (
+                <span className="text-caption-sm text-muted">
+                  Already read and approved &middot; only the job is left
+                </span>
+              )}
               <Link to={`/publish/${site.id}`} className="btn btn-primary">
-                {prepared.has(site.id) ? "Back to the edits" : "Review exact edits"}
+                {prepared.has(site.id)
+                  ? "Back to the edits"
+                  : site.selectedSuggestions > 0
+                    ? "Review exact edits"
+                    : "Queue approved edits"}
               </Link>
             </div>
           ) : (
@@ -240,6 +258,10 @@ export default function PublishPage() {
   const attempted = useRef<Set<number>>(new Set());
   useEffect(() => {
     if (siteId === null || !activeSite?.canPublish) return;
+    // Preparation exists to render *new* editorial intent. A site whose only
+    // pending work is an approved plan has nothing to prepare: asking anyway
+    // spends live requests to arrive at an empty review with no action on it.
+    if (activeSite.selectedSuggestions === 0) return;
     if (attempted.current.has(siteId)) return;
     attempted.current.add(siteId);
     setQueued(false);
@@ -252,7 +274,7 @@ export default function PublishPage() {
     // `preparePlans` is a fresh object on every render; the ref above is the
     // real guard, so re-running this effect is harmless and cheap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteId, activeSite?.canPublish, preparePlans.jobId]);
+  }, [siteId, activeSite?.canPublish, activeSite?.selectedSuggestions, preparePlans.jobId]);
 
   const busy = approvePlans.isPending || queuePlans.isPending;
 
@@ -410,6 +432,32 @@ export default function PublishPage() {
     );
   };
 
+  /**
+   * Two independent facts about the site being reviewed.
+   *
+   * Selected suggestions are new editorial intent: they need a preparation, a
+   * reading and an approval. Approved plans are exact edits a person already
+   * agreed to — they live in the database, they survive this browser, and they
+   * need only a job. A reload remembers neither, so both come from the server.
+   */
+  const newWork = (activeSite?.selectedSuggestions ?? 0) > 0;
+  const approvedWaiting = activeSite?.approvedPlans ?? 0;
+  /** Whether there is a batch on this page to read, approve, or retry. */
+  const inReview =
+    newWork ||
+    preparation !== undefined ||
+    preparing === siteId ||
+    prepareFailed === siteId;
+  /**
+   * The reload-safe queue action.
+   *
+   * `notQueued` is this browser's memory of the exact subset it just approved,
+   * and naming those ids is the more truthful retry, so it wins. Site-wide
+   * recovery is for the session with no such memory: a reload, another browser,
+   * or a site-wide attempt that itself failed and still needs a way back.
+   */
+  const showDurableRecovery = approvedWaiting > 0 && notQueued?.planIds === undefined;
+
   const loading =
     (siteId === null && pendingQuery.isPending) ||
     (siteId !== null && activeSiteQuery.isPending);
@@ -430,7 +478,7 @@ export default function PublishPage() {
             ? `${formatCount(selectedTotal)} selected ${
                 selectedTotal === 1 ? "link" : "links"
               } across ${plural(waitingSiteTotal, "site")} · nothing is live until you approve it`
-            : `${activeSite ? activeSite.name : `site ${siteId}`} · reviewing is recommended, but optional`
+            : `${activeSite ? activeSite.name : `site ${siteId}`} · every change is read before it is approved`
         }
         actions={
           <>
@@ -542,7 +590,34 @@ export default function PublishPage() {
           </EmptyPanel>
         )}
 
-        {!loading && !failed && !queued && activeSite?.canPublish && (
+        {/* Approved plans are durable, so this action cannot depend on what
+            this browser happens to remember. It is the only thing an
+            approved-only site needs, and on a mixed site it stands apart from
+            the batch below rather than sweeping it in. */}
+        {!loading && !failed && !queued && activeSite?.canPublish && showDurableRecovery && (
+          <div className="card mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-5">
+            <div className="min-w-0 flex-1">
+              <div className="text-body-sm font-medium text-ink">
+                {plural(approvedWaiting, "exact edit")} already approved and waiting to be queued
+              </div>
+              <p className="mt-1 max-w-prose text-caption leading-normal text-muted">
+                {newWork
+                  ? "Queueing publishes only those approved edits. The newly selected links below are separate work: they still have to be prepared, read and approved."
+                  : "Somebody already read and approved these, so nothing is prepared again. They go live when the publish job runs."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => queueApproved()}
+              disabled={busy}
+              className="btn btn-primary flex-none"
+            >
+              {busy ? "Queueing…" : "Queue approved exact edits"}
+            </button>
+          </div>
+        )}
+
+        {!loading && !failed && !queued && activeSite?.canPublish && inReview && (
           <PublicationReview
             siteId={activeSite.id}
             siteName={activeSite.name}
@@ -551,7 +626,7 @@ export default function PublishPage() {
             progress={preparePlans.progress}
             error={prepareFailed === siteId && preparation === undefined}
             busy={busy || removing !== null}
-            approvedNotQueued={notQueued !== null}
+            approvedNotQueued={notQueued !== null && !showDurableRecovery}
             selectedIds={selectedIds}
             onToggle={toggleTick}
             onToggleAll={toggleAllTicks}

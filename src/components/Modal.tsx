@@ -4,6 +4,15 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Props {
   title: string;
+  /**
+   * What the dialog is for, in the header rather than in the body.
+   *
+   * The body scrolls; the header does not. A description left in the body
+   * slides under the title the moment anything below it grows, which is exactly
+   * how the CSV import ended up with its column list half-hidden behind the
+   * heading.
+   */
+  description?: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
   /** Sizing and layout for the panel; the chrome is owned by this component. */
@@ -14,6 +23,7 @@ interface Props {
 
 export default function Modal({
   title,
+  description,
   onClose,
   children,
   panelClassName = "",
@@ -42,19 +52,26 @@ export default function Modal({
         onKeyDown={onKeyDown}
         className={`flex max-h-[85vh] w-full flex-col rounded-xl border border-hairline bg-canvas-soft p-5 focus:outline-none sm:p-8 ${panelClassName}`}
       >
-        <div className="mb-5 flex flex-none items-start justify-between gap-4">
-          <h2 id={titleId} className="font-serif text-display-sm text-ink">
-            {title}
-          </h2>
-          <button
-            type="button"
-            aria-label="Close dialog"
-            data-modal-dismiss=""
-            onClick={onClose}
-            className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
-          >
-            &times;
-          </button>
+        <div className="mb-5 flex-none">
+          <div className="flex items-start justify-between gap-4">
+            <h2 id={titleId} className="font-serif text-display-sm text-ink">
+              {title}
+            </h2>
+            <button
+              type="button"
+              aria-label="Close dialog"
+              data-modal-dismiss=""
+              onClick={onClose}
+              className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
+            >
+              &times;
+            </button>
+          </div>
+          {/* Held clear of the close control, which overhangs the header by its
+              own touch target. */}
+          {description && (
+            <div className="mt-2 pr-10 text-caption leading-normal text-muted">{description}</div>
+          )}
         </div>
         {/* The panel is capped at 85vh, so its body has to be the thing that
             scrolls. Without this the tallest form (a WordPress site, with
