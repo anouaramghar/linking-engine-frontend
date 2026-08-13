@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { formatCount } from "../../lib/utils";
 
 /**
- * What the operator has selected, and the way into the queue-owned review.
+ * What the operator has selected, and the way into the dedicated selection
+ * workspace. The exact-edit review remains a second, protected page.
  *
  * Selecting a row used to leave no trace on this page: the only door to the
  * exact-edit review was a button inside one row's detail panel, so an editor who
@@ -22,6 +23,8 @@ export default function SelectionTray({
 }) {
   if (selected === 0) return null;
 
+  const destination = siteId ? `/selected?site=${siteId}` : "/selected";
+
   return (
     <div className="z-20 border-t border-hairline bg-canvas-soft px-4 py-3 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -31,11 +34,11 @@ export default function SelectionTray({
             {siteCount} {siteCount === 1 ? "site" : "sites"}
           </div>
           <div className="text-caption text-muted">
-            Nothing is live yet. The exact edits still have to be reviewed and approved.
+            Nothing is live yet. Review the selected links before exact-edit approval.
           </div>
         </div>
-        <Link to={siteId ? `/publish/${siteId}` : "/publish"} className="btn btn-primary flex-none">
-          Review selected links
+        <Link to={destination} className="btn btn-primary flex-none">
+          Open selected links
         </Link>
       </div>
     </div>

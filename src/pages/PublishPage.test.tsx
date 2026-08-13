@@ -486,7 +486,7 @@ describe("PublishPage approval", () => {
     preparedFor(1);
     renderPublish();
 
-    expect(document.body.textContent).toContain("Review exact edits (required)");
+    expect(document.body.textContent).toContain("Review exact edits & approve");
     expect(document.body.textContent).not.toContain("recommended");
   });
 
@@ -533,6 +533,23 @@ describe("PublishPage approval", () => {
 
     expect(mocks.prepareMutate).toHaveBeenCalledWith(1, expect.anything());
     expect(mocks.prepareMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a row-level review with only that article selected", () => {
+    preparedFor(1, { selected_suggestions: 2 }, [PLAN, SECOND_PLAN]);
+    renderPublish("/publish/1?suggestion=2");
+
+    expect(document.body.textContent).toContain("1 of 2 selected");
+    expect(
+      (screen.getByRole("checkbox", {
+        name: `Include the edit to ${PLAN.source_url} in approval`,
+      }) as HTMLInputElement).checked,
+    ).toBe(false);
+    expect(
+      (screen.getByRole("checkbox", {
+        name: `Include the edit to ${SECOND_PLAN.source_url} in approval`,
+      }) as HTMLInputElement).checked,
+    ).toBe(true);
   });
 
   it("loads exact WordPress HTML only when advanced review asks for it", async () => {

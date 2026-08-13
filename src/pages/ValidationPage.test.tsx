@@ -652,7 +652,7 @@ describe("ValidationPage live review state", () => {
 });
 
 describe("ValidationPage hand-over to approval", () => {
-  const tray = () => screen.queryByRole("link", { name: "Review selected links" });
+  const tray = () => screen.queryByRole("link", { name: "Open selected links" });
 
   it("stays quiet while nothing is selected or approved", () => {
     renderQueue();
@@ -683,7 +683,7 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue();
 
     expect(document.body.textContent).toContain("24 links selected on 1 site");
-    expect(tray()?.getAttribute("href")).toBe("/publish");
+    expect(tray()?.getAttribute("href")).toBe("/selected");
   });
 
   it("points at the site list when more than one site is waiting", () => {
@@ -694,9 +694,9 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue();
 
     expect(document.body.textContent).toContain("13 links selected on 2 sites");
-    const reviewLinks = screen.getAllByRole("link", { name: "Review selected links" });
+    const reviewLinks = screen.getAllByRole("link", { name: "Open selected links" });
     expect(reviewLinks).toHaveLength(1);
-    expect(reviewLinks[0].getAttribute("href")).toBe("/publish");
+    expect(reviewLinks[0].getAttribute("href")).toBe("/selected");
   });
 
   it("opens the filtered site's exact edits directly", () => {
@@ -706,7 +706,7 @@ describe("ValidationPage hand-over to approval", () => {
     ];
     renderQueue("/?site=1&status=approved");
 
-    expect(tray()?.getAttribute("href")).toBe("/publish/1");
+    expect(tray()?.getAttribute("href")).toBe("/selected?site=1");
   });
 
   it("keeps the review action visible outside the long scrolling queue", () => {
@@ -716,7 +716,7 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue();
 
     const queueScroller = screen.getByRole("region", { name: "Suggestion queue" });
-    const reviewLink = screen.getByRole("link", { name: "Review selected links" });
+    const reviewLink = screen.getByRole("link", { name: "Open selected links" });
 
     expect(queueScroller.contains(reviewLink)).toBe(false);
   });
@@ -727,7 +727,7 @@ describe("ValidationPage hand-over to approval", () => {
     ];
     renderQueue();
 
-    expect(tray()?.getAttribute("href")).toBe("/publish");
+    expect(tray()?.getAttribute("href")).toBe("/selected");
   });
 
   it("shows progress while a selection is being saved", async () => {
@@ -781,7 +781,7 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue("/?status=approved");
 
     expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
-    expect(tray()?.getAttribute("href")).toBe("/publish");
+    expect(tray()?.getAttribute("href")).toBe("/selected");
   });
 
   it("ignores legacy review query parameters", () => {

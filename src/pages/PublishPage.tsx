@@ -156,6 +156,12 @@ export default function PublishPage() {
   const [siteSearch, setSiteSearch] = useState("");
   const deferredSiteSearch = useDeferredValue(siteSearch);
   const routeJobId = searchParams.get("job");
+  const focusSuggestionValue = searchParams.get("suggestion");
+  const focusSuggestionCandidate = focusSuggestionValue ? Number(focusSuggestionValue) : NaN;
+  const focusSuggestionId =
+    Number.isInteger(focusSuggestionCandidate) && focusSuggestionCandidate > 0
+      ? focusSuggestionCandidate
+      : null;
   const routeSiteId = Number(params.siteId);
   const siteId = Number.isInteger(routeSiteId) && routeSiteId > 0 ? routeSiteId : null;
 
@@ -239,8 +245,21 @@ export default function PublishPage() {
         // batch by selecting its suggestions, so the boxes are here to exclude
         // an article, not to consent to one. Consent is the final button, and
         // what it means is pinned by the hash beside each article.
+        const focusedPlans =
+          focusSuggestionId !== null
+            ? result.plans.filter((plan) =>
+                plan.links.some((link) => link.suggestion_id === focusSuggestionId),
+              )
+            : result.plans;
         setTicks((current) =>
-          new Map(current).set(id, new Set(result.plans.map((plan) => plan.id))),
+          new Map(current).set(
+            id,
+            new Set(
+              focusedPlans.length > 0
+                ? focusedPlans.map((plan) => plan.id)
+                : result.plans.map((plan) => plan.id),
+            ),
+          ),
         );
         setPreparing((current) => (current === id ? null : current));
       },
@@ -514,7 +533,7 @@ export default function PublishPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-5">
-          <FlowSteps current={queued ? 3 : 2} />
+          <FlowSteps current={2} />
         </div>
 
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}

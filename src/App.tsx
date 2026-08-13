@@ -17,6 +17,7 @@ const ContentPoolPage = lazy(() => import("./pages/ContentPoolPage"));
 const SitesPage = lazy(() => import("./pages/SitesPage"));
 const TraceabilityPage = lazy(() => import("./pages/TraceabilityPage"));
 const ValidationPage = lazy(() => import("./pages/ValidationPage"));
+const SelectedPage = lazy(() => import("./pages/SelectedPage"));
 const PublishPage = lazy(() => import("./pages/PublishPage"));
 
 function RouteFallback() {
@@ -639,6 +640,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Navigate to="/queue" replace />} />
               <Route path="/queue" element={<ValidationPage />} />
+              <Route path="/selected" element={<SelectedPage />} />
               <Route path="/publish" element={<PublishPage />} />
               <Route path="/publish/:siteId" element={<PublishPage />} />
               <Route path="/sites" element={<SitesPage />} />

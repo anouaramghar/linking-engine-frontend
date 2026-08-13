@@ -17,6 +17,7 @@ interface Props {
   onAccept: (id: number) => void;
   onReject: (id: number) => void;
   onUndo: (id: number) => void;
+  onReviewPublication?: (id: number) => void;
   actionsDisabled?: boolean;
   showSource?: boolean;
 }
@@ -29,6 +30,7 @@ function SuggestionCard({
   onAccept,
   onReject,
   onUndo,
+  onReviewPublication,
   actionsDisabled = false,
   showSource = true,
 }: Props) {
@@ -87,7 +89,11 @@ function SuggestionCard({
       </div>
       {/* Keep the decision column stable so row content never shifts when a
           status badge or Undo action replaces Select and Reject. */}
-      <div className="flex w-full flex-none flex-wrap items-center justify-end gap-2 lg:w-[220px]">
+      <div
+        className={`flex w-full flex-none flex-wrap items-center justify-end gap-2 ${
+          s.status === "approved" && onReviewPublication ? "lg:w-[290px]" : "lg:w-[220px]"
+        }`}
+      >
         {s.status === "pending" ? (
           <>
             <button
@@ -118,6 +124,20 @@ function SuggestionCard({
         ) : (
           <>
             <span className="badge">{meta.label}</span>
+            {s.status === "approved" && onReviewPublication && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onReviewPublication(s.id);
+                }}
+                aria-label={`Review exact edit for suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+                disabled={actionsDisabled}
+                className="btn btn-primary btn-sm"
+              >
+                Review exact edit
+              </button>
+            )}
             {isReversible(s.status) && (
               <button
                 type="button"
