@@ -47,13 +47,12 @@ vi.mock("../hooks/useSuggestions", () => ({
     };
   },
   useSuggestionCounts: (filters: { status?: string; siteId?: number }) => {
-    const count = mocks.suggestions.filter(
-      (item) =>
-        item.status === filters.status &&
-        (filters.siteId === undefined || item.site_id === filters.siteId),
-    ).length;
+    const scoped = mocks.suggestions.filter(
+      (item) => filters.siteId === undefined || item.site_id === filters.siteId,
+    );
+    const approved = scoped.filter((item) => item.status === filters.status).length;
     return {
-      data: { total: count },
+      data: { approved, total: scoped.length + 7 },
       isPending: false,
       isError: false,
       isFetching: false,
@@ -129,6 +128,7 @@ describe("SelectedPage", () => {
     expect(screen.getAllByText("Source 1").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Source 3").length).toBeGreaterThan(0);
     expect(screen.queryByText("Source 2")).toBeNull();
+    expect(screen.getByText("2 selected links")).not.toBeNull();
     expect(screen.getAllByText("Links to").length).toBeGreaterThan(0);
     expect(screen.queryByText("Selected for review")).toBeNull();
     expect(screen.getByRole("link", { name: "Review selected exact edits" })).not.toBeNull();

@@ -106,7 +106,7 @@ export default function SelectedPage() {
   const placementQuery = usePlacement(selected?.id ?? null);
   const traceQuery = useSuggestionEvents(selected?.id ?? null);
   const noop = useCallback(() => undefined, []);
-  const selectedTotal = countsQuery.data?.total ?? null;
+  const selectedTotal = countsQuery.data?.approved ?? null;
   const isFiltered =
     siteFilter !== 0 || q.trim() !== "" || targetOrigin !== "" || hideReciprocal;
   const batchDestination = siteFilter > 0 ? `/publish/${siteFilter}` : "/publish";
