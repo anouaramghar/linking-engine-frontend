@@ -20,6 +20,7 @@ interface Props {
   onReviewPublication?: (id: number) => void;
   actionsDisabled?: boolean;
   showSource?: boolean;
+  showStatusBadge?: boolean;
 }
 
 function SuggestionCard({
@@ -33,6 +34,7 @@ function SuggestionCard({
   onReviewPublication,
   actionsDisabled = false,
   showSource = true,
+  showStatusBadge = true,
 }: Props) {
   const meta = STATUS_META[s.status];
 
@@ -123,7 +125,7 @@ function SuggestionCard({
           </>
         ) : (
           <>
-            <span className="badge">{meta.label}</span>
+            {showStatusBadge && <span className="badge">{meta.label}</span>}
             {s.status === "approved" && onReviewPublication && (
               <button
                 type="button"
