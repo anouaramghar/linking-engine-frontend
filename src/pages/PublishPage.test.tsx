@@ -44,6 +44,9 @@ const mocks = vi.hoisted(() => ({
   /** What a preparation answers with, per site id. */
   preparedData: {} as Record<number, unknown>,
   prepareError: false,
+  prepareJobId: null as string | null,
+  prepareHookData: undefined as unknown,
+  prepareHookError: false,
   sitesQuery: {} as Record<string, unknown>,
   pendingQuery: {} as Record<string, unknown>,
 }));
@@ -110,11 +113,11 @@ vi.mock("../hooks/usePublish", () => ({
     refetch: vi.fn(),
   }),
   usePreparePublicationPlans: () => ({
-    data: undefined,
-    jobId: null,
+    data: mocks.prepareHookData,
+    jobId: mocks.prepareJobId,
     progress: null,
     isPending: false,
-    isError: false,
+    isError: mocks.prepareHookError,
     mutate: mocks.prepareMutate,
     reset: mocks.prepareReset,
   }),
@@ -201,6 +204,9 @@ beforeEach(() => {
   mocks.pendingSite = undefined;
   mocks.preparedData = {};
   mocks.prepareError = false;
+  mocks.prepareJobId = null;
+  mocks.prepareHookData = undefined;
+  mocks.prepareHookError = false;
   mocks.sitesQuery = {};
   mocks.pendingQuery = {};
   mocks.getPlanHtml.mockResolvedValue({
@@ -300,6 +306,29 @@ describe("PublishPage site list", () => {
     expect(document.body.textContent).toContain("1 of 2 selected");
   });
 
+  it("prepares the next site after the previous site's job finished", async () => {
+    const user = userEvent.setup();
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 2, approved_plans: 0 },
+      { site_id: 2, selected_suggestions: 1, approved_plans: 0 },
+    ];
+    mocks.prepareJobId = "prepare-1";
+    mocks.prepareHookData = {
+      site_id: 1,
+      selected_suggestions: 2,
+      plans: [PLAN],
+      errors: [],
+      has_more: false,
+    };
+    mocks.prepareMutate.mockImplementation(() => undefined);
+    renderPublish("/publish/1?job=prepare-1");
+
+    await user.click(screen.getByRole("link", { name: "All sites waiting" }));
+    await user.click(screen.getAllByRole("link", { name: "Review exact edits" })[1]);
+
+    expect(mocks.prepareMutate).toHaveBeenCalledWith(2, expect.anything());
+  });
+
   it("does not prepare a site that holds nothing", () => {
     renderPublish("/publish/1");
 
@@ -390,6 +419,23 @@ describe("PublishPage approval", () => {
 
     expect(document.body.textContent).toContain("0 of 1 read");
     expect(screen.queryByRole("button", { name: /^Approve and queue/ })).toBeNull();
+  });
+
+  it("opens the next change without moving the review scroll position", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    renderPublish();
+
+    await user.click(screen.getByRole("button", { name: "Read the next change" }));
+
+    expect(
+      document
+        .getElementById(`publication-plan-${PLAN.id}`)
+        ?.querySelector('button[aria-expanded="true"]'),
+    ).not.toBeNull();
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("keeps an article read after the operator closes it again", async () => {
@@ -863,6 +909,37 @@ describe("PublishPage approval", () => {
 
     expect(document.body.textContent).toContain("The edits could not be prepared");
     expect(document.body.textContent).toContain("No article was changed");
+  });
+
+  it("shows retry when the preparation status cannot be read", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 2, approved_plans: 0 },
+    ];
+    mocks.prepareJobId = "prepare-1";
+    mocks.prepareHookError = true;
+    renderPublish("/publish/1?job=prepare-1");
+
+    expect(document.body.textContent).toContain("The edits could not be prepared");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("shows a finished preparation even when its callback was lost", () => {
+    mocks.pendingPublication = [
+      { site_id: 1, selected_suggestions: 2, approved_plans: 0 },
+    ];
+    mocks.prepareHookData = {
+      site_id: 1,
+      selected_suggestions: 2,
+      plans: [PLAN],
+      errors: [],
+      has_more: false,
+    };
+    mocks.prepareMutate.mockImplementation(() => undefined);
+
+    renderPublish();
+
+    expect(screen.queryByLabelText("Preparing the exact edits")).toBeNull();
+    expect(screen.getByRole("button", { name: "Show the change" })).toBeTruthy();
   });
 });
 

@@ -155,6 +155,7 @@ export default function PublishPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [siteSearch, setSiteSearch] = useState("");
   const deferredSiteSearch = useDeferredValue(siteSearch);
+  const routeJobId = searchParams.get("job");
   const routeSiteId = Number(params.siteId);
   const siteId = Number.isInteger(routeSiteId) && routeSiteId > 0 ? routeSiteId : null;
 
@@ -189,7 +190,7 @@ export default function PublishPage() {
   // wait for the fleet inbox, which can span thousands of sites.
   const pendingQuery = usePendingPublication(siteId === null, deferredSiteSearch);
   const activeSiteQuery = usePendingPublicationSite(siteId);
-  const preparePlans = usePreparePublicationPlans(searchParams.get("job"));
+  const preparePlans = usePreparePublicationPlans(routeJobId);
   const approvePlans = useApprovePlans();
   const queuePlans = useQueueApprovedPlans();
   const review = useReview();
@@ -262,6 +263,13 @@ export default function PublishPage() {
     // pending work is an approved plan has nothing to prepare: asking anyway
     // spends live requests to arrive at an empty review with no action on it.
     if (activeSite.selectedSuggestions === 0) return;
+    // A completed job belongs to the site named in its result. Its retained id
+    // must not block preparation when the operator moves to another site.
+    if (preparePlans.isPending) return;
+    if (preparePlans.isError && routeJobId) return;
+    if (prepared.has(siteId)) return;
+    if (preparePlans.data?.site_id === siteId) return;
+    if (preparePlans.data) attempted.current.delete(siteId);
     if (attempted.current.has(siteId)) return;
     attempted.current.add(siteId);
     setQueued(false);
@@ -269,12 +277,20 @@ export default function PublishPage() {
     setStale(false);
     // Route entry is the explicit user action that starts preparation. The ref
     // makes this one transition, including under StrictMode.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!preparePlans.jobId) runPrepare(siteId);
+    runPrepare(siteId);
     // `preparePlans` is a fresh object on every render; the ref above is the
     // real guard, so re-running this effect is harmless and cheap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteId, activeSite?.canPublish, activeSite?.selectedSuggestions, preparePlans.jobId]);
+  }, [
+    siteId,
+    activeSite?.canPublish,
+    activeSite?.selectedSuggestions,
+    preparePlans.data?.site_id,
+    preparePlans.isError,
+    preparePlans.isPending,
+    prepared,
+    routeJobId,
+  ]);
 
   const busy = approvePlans.isPending || queuePlans.isPending;
 
@@ -622,9 +638,15 @@ export default function PublishPage() {
             siteId={activeSite.id}
             siteName={activeSite.name}
             data={preparation}
-            loading={preparing === siteId || preparePlans.isPending}
+            loading={
+              preparation === undefined &&
+              (preparing === siteId || preparePlans.isPending)
+            }
             progress={preparePlans.progress}
-            error={prepareFailed === siteId && preparation === undefined}
+            error={
+              (preparePlans.isError || prepareFailed === siteId) &&
+              preparation === undefined
+            }
             busy={busy || removing !== null}
             approvedNotQueued={notQueued !== null && !showDurableRecovery}
             selectedIds={selectedIds}

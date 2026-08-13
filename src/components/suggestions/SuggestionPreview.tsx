@@ -9,7 +9,6 @@ import {
   isReversible,
 } from "../../lib/utils";
 import type { Suggestion } from "../../types/suggestion";
-import DetailPanelToggle from "./DetailPanelToggle";
 import PlacementContextCard from "./PlacementContextCard";
 import type { PlacementState } from "./PlacementContextCard";
 import SuggestionTraceCard from "./SuggestionTraceCard";
@@ -24,13 +23,6 @@ interface Props {
   /** Loaded lazily for the open drawer, just like placement context. */
   trace?: SuggestionTraceState;
   onClose: () => void;
-  /**
-   * Put the whole column away, not just this suggestion. Given only where the
-   * panel is a column the queue has to share width with — over the list it is
-   * already a dismissable drawer, and a second "away" control there would say
-   * the same thing twice.
-   */
-  onCollapse?: () => void;
   onAccept: () => void;
   onReject: () => void;
   onUndo: () => void;
@@ -44,7 +36,6 @@ export default function SuggestionPreview({
   placement,
   trace,
   onClose,
-  onCollapse,
   onAccept,
   onReject,
   onUndo,
@@ -68,7 +59,6 @@ export default function SuggestionPreview({
       <div className="mb-5 flex items-center justify-between">
         <div className="eyebrow">Suggestion #{String(s.id).padStart(3, "0")}</div>
         <div className="-mr-2 -mt-2 flex items-center">
-          {onCollapse && <DetailPanelToggle collapsed={false} onToggle={onCollapse} />}
           <button
             aria-label="Close preview"
             onClick={onClose}

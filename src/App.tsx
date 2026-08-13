@@ -3,6 +3,7 @@ import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
 import RailTip from "./components/RailTip";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
 import { useRail } from "./hooks/useRail";
@@ -633,20 +634,22 @@ export default function App() {
         {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
         <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
         <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
-        <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/queue" replace />} />
-            <Route path="/queue" element={<ValidationPage />} />
-            <Route path="/publish" element={<PublishPage />} />
-            <Route path="/publish/:siteId" element={<PublishPage />} />
-            <Route path="/sites" element={<SitesPage />} />
-            <Route path="/content-pool" element={<ContentPoolPage />} />
-            <Route path="/evaluation" element={<EvaluationPage />} />
-            <Route path="/traceability" element={<TraceabilityPage />} />
-            <Route path="/access" element={<AccessPage />} />
-            <Route path="*" element={<Navigate to="/queue" replace />} />
-          </Routes>
-        </Suspense>
+        <RouteErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/queue" replace />} />
+              <Route path="/queue" element={<ValidationPage />} />
+              <Route path="/publish" element={<PublishPage />} />
+              <Route path="/publish/:siteId" element={<PublishPage />} />
+              <Route path="/sites" element={<SitesPage />} />
+              <Route path="/content-pool" element={<ContentPoolPage />} />
+              <Route path="/evaluation" element={<EvaluationPage />} />
+              <Route path="/traceability" element={<TraceabilityPage />} />
+              <Route path="/access" element={<AccessPage />} />
+              <Route path="*" element={<Navigate to="/queue" replace />} />
+            </Routes>
+          </Suspense>
+        </RouteErrorBoundary>
       </main>
     </div>
   );

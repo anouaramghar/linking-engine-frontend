@@ -324,13 +324,10 @@ export default function PublicationReview({
   const unread = selectedPlans.filter((plan) => !isRead(plan.id));
   const nextUnread = unread[0];
 
-  /** Open the next unread change and put it under the operator's eyes. */
+  /** Open the next unread change without taking the operator's scroll position. */
   const showNextUnread = () => {
     if (!nextUnread) return;
     open(nextUnread.id);
-    document
-      .getElementById(`publication-plan-${nextUnread.id}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (

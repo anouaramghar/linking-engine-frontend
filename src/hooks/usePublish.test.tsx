@@ -133,6 +133,19 @@ describe("usePreparePublicationPlans", () => {
     expect(result.current.data).toBeUndefined();
   });
 
+  it("stops loading when the preparation status poll fails", async () => {
+    mocks.getJob.mockRejectedValue(new Error("status poll failed"));
+    const onError = vi.fn();
+    const { result } = renderHook(() => usePreparePublicationPlans(), { wrapper });
+
+    result.current.mutate(4, { onError });
+
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect((onError.mock.calls[0][0] as Error).message).toBe("status poll failed");
+    expect(result.current.isError).toBe(true);
+    expect(result.current.isPending).toBe(false);
+  });
+
   it("reports the enqueue itself failing, before any job exists", async () => {
     mocks.preparePublicationPlans.mockRejectedValue(new Error("engine unreachable"));
     const onError = vi.fn();

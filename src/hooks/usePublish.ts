@@ -61,8 +61,15 @@ export const usePreparePublicationPlans = (initialJobId: string | null = null) =
   });
 
   useEffect(() => {
-    if (!jobId || !job.data || !isTerminalJobStatus(job.data.status)) return;
-    if (delivered.current === jobId) return;
+    if (!jobId || delivered.current === jobId) return;
+    if (job.isError) {
+      delivered.current = jobId;
+      callbacks.current?.onError?.(
+        job.error instanceof Error ? job.error : new Error("The preparation status could not be read."),
+      );
+      return;
+    }
+    if (!job.data || !isTerminalJobStatus(job.data.status)) return;
     delivered.current = jobId;
     if (job.data.status === "succeeded" && job.data.result) {
       callbacks.current?.onSuccess?.(job.data.result);
@@ -70,7 +77,7 @@ export const usePreparePublicationPlans = (initialJobId: string | null = null) =
     }
     const error = new Error(job.data.error ?? "The exact edits could not be prepared.");
     callbacks.current?.onError?.(error);
-  }, [job.data, jobId]);
+  }, [job.data, job.error, job.isError, jobId]);
 
   const mutate = (siteId: number, options: PrepareCallbacks = {}) => {
     callbacks.current = options;
@@ -108,7 +115,8 @@ export const usePreparePublicationPlans = (initialJobId: string | null = null) =
     jobId,
     progress: job.data?.progress,
     isPending:
-      enqueue.isPending || Boolean(jobId && !isTerminalJobStatus(job.data?.status)),
+      enqueue.isPending ||
+      Boolean(jobId && !job.isError && !isTerminalJobStatus(job.data?.status)),
     isError: enqueue.isError || job.isError || Boolean(terminalError),
     error: enqueue.error ?? job.error ?? terminalError,
   };

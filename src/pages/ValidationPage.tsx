@@ -19,12 +19,9 @@ import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
-import DetailPanelToggle from "../components/suggestions/DetailPanelToggle";
 import SelectionTray from "../components/suggestions/SelectionTray";
 import FlowSteps from "../components/publish/FlowSteps";
-import { useDetailPanel } from "../hooks/useDetailPanel";
 import { useIncrementalList } from "../hooks/useIncrementalList";
-import { OVERLAY_PREVIEW_QUERY, useMediaQuery } from "../hooks/useMediaQuery";
 import { usePendingPublication } from "../hooks/usePublish";
 import {
   useBulkReview,
@@ -163,19 +160,6 @@ export default function ValidationPage() {
   const overrideOrder = useRef<number[]>([]);
   const focusAfterReview = useRef<number | "main" | null>(null);
 
-  const previewIsOverlaid = useMediaQuery(OVERLAY_PREVIEW_QUERY);
-  // Only meaningful beside the list. Over it the panel is already a drawer that
-  // dismisses itself, so the collapse preference is simply not consulted.
-  //
-  // Destructured because both callbacks are stable and `openRow` depends on
-  // one: reading them off a fresh object every render would rebuild that
-  // handler and defeat the memo on every card in the queue.
-  const {
-    collapsed: detailPanelCollapsed,
-    collapse: collapseDetailPanel,
-    expand: expandDetailPanel,
-  } = useDetailPanel();
-  const detailCollapsed = detailPanelCollapsed && !previewIsOverlaid;
   const sitesQuery = useSites();
   // Every site, because this list is also what resolves a suggestion's site
   // name — dropping pool sources here would label their groups "site 12".
@@ -776,14 +760,7 @@ export default function ValidationPage() {
   useEffect(() => {
     rowActions.current = { decide, undo };
   });
-  // Opening a row is a request to read it, so it brings a collapsed panel back.
-  const openRow = useCallback(
-    (id: number) => {
-      setSelectedId(id);
-      expandDetailPanel();
-    },
-    [expandDetailPanel],
-  );
+  const openRow = useCallback((id: number) => setSelectedId(id), []);
   const acceptRow = useCallback((id: number) => rowActions.current.decide(id, "approved"), []);
   const rejectRow = useCallback((id: number) => rowActions.current.decide(id, "rejected"), []);
   const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
@@ -882,9 +859,6 @@ export default function ValidationPage() {
       return;
     }
     setSelectedId(navigableSuggestions[Math.max(0, target)].id);
-    // Walking the queue with j/k is inspection, so it opens the panel for the
-    // same reason a click does.
-    expandDetailPanel();
   };
 
   useQueueShortcuts({
@@ -1217,44 +1191,7 @@ export default function ValidationPage() {
           )}
         </div>
 
-        {/* Collapsed, the column becomes a strip rather than disappearing: a
-            panel with no way back is a feature an operator loses, and the strip
-            is also what says the detail is a place rather than a popup. */}
-        {detailCollapsed && (
-          <aside
-            aria-label="Suggestion detail"
-            className="flex h-full min-h-0 w-14 flex-none flex-col items-center gap-3 border-l border-hairline bg-canvas-soft py-4"
-          >
-            <DetailPanelToggle collapsed onToggle={expandDetailPanel} />
-            <span
-              aria-hidden="true"
-              className="eyebrow whitespace-nowrap [writing-mode:vertical-rl]"
-            >
-              Suggestion detail
-            </span>
-          </aside>
-        )}
-
-        {!previewIsOverlaid && !detailCollapsed && !selected && (
-          <aside
-            aria-label="Suggestion detail"
-            className="flex h-full min-h-0 w-[410px] flex-none flex-col border-l border-hairline bg-canvas-soft"
-          >
-            <div className="flex justify-end px-3 pt-3">
-              <DetailPanelToggle collapsed={false} onToggle={collapseDetailPanel} />
-            </div>
-            <div className="flex flex-1 flex-col justify-center px-8 pb-8">
-              <div className="eyebrow">Suggestion detail</div>
-              <h2 className="mt-2 font-serif text-display-sm text-ink">Select a suggestion</h2>
-              <p className="mt-3 max-w-xs text-body-sm leading-relaxed text-muted">
-                Choose a row to inspect its placement context, target article, match score, and
-                decision controls.
-              </p>
-            </div>
-          </aside>
-        )}
-
-        {selected && !detailCollapsed && (
+        {selected && (
           <SuggestionPreview
             suggestion={selected}
             siteName={siteName(selected.site_id)}
@@ -1274,17 +1211,6 @@ export default function ValidationPage() {
               }}
             actionsDisabled={queueUpdating || actionMutationPending}
             onClose={() => setSelectedId(null)}
-            // Collapsing puts the column away, so it also lets the open
-            // suggestion go — a selection nothing can show is a selection the
-            // keyboard would keep acting on invisibly.
-            onCollapse={
-              previewIsOverlaid
-                ? undefined
-                : () => {
-                    setSelectedId(null);
-                    collapseDetailPanel();
-                  }
-            }
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => decide(selected.id, "rejected")}
             onUndo={() => undo([selected.id])}
