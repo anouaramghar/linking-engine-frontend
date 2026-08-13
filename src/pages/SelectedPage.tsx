@@ -317,6 +317,7 @@ export default function SelectedPage() {
                         onUndo={undo}
                         onReviewPublication={reviewOne}
                         actionsDisabled={review.isPending}
+                        showSource={false}
                         showStatusBadge={false}
                       />
                     ))}

@@ -129,6 +129,7 @@ describe("SelectedPage", () => {
     expect(screen.getAllByText("Source 1").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Source 3").length).toBeGreaterThan(0);
     expect(screen.queryByText("Source 2")).toBeNull();
+    expect(screen.getAllByText("Links to").length).toBeGreaterThan(0);
     expect(screen.queryByText("Selected for review")).toBeNull();
     expect(screen.getByRole("link", { name: "Review selected exact edits" })).not.toBeNull();
     expect(mocks.lastFilters).toMatchObject({ status: "approved" });
