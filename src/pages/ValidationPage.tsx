@@ -228,13 +228,19 @@ export default function ValidationPage() {
     [scope, scoreWindow],
   );
   const scopedCountsQuery = useSuggestionCounts(scopedFilters, hasSites);
+  // The two threshold counts label the bulk buttons, and a bulk rule only ever
+  // matches pending rows — so on any other status chip they label a control
+  // that is already disabled. Two aggregate queries per threshold and per site
+  // filter is a lot of database work to do for a number nobody can act on.
+  const bulkCountsWanted =
+    hasSites && (statusFilter === "all" || statusFilter === "pending");
   const acceptCountsQuery = useSuggestionCounts(
     { ...scope, minPercent: threshold },
-    hasSites,
+    bulkCountsWanted,
   );
   const rejectCountsQuery = useSuggestionCounts(
     { ...scope, maxPercent: threshold },
-    hasSites,
+    bulkCountsWanted,
   );
   // Read-only here. The queue owns the exact-edit review surface; this query
   // only tells it which selected site's work is ready to open.

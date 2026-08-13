@@ -66,6 +66,11 @@ const mocks = vi.hoisted(() => ({
     approved_plans: number;
     can_publish?: boolean;
   }[],
+  /** Every count query the page asked for, and whether it was allowed to run. */
+  countsQueries: [] as {
+    filters: { siteId?: number; minPercent?: number; maxPercent?: number };
+    enabled: boolean;
+  }[],
   countsOverride: null as {
     pending: number;
     approved: number;
@@ -108,11 +113,25 @@ vi.mock("../hooks/useSuggestions", () => ({
     error: null,
     refetch: vi.fn(),
   }),
-  useSuggestionCounts: (filters: {
-    siteId?: number;
-    minPercent?: number;
-    maxPercent?: number;
-  }) => {
+  useSuggestionCounts: (
+    filters: {
+      siteId?: number;
+      minPercent?: number;
+      maxPercent?: number;
+    },
+    enabled = true,
+  ) => {
+    mocks.countsQueries.push({ filters, enabled });
+    if (!enabled) {
+      // What the real hook reports for a query it never ran.
+      return {
+        data: undefined,
+        isPending: true,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      };
+    }
     if (mocks.countsOverride) {
       return {
         data: mocks.countsOverride,
@@ -228,6 +247,7 @@ beforeEach(() => {
   mocks.filteredBulkError = null;
   mocks.pendingPublication = [];
   mocks.countsOverride = null;
+  mocks.countsQueries = [];
   mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
@@ -492,6 +512,29 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Selected.*0/ })).not.toBeNull();
     expect(mocks.filteredBulkMutate).not.toHaveBeenCalled();
+  });
+
+  // A bulk rule only ever matches pending rows, so on any other chip its two
+  // counts label a control that is already disabled. They are aggregates over
+  // the whole fleet, and they change with the threshold and with the site
+  // filter, so asking for them there is real database work for a number nobody
+  // can act on.
+  it("stops counting the bulk rule once a non-pending chip is shown", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    const rule = () =>
+      mocks.countsQueries.filter(
+        ({ filters }) =>
+          filters.minPercent !== undefined || filters.maxPercent !== undefined,
+      );
+    expect(rule().every(({ enabled }) => enabled)).toBe(true);
+
+    mocks.countsQueries = [];
+    await user.click(screen.getByRole("button", { name: /Rejected/ }));
+
+    expect(rule()).not.toHaveLength(0);
+    expect(rule().some(({ enabled }) => enabled)).toBe(false);
   });
 
   it("walks a bulk decision back through the undo action", async () => {
