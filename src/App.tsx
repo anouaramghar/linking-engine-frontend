@@ -62,8 +62,22 @@ const QUEUE: NavItem = {
   ),
 };
 
+const SELECTED: NavItem = {
+  to: "/selected",
+  label: "Selected links",
+  short: "Selected",
+  countNoun: "selected",
+  icon: (
+    <>
+      <path d="M9.5 14.5 7 17a4 4 0 0 1-5.5-5.8l3-3a4 4 0 0 1 5.5 0" />
+      <path d="m14.5 9.5 2.5-2.5a4 4 0 0 1 5.5 5.8l-3 3a4 4 0 0 1-5.5 0" />
+      <path d="m8 16 8-8" />
+    </>
+  ),
+};
+
 /** The selection, exact-edit review, and approval all belong to this workspace. */
-const FLOW = [QUEUE];
+const FLOW = [QUEUE, SELECTED];
 
 /**
  * The queue is the destination; the remaining items are where you go between
@@ -440,7 +454,7 @@ function MobileNavigation({ counts }: { counts: Record<string, number | null> })
 
       <nav
         aria-label="Mobile navigation"
-        className="hidden grid-cols-6 gap-1 px-2 pb-2 md:grid lg:hidden"
+        className="hidden grid-cols-7 gap-1 px-2 pb-2 md:grid lg:hidden"
       >
         {NAV.map((navItem) => (
           <span key={navItem.to}>{item(navItem, "row")}</span>
@@ -493,7 +507,7 @@ export default function App() {
   const { preference, setTheme } = useTheme();
   const { collapsed, toggle } = useRail();
   const pending = counts?.pending ?? null;
-  const navCounts = { [QUEUE.to]: pending };
+  const navCounts = { [QUEUE.to]: pending, [SELECTED.to]: counts?.approved ?? null };
   const healthLabel = healthPending
     ? "Checking engine"
     : healthFailed

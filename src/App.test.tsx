@@ -10,7 +10,7 @@ vi.mock("./hooks/useSites", () => ({
 }));
 
 vi.mock("./hooks/useSuggestions", () => ({
-  useSuggestionCounts: () => ({ data: { pending: 3 } }),
+  useSuggestionCounts: () => ({ data: { pending: 3, approved: 2 } }),
 }));
 
 vi.mock("./hooks/usePublish", () => ({
@@ -85,6 +85,7 @@ describe("App shell", () => {
 
     for (const nav of [mobile, desktop]) {
       expect(nav.querySelector('a[href="/queue"]')).not.toBeNull();
+      expect(nav.querySelector('a[href="/selected"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/sites"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/content-pool"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/evaluation"]')).not.toBeNull();
@@ -122,6 +123,7 @@ describe("Rail collapse", () => {
     // the document too and "Sites" would match in both shells.
     for (const name of [
       "Review queue",
+      "Selected links",
       "Sites",
       "Content Pool",
       "Evaluation",
@@ -130,7 +132,7 @@ describe("Rail collapse", () => {
     ]) {
       expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
-    expect(rail().querySelectorAll("a")).toHaveLength(6);
+    expect(rail().querySelectorAll("a")).toHaveLength(7);
   });
 
   it("carries each count when the badge cannot show it", async () => {
@@ -143,6 +145,8 @@ describe("Rail collapse", () => {
 
     const queue = rail().querySelector('a[href="/queue"]');
     expect(queue?.textContent).toContain("3 pending");
+    const selected = rail().querySelector('a[href="/selected"]');
+    expect(selected?.textContent).toContain("2 selected");
     expect(rail().querySelector('a[href="/publish"]')).toBeNull();
   });
 
