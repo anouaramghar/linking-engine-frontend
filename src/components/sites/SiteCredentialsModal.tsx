@@ -89,8 +89,8 @@ export default function SiteCredentialsModal({
       <form onSubmit={submit}>
         <p id={hintId} className="text-caption leading-relaxed text-muted">
           {attached
-            ? "An account is attached. Publication reads every post for editing before it writes, so entering a new application password here replaces the stored one."
-            : "Without an account, this site's exact edits cannot be prepared: WordPress refuses to return a post for editing to an anonymous caller."}{" "}
+            ? "An account is attached. Entering a new application password replaces it."
+            : "Without an account, LinkMesh cannot prepare exact edits for this site."}{" "}
           Use an application password for a user who can edit posts — not the login password.
         </p>
 
@@ -159,8 +159,7 @@ export default function SiteCredentialsModal({
             {confirmingClear ? (
               <div className="flex flex-wrap items-center gap-3">
                 <span className="min-w-0 flex-1 text-caption text-body">
-                  Remove the account? {site.name} keeps crawling, and stops being able to
-                  publish.
+                  Remove the account? Crawling continues, but publishing stops.
                 </span>
                 <button
                   type="button"

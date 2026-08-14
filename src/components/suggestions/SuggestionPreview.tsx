@@ -79,13 +79,13 @@ export default function SuggestionPreview({
           rel="noreferrer"
           className="underline underline-offset-2 hover:text-ink"
         >
-          open article
+          Open source article
         </a>
       </div>
 
       <PlacementContextCard placement={placement} />
 
-      <div className="eyebrow mb-2 mt-5">Links to &rarr;</div>
+      <div className="eyebrow mb-2 mt-5">Target article</div>
       <div className="rounded-xl bg-surface-strong p-4">
         <div className="break-words text-body-sm font-medium leading-snug text-ink">
           {s.target_article.title}
@@ -104,7 +104,7 @@ export default function SuggestionPreview({
             rel="noreferrer"
             className="underline underline-offset-2 hover:text-ink"
           >
-            open target
+            Open target article
           </a>
         </div>
         {s.anchor_text && (
@@ -186,13 +186,13 @@ export default function SuggestionPreview({
 
       {s.status === "pending" && (
         <div className="mt-3 text-caption leading-normal text-muted">
-          Selecting this suggestion adds it to the review tray. It is not queued and not scheduled —
-          the exact edit it produces still has to be reviewed and approved.
+          Selection adds this suggestion to the review tray; it is not published until the exact
+          edit is approved.
         </div>
       )}
       {s.status === "rejected" && (
         <div className="mt-3 text-caption leading-normal text-muted">
-          Rejected suggestions are not included in publish batches.
+          Rejected suggestions are not published.
         </div>
       )}
     </>

@@ -31,7 +31,7 @@ function Body({ placement }: Props) {
   if (isLoading) {
     return (
       <LogoLoadingIndicator
-        text="Reading the article…"
+        text="Reading the source article…"
         className="mt-2 gap-2.5 text-body-sm text-muted"
       />
     );
@@ -73,8 +73,7 @@ function Body({ placement }: Props) {
         <Highlighted context={data.placement_context} anchor={data.anchor_text} />
       </blockquote>
       <div className="mt-3 text-caption leading-normal text-muted">
-        Quoted from the source article. Selecting this suggestion starts the
-        review flow; it is not written in-text yet.
+        Quoted from the source article. This link is not written yet.
       </div>
     </>
   );

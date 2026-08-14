@@ -7,9 +7,9 @@
  * named Pydantic model and the hook names the same shape, which is what these
  * tests hold in place.
  */
-import type { ReactNode } from "react";
+import { StrictMode, useEffect, useRef, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { render, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicationPreparation } from "../api/publish";
@@ -146,6 +146,80 @@ describe("usePreparePublicationPlans", () => {
     expect(result.current.isPending).toBe(false);
   });
 
+  it("drops a stale job when the route no longer names one", async () => {
+    mocks.getJob.mockResolvedValue({
+      job_id: "prepare-old",
+      status: "running",
+      result: null,
+      progress: null,
+      progress_at: null,
+      error: null,
+    });
+    const { result, rerender } = renderHook(
+      ({ jobId }: { jobId: string | null }) => usePreparePublicationPlans(jobId),
+      { initialProps: { jobId: "prepare-old" as string | null }, wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    rerender({ jobId: null });
+
+    await waitFor(() => expect(result.current.jobId).toBeNull());
+    expect(result.current.isPending).toBe(false);
+  });
+
+  /**
+   * The exact shape of the hang Amir hit on 2026-08-13: the review page starts
+   * this preparation from an effect the moment it arrives, and the answer must
+   * survive the remount React performs in the same commit. It did not while the
+   * enqueue was a `useMutation`, because an observer that loses its last
+   * listener detaches from the mutation it started. The POST was accepted, the
+   * job succeeded in about a second, and the operator read "Reading up to 10
+   * source articles" until they reloaded the page.
+   */
+  it("delivers a preparation started from a mount effect under StrictMode", async () => {
+    mocks.getJob.mockResolvedValue({
+      job_id: "prepare-1",
+      status: "succeeded",
+      result: PREPARATION,
+      progress: null,
+      progress_at: null,
+      error: null,
+    });
+    const onQueued = vi.fn();
+    const onSuccess = vi.fn();
+
+    function OnArrival() {
+      const prepare = usePreparePublicationPlans(null);
+      const attempted = useRef(false);
+      useEffect(() => {
+        if (attempted.current) return;
+        attempted.current = true;
+        prepare.mutate(4, { onQueued, onSuccess });
+        // The ref is the guard. Re-running this is what the page does too.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return <div>{prepare.isPending ? "preparing" : "settled"}</div>;
+    }
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { findAllByText } = render(
+      <StrictMode>
+        <QueryClientProvider client={client}>
+          <OnArrival />
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(PREPARATION));
+    // The job id has to reach the caller as well: it is what the page writes
+    // into the route, and the only thing that makes a reload recover the batch
+    // instead of paying for the live reads a second time.
+    expect(onQueued).toHaveBeenCalledWith("prepare-1");
+    expect((await findAllByText("settled")).length).toBeGreaterThan(0);
+  });
+
   it("reports the enqueue itself failing, before any job exists", async () => {
     mocks.preparePublicationPlans.mockRejectedValue(new Error("engine unreachable"));
     const onError = vi.fn();
@@ -155,6 +229,52 @@ describe("usePreparePublicationPlans", () => {
 
     await waitFor(() => expect(onError).toHaveBeenCalled());
     expect(mocks.getJob).not.toHaveBeenCalled();
+  });
+
+  it("reuses an accepted preparation when the page remounts", async () => {
+    let resolveAccepted!: (value: { job_id: string; job_run_id: number }) => void;
+    mocks.preparePublicationPlans.mockImplementation(
+      () => new Promise((resolve) => (resolveAccepted = resolve)),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const provider = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const first = renderHook(() => usePreparePublicationPlans(null, "4:all"), { wrapper: provider });
+
+    first.result.current.mutate(4);
+    await waitFor(() => expect(mocks.preparePublicationPlans).toHaveBeenCalledTimes(1));
+    resolveAccepted({ job_id: "prepare-1", job_run_id: 7 });
+    await waitFor(() => expect(first.result.current.jobId).toBe("prepare-1"));
+    first.unmount();
+
+    const second = renderHook(() => usePreparePublicationPlans(null, "4:all"), { wrapper: provider });
+    second.result.current.mutate(4);
+
+    await waitFor(() => expect(second.result.current.jobId).toBe("prepare-1"));
+    expect(mocks.preparePublicationPlans).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows an explicit reset to prepare the same scope again", async () => {
+    mocks.preparePublicationPlans.mockResolvedValue({ job_id: "prepare-1", job_run_id: 7 });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const provider = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => usePreparePublicationPlans(null, "4:all"), {
+      wrapper: provider,
+    });
+
+    result.current.mutate(4);
+    await waitFor(() => expect(result.current.jobId).toBe("prepare-1"));
+    result.current.reset();
+    result.current.mutate(4);
+
+    await waitFor(() => expect(mocks.preparePublicationPlans).toHaveBeenCalledTimes(2));
   });
 });
 

@@ -25,7 +25,7 @@ describe("AddSiteModal", () => {
 
     expect(screen.getByRole("textbox", { name: /Site name/ })).not.toBeNull();
     expect(screen.getByRole("textbox", { name: /Site URL/ })).not.toBeNull();
-    expect(screen.getByRole("combobox", { name: "Connector" })).not.toBeNull();
+    expect(screen.getByRole("combobox", { name: "Platform" })).not.toBeNull();
     expect(screen.getByRole("textbox", { name: /WordPress username/ })).not.toBeNull();
     expect(screen.getByLabelText(/Application password/)).not.toBeNull();
   });
@@ -43,7 +43,7 @@ describe("AddSiteModal", () => {
   it("hides WordPress credentials when the sitemap connector is selected", () => {
     render(<AddSiteModal onClose={vi.fn()} />);
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Connector" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Platform" }), {
       target: { value: "html" },
     });
 
@@ -54,7 +54,7 @@ describe("AddSiteModal", () => {
   it("offers a read-only content-pool connector", () => {
     render(<AddSiteModal onClose={vi.fn()} />);
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Connector" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Platform" }), {
       target: { value: "pool" },
     });
 

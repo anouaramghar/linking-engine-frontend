@@ -116,7 +116,7 @@ export default function AddSiteModal({
           </div>
           <div>
             <label htmlFor={platformId} className="mb-1.5 block text-caption font-medium text-ink">
-              Connector
+              Platform
             </label>
             <select
               id={platformId}

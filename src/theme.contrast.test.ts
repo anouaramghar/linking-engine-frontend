@@ -62,6 +62,17 @@ const PAIRS: Array<[string, string, number]> = [
   ["error-ink", "canvas-soft", 4.5],
   ["error-ink", "surface-card", 4.5],
   ["on-primary", "primary", 4.5],
+  // Syntax is text, and a colour nobody can read is worse than no colour at
+  // all. Code sits on the card surface; the folded rows in the same view sit on
+  // the soft canvas.
+  ["code-tag", "surface-card", 4.5],
+  ["code-tag", "canvas-soft", 4.5],
+  ["code-attr", "surface-card", 4.5],
+  ["code-attr", "canvas-soft", 4.5],
+  ["code-value", "surface-card", 4.5],
+  ["code-value", "canvas-soft", 4.5],
+  ["code-comment", "surface-card", 4.5],
+  ["code-comment", "canvas-soft", 4.5],
   ["on-dark", "surface-dark", 4.5],
   // The two grounds that stay dark in both themes, so both take `on-dark`
   // rather than `on-primary`: the Notice banner and the `.btn-danger` pill.

@@ -1,6 +1,6 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -66,12 +66,23 @@ Object.defineProperty(window, "localStorage", {
   },
 });
 
+const LocationProbe = () => {
+  const location = useLocation();
+  return (
+    <div data-testid="location">
+      {location.pathname}
+      {location.search}
+    </div>
+  );
+};
+
 afterEach(cleanup);
 beforeEach(() => store.clear());
 
 const shell = (path = "/queue") =>
   render(
     <MemoryRouter initialEntries={[path]}>
+      <LocationProbe />
       <App />
     </MemoryRouter>,
   );
@@ -91,6 +102,21 @@ describe("App shell", () => {
       expect(nav.querySelector('a[href="/evaluation"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/access"]')).not.toBeNull();
     }
+  });
+
+  it("keeps queue filters when returning from another page", async () => {
+    const user = userEvent.setup();
+    shell("/queue?status=approved&q=hooks&origin=content_pool&suggestion=42");
+
+    const primary = screen.getByRole("navigation", { name: "Primary navigation" });
+    await user.click(within(primary).getByRole("link", { name: /Sites/ }));
+    await waitFor(() => expect(screen.getByText("Sites page")).toBeTruthy());
+
+    await user.click(within(primary).getByRole("link", { name: /Review queue/ }));
+
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/queue?status=approved&q=hooks&origin=content_pool&suggestion=42",
+    );
   });
 
   it("announces engine health in whichever shell is visible", () => {

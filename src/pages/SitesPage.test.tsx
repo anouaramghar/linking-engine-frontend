@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
@@ -95,12 +95,13 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("SitesPage scheduler copy", () => {
-  it("identifies RQ as the re-crawl scheduler", () => {
+describe("SitesPage copy", () => {
+  it("keeps implementation details out of the site summary", () => {
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Scheduled re-crawls run through RQ.");
-    expect(document.body.textContent?.toLowerCase()).not.toContain("celery");
+    expect(document.body.textContent).not.toContain("ContentConnector");
+    expect(document.body.textContent).not.toContain("RQ");
+    expect(document.body.textContent).not.toContain("Article object");
   });
 
   it("does not expose unsupported future or fleet actions", () => {
@@ -223,9 +224,9 @@ describe("SitesPage batch pipeline", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
     fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more sites" }));
     fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more sites" }));
 
     expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
       "100 sites selected",
@@ -301,7 +302,7 @@ describe("SitesPage load states", () => {
     render(<SitesPage />);
 
     expect(document.body.textContent).toContain("Articles");
-    expect(document.body.textContent).toContain("Int. links");
+    expect(document.body.textContent).toContain("Internal links");
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
@@ -461,7 +462,7 @@ describe("SitesPage source controls", () => {
     ];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("1 connected source");
+    expect(document.body.textContent).toContain("1 connected site");
     expect(document.body.textContent).toContain("docs.example.com");
     expect(document.body.textContent).not.toContain("News pool");
   });
@@ -636,6 +637,34 @@ describe("SitesPage row affordances", () => {
     expect(badge.getAttribute("title")).toContain(
       "403 from https://www.vibe.com/wp-json/wp/v2/posts",
     );
+    const hint = screen.getByLabelText("Why this status?");
+    expect(hint.parentElement?.classList.contains("help-hint")).toBe(true);
+    expect(
+      screen
+        .getByText(/403 from https:\/\/www\.vibe\.com\/wp-json\/wp\/v2\/posts/)
+        .classList.contains("help-hint-popover"),
+    ).toBe(true);
+  });
+
+  it("closes the status explanation after five seconds", () => {
+    vi.useFakeTimers();
+    try {
+      mocks.sites.data = [CRAWLED_SITE];
+      render(<SitesPage />);
+
+      const summary = screen.getByLabelText("Why this status?");
+      const details = summary.parentElement as HTMLDetailsElement;
+      fireEvent.click(summary);
+      expect(details.open).toBe(true);
+
+      act(() => vi.advanceTimersByTime(4_999));
+      expect(details.open).toBe(true);
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(details.open).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("opens the live site in a new tab instead of asking for a copy and paste", () => {

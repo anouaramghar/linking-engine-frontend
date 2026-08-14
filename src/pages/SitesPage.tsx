@@ -22,6 +22,7 @@ import SiteCredentialsModal from "../components/sites/SiteCredentialsModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
+import { usePageState } from "../hooks/usePageState";
 import {
   useCancelPipelineBatch,
   useCreatePipelineBatch,
@@ -32,7 +33,6 @@ import { useDeleteSite, useSites } from "../hooks/useSites";
 
 import { errorDetail } from "../lib/errors";
 import {
-  RQ_SCHEDULING_COPY,
   formatCount,
   initials,
   orbPlateClass,
@@ -141,7 +141,7 @@ function SuggestionMethodBadge() {
   return (
     <span
       className="badge"
-      title="Generation method for new suggestions: hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
+      title="Combines semantic and keyword matching for new suggestions"
     >
       <span className="dot bg-primary" />
       Hybrid
@@ -205,7 +205,7 @@ function SiteIdentity({ site, index }: { site: Site; index: number }) {
 
 export default function SitesPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = usePageState("sites.search", "");
   const sitesQuery = useSites(search);
   const sites = useMemo(
     () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
@@ -223,15 +223,26 @@ export default function SitesPage() {
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [jobs, setJobs] = useState<TrackedJob[]>([]);
+  // Crawls and pipeline runs outlive the visit that started them, so the list of
+  // the ones this operator started has to as well. Dropped on navigation, a job
+  // someone kicked off two minutes ago becomes indistinguishable from one a
+  // colleague started, and the only way back to its progress was to start
+  // another.
+  const [jobs, setJobs] = usePageState<TrackedJob[]>("sites.jobs", []);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
   const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [policySite, setPolicySite] = useState<Site | null>(null);
   const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
+  // A batch is assembled by hand across a long list. Leaving to check one site's
+  // credentials before running the rest is part of assembling it, and used to
+  // throw the whole selection away.
+  const [selectionMode, setSelectionMode] = usePageState("sites.selectionMode", false);
+  const [selectedSiteIds, setSelectedSiteIds] = usePageState<Set<number>>(
+    "sites.selectedIds",
+    () => new Set(),
+  );
   const selectVisibleRef = useRef<HTMLInputElement>(null);
   const selectVisibleMobileRef = useRef<HTMLInputElement>(null);
   const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
@@ -448,17 +459,17 @@ export default function SitesPage() {
       <PageHeader
         title="Sites"
         sub={`${sites?.length ?? 0} connected ${
-          (sites?.length ?? 0) === 1 ? "source" : "sources"
+          (sites?.length ?? 0) === 1 ? "site" : "sites"
         } · ${
           totalArticles === null ? "Article count unavailable" : formatCount(totalArticles)
-        } active articles normalized via ContentConnector`}
+        } active articles`}
         actions={
           <>
             <button type="button" onClick={() => setShowImport(true)} className="btn btn-primary">
               Import CSV
             </button>
             <button type="button" onClick={() => setShowAdd(true)} className="btn btn-outline">
-              + Connect source
+              Connect site
             </button>
             <button
               type="button"
@@ -575,10 +586,10 @@ export default function SitesPage() {
             )}
             <span>Site</span>
           </div>
-          <div>Connector</div>
+          <div>Platform</div>
           <div className="xl:hidden">Details</div>
           <div className="hidden xl:block">Articles</div>
-          <div className="hidden xl:block">Int. links</div>
+          <div className="hidden xl:block">Internal links</div>
           <div className="hidden xl:block">Last crawl</div>
           <div>Status</div>
           <div />
@@ -631,7 +642,7 @@ export default function SitesPage() {
                 <OpenSiteLink site={site} />
               </div>
               <div className="text-caption text-muted lg:text-body">
-                <span className="lg:hidden">Connector: </span>
+                <span className="lg:hidden">Platform: </span>
                 <span className="font-medium text-ink lg:font-normal lg:text-body">
                   {sitePlatformLabel(site.platform)}
                 </span>
@@ -644,7 +655,7 @@ export default function SitesPage() {
                   }
                 />
                 <SiteDetail
-                  label="Int. links"
+                  label="Internal links"
                   value={
                     site.internal_link_count === undefined
                       ? "Not available"
@@ -668,7 +679,7 @@ export default function SitesPage() {
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
-                  label="Int. links"
+                  label="Internal links"
                   value={
                     site.internal_link_count === undefined
                       ? "Not available"
@@ -736,7 +747,7 @@ export default function SitesPage() {
                                 "Generate suggestions",
                                 "analysis",
                                 triggerAnalysis,
-                                "Hybrid suggestion generation queued.",
+                                "Suggestion generation queued.",
                               ),
                           },
                           {
@@ -790,7 +801,7 @@ export default function SitesPage() {
               disabled={sitesQuery.isFetchingNextPage}
               className="btn btn-outline"
             >
-              {sitesQuery.isFetchingNextPage ? "Loading…" : "Show more sources"}
+              {sitesQuery.isFetchingNextPage ? "Loading…" : "Show more sites"}
             </button>
             <span className="text-caption text-muted" aria-live="polite">
               Showing {visibleSites.length} of {filteredSites?.length ?? 0}
@@ -802,16 +813,8 @@ export default function SitesPage() {
           !sitesQuery.isError &&
           sites?.length !== 0 &&
           visibleSites?.length === 0 && (
-            <EmptyPanel>No connected source matches “{search}”.</EmptyPanel>
+            <EmptyPanel>No connected site matches “{search}”.</EmptyPanel>
           )}
-
-        <div className="mt-5 text-caption leading-relaxed text-muted">
-          Connectors normalize every platform into the same{" "}
-          <span className="rounded-pill bg-surface-strong px-2.5 py-0.5 text-caption text-ink">
-            Article
-          </span>{" "}
-          object before suggestion analysis. {RQ_SCHEDULING_COPY}
-        </div>
 
         {selectionMode && selectedSiteIds.size > 0 && (
           <div

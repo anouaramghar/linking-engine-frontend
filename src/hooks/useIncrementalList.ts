@@ -26,8 +26,9 @@ export const useIncrementalList = <T,>(
   resetKey: unknown,
   pageSize = PAGE_SIZE,
   autoLoadLimit = AUTO_LOAD_LIMIT,
+  initialCount = pageSize,
 ) => {
-  const [count, setCount] = useState(pageSize);
+  const [count, setCount] = useState(initialCount);
   const [seenKey, setSeenKey] = useState(resetKey);
   const observer = useRef<IntersectionObserver | null>(null);
 
@@ -80,6 +81,7 @@ export const useIncrementalList = <T,>(
   return {
     visible: items.slice(0, count),
     total: items.length,
+    renderCount: count,
     shown,
     hasMore,
     renderLimitReached,

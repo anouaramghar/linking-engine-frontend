@@ -1,9 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BulkReviewChunkError } from "../api/suggestions";
+import { QueueWorkspaceProvider } from "../hooks/useQueueWorkspace";
 import type { Suggestion } from "../types/suggestion";
 import ValidationPage from "./ValidationPage";
 
@@ -21,16 +22,42 @@ function PublishStub() {
  * Legacy approval routes remain mounted as stubs so old-link behavior stays
  * observable, even though the current flow never navigates to them.
  */
-const renderQueue = (initialEntry = "/") =>
-  render(
+const renderQueue = (initialEntry = "/") => {
+  const result = render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/" element={<ValidationPage />} />
+        <Route
+          path="/"
+          element={
+            <QueueWorkspaceProvider>
+              <ValidationPage />
+            </QueueWorkspaceProvider>
+          }
+        />
         <Route path="/publish" element={<div>Approval site list</div>} />
         <Route path="/publish/:siteId" element={<PublishStub />} />
       </Routes>
     </MemoryRouter>,
   );
+  fireEvent.click(screen.getByText("Bulk review", { exact: true }));
+  return result;
+};
+
+const WorkspaceHarness = ({ mounted }: { mounted: boolean }) => (
+  <QueueWorkspaceProvider>
+    {mounted ? <ValidationPage /> : <div>Another page</div>}
+  </QueueWorkspaceProvider>
+);
+
+const renderPersistentQueue = () => {
+  const result = render(
+    <MemoryRouter initialEntries={["/"]}>
+      <WorkspaceHarness mounted />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByText("Bulk review", { exact: true }));
+  return result;
+};
 
 const SITE = {
   id: 1,
@@ -530,6 +557,7 @@ describe("ValidationPage live review state", () => {
       );
     expect(rule().every(({ enabled }) => enabled)).toBe(true);
 
+    await user.click(screen.getByText("More statuses", { exact: true }));
     mocks.countsQueries = [];
     await user.click(screen.getByRole("button", { name: /Rejected/ }));
 
@@ -673,7 +701,8 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Published live.*1/ }));
+    await user.click(screen.getByText("More statuses", { exact: true }));
+    await user.click(screen.getByRole("button", { name: /Published.*1/ }));
 
     expect(
       (screen.getByRole("button", { name: /^Reject </ }) as HTMLButtonElement).disabled,
@@ -851,6 +880,94 @@ describe("ValidationPage detail panel", () => {
 
     expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Expand suggestion detail" })).toBeNull();
+  });
+
+  it("restores an open suggestion detail from navigation state", () => {
+    renderQueue("/?suggestion=1");
+
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(preview).getByText("Source 1")).not.toBeNull();
+  });
+
+  it("keeps queue presentation state when the route is remounted", () => {
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      ...Array.from({ length: 21 }, (_, index) =>
+        suggestion(index + 1, {
+          source_article: { id: 10, title: "Shared source", url: "/shared-source" },
+        }),
+      ),
+    );
+    const result = renderPersistentQueue();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more suggestions" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Collapse suggestions for Shared source/ }),
+    );
+    const scroller = screen.getByRole("region", { name: "Suggestion queue" });
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      value: 240,
+      writable: true,
+    });
+    fireEvent.scroll(scroller);
+
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted={false} />
+      </MemoryRouter>,
+    );
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Expand suggestions for Shared source/ }),
+    ).not.toBeNull();
+    expect(
+      (screen.getByRole("region", { name: "Suggestion queue" }) as HTMLElement).scrollTop,
+    ).toBe(240);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Expand suggestions for Shared source/ }),
+    );
+    expect(screen.getAllByRole("button", { name: /^Open suggestion:/ })).toHaveLength(21);
+  });
+
+  it("restores the loaded source-group page after navigation", () => {
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      ...Array.from({ length: 21 }, (_, index) =>
+        suggestion(index + 1, {
+          source_article: {
+            id: (index + 1) * 10,
+            title: `Source ${index + 1}`,
+            url: `/source-${index + 1}`,
+          },
+        }),
+      ),
+    );
+    const result = renderPersistentQueue();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(21);
+
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted={false} />
+      </MemoryRouter>,
+    );
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(21);
   });
 
   it("opens after a row click and closes from the preview", async () => {

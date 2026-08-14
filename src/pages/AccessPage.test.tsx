@@ -92,7 +92,7 @@ describe("AccessPage", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Make admin" })).toBeNull();
-    expect(document.body.textContent).toContain("belong to an admin");
+    expect(document.body.textContent).toContain("Ask an admin to approve, revoke, or change roles.");
   });
 
   it("treats an engine that reports no admin group as not admin", async () => {

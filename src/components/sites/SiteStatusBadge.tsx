@@ -1,4 +1,5 @@
 import { timeAgo } from "../../lib/utils";
+import HelpHint from "../HelpHint";
 
 /**
  * The site's resting state as a {component.badge-pill}. The dot carries the
@@ -12,8 +13,8 @@ import { timeAgo } from "../../lib/utils";
  * drops the row back to "Indexed" — those new articles have no suggestions yet.
  *
  * A failure also carries its reason. "Crawl failed" on its own is a state the
- * operator can see and not act on; the engine already knows what went wrong, and
- * the tooltip is where that answer costs nothing to carry.
+ * operator can see and not act on; the engine already knows what went wrong, so
+ * the reason is available from a compact keyboard- and touch-friendly disclosure.
  */
 const DOTS: Record<string, string> = {
   succeeded: "bg-success",
@@ -100,15 +101,16 @@ export default function SiteStatusBadge(props: SiteStatusBadgeProps) {
       : undefined);
 
   return (
-    <span
-      className="badge"
-      title={title}
-      // The tooltip is mouse-only. Repeating it in the accessible name is what
-      // makes the reason reachable by keyboard and screen reader as well.
-      aria-label={title ? `${label}. ${title}` : label}
-    >
-      <span className={`dot ${dot}`} />
-      {label}
+    <span className="inline-flex items-start gap-1.5">
+      <span
+        className="badge"
+        title={title}
+        aria-label={title ? label + ". " + title : label}
+      >
+        <span className={"dot " + dot} />
+        {label}
+      </span>
+      {title && <HelpHint label="Why this status?">{title}</HelpHint>}
     </span>
   );
 }

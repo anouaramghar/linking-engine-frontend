@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
@@ -14,8 +15,9 @@ import type { BulkConfirmation } from "../components/suggestions/BulkActions";
 import BulkRecoveryPanel from "../components/suggestions/BulkRecoveryPanel";
 import type { BulkRecovery } from "../components/suggestions/BulkRecoveryPanel";
 import QueueFilters from "../components/suggestions/QueueFilters";
-import { useQueueFilters } from "../hooks/useQueueFilters";
+import { useQueueFilters, type QueueFilterState } from "../hooks/useQueueFilters";
 import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
+import { useQueueWorkspace } from "../hooks/useQueueWorkspace";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
@@ -61,7 +63,7 @@ const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "pending", label: "Pending review" },
   { key: "approved", label: "Selected for review" },
   { key: "applying", label: "Publishing" },
-  { key: "applied", label: "Published live" },
+  { key: "applied", label: "Published" },
   { key: "failed", label: "Publishing failed" },
   { key: "rejected", label: "Rejected" },
   { key: "expired", label: "Expired" },
@@ -73,6 +75,11 @@ interface BatchFailure {
 }
 
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
+
+const readSelectedSuggestion = (raw: string | null) => {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
 
 /**
  * Why a review or an undo left rows alone.
@@ -143,22 +150,50 @@ const resolveCounts = (
 
 export default function ValidationPage() {
   const { filters, setFilters, reset: clearFilters, isFiltered } = useQueueFilters();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    collapsedSources,
+    setCollapsedSources,
+    groupLimits,
+    setGroupLimits,
+    loadedGroupKey,
+    loadedGroupCount,
+    rememberLoadedGroups,
+    scrollKey,
+    scrollTop,
+    rememberScrollTop,
+  } = useQueueWorkspace();
   const {
     status: statusFilter,
     siteId: siteFilter,
     threshold,
   } = filters;
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
-  const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
-    () => new Set(),
+  /** The open preview is navigation state, so returning to the queue can restore it. */
+  const [selectedId, setSelectedIdState] = useState<number | null>(() =>
+    readSelectedSuggestion(searchParams.get("suggestion")),
   );
-  const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const setSelectedId = useCallback(
+    (id: number | null) => {
+      setSelectedIdState(id);
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (id === null) next.delete("suggestion");
+          else next.set("suggestion", String(id));
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [bulkRecovery, setBulkRecovery] = useState<BulkRecovery | null>(null);
   const overrideOrder = useRef<number[]>([]);
   const focusAfterReview = useRef<number | "main" | null>(null);
+  const queueRegion = useRef<HTMLDivElement>(null);
 
   const sitesQuery = useSites();
   // Every site, because this list is also what resolves a suggestion's site
@@ -317,6 +352,9 @@ export default function ValidationPage() {
     [suggestions],
   );
 
+  const groupListKey = JSON.stringify([effectiveStatus, queueFilters]);
+  const initialGroupCount = loadedGroupKey === groupListKey ? loadedGroupCount : undefined;
+
   const {
     visible: visibleGroups,
     hasMore: hasMoreLoaded,
@@ -324,14 +362,20 @@ export default function ValidationPage() {
     sentinel,
     autoLoadPaused,
     renderLimitReached,
+    renderCount,
   } = useIncrementalList(
     suggestionGroups,
     // Every filter belongs in this key: a narrowed queue that kept the previous
     // window would open already scrolled past rows the editor has not seen.
-    JSON.stringify([effectiveStatus, queueFilters]),
+    groupListKey,
     SOURCE_GROUP_PAGE_SIZE,
     SOURCE_GROUP_AUTO_LOAD_LIMIT,
+    initialGroupCount,
   );
+  useEffect(() => {
+    if (renderCount <= SOURCE_GROUP_PAGE_SIZE) return;
+    rememberLoadedGroups(groupListKey, renderCount);
+  }, [groupListKey, rememberLoadedGroups, renderCount]);
   const renderedGroups = useMemo(
     () =>
       visibleGroups.map((group) => ({
@@ -372,6 +416,28 @@ export default function ValidationPage() {
       void suggestionsQuery.fetchNextPage();
     }
   };
+
+  const changeFilters = useCallback(
+    (patch: Partial<QueueFilterState>) => {
+      setFilters(patch);
+      setConfirmation(null);
+    },
+    [setFilters],
+  );
+  const clearQueueFilters = useCallback(() => {
+    clearFilters();
+    setConfirmation(null);
+  }, [clearFilters]);
+  const onQueueScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) =>
+      rememberScrollTop(groupListKey, event.currentTarget.scrollTop),
+    [groupListKey, rememberScrollTop],
+  );
+  useEffect(() => {
+    const node = queueRegion.current;
+    if (!node || loading) return;
+    node.scrollTop = scrollKey === groupListKey ? scrollTop : 0;
+  }, [groupListKey, loading, scrollKey, scrollTop]);
 
   // Names are looked up per rendered row, so the linear scan is hoisted into a
   // map rather than repeated for every suggestion in the queue.
@@ -766,7 +832,7 @@ export default function ValidationPage() {
   useEffect(() => {
     rowActions.current = { decide, undo };
   });
-  const openRow = useCallback((id: number) => setSelectedId(id), []);
+  const openRow = useCallback((id: number) => setSelectedId(id), [setSelectedId]);
   const acceptRow = useCallback((id: number) => rowActions.current.decide(id, "approved"), []);
   const rejectRow = useCallback((id: number) => rowActions.current.decide(id, "rejected"), []);
   const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
@@ -938,6 +1004,8 @@ export default function ValidationPage() {
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div
+            ref={queueRegion}
+            onScroll={onQueueScroll}
             role="region"
             aria-label="Suggestion queue"
             className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6"
@@ -954,28 +1022,22 @@ export default function ValidationPage() {
           <div className="card mb-4 flex flex-col gap-3 p-3 sm:p-4">
             <QueueFilters
               filters={filters}
-              onChange={(patch) => {
-                setFilters(patch);
-                setConfirmation(null);
-              }}
+              onChange={changeFilters}
               sites={sites}
               isFiltered={isFiltered}
               onClear={() => {
-                clearFilters();
-                setConfirmation(null);
+                clearQueueFilters();
               }}
             />
             <BulkActions
               chips={chips}
               active={statusFilter}
               onSelect={(status) => {
-                setFilters({ status: status as StatusFilter });
-                setConfirmation(null);
+                changeFilters({ status: status as StatusFilter });
               }}
               threshold={threshold}
               onThresholdChange={(value) => {
-                setFilters({ threshold: clampThreshold(value) });
-                setConfirmation(null);
+                changeFilters({ threshold: clampThreshold(value) });
               }}
               acceptCount={acceptCount}
               rejectCount={rejectCount}
@@ -1159,7 +1221,7 @@ export default function ValidationPage() {
                         No suggestions match these filters.{" "}
                         <button
                           type="button"
-                          onClick={clearFilters}
+                          onClick={clearQueueFilters}
                           className="font-medium text-ink underline underline-offset-2 hover:text-primary"
                         >
                           Clear filters

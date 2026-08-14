@@ -3,7 +3,7 @@ import { useRef } from "react";
 import type { EvaluationFilters, EvaluationMetric } from "../../api/evaluation";
 import { useEvaluationSuggestions } from "../../hooks/useEvaluation";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
-import { formatCount, pct } from "../../lib/utils";
+import { formatCount, pct, STATUS_META } from "../../lib/utils";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../QueryState";
 
 const METRIC_LABEL: Record<EvaluationMetric, string> = {
@@ -16,6 +16,19 @@ const METRIC_LABEL: Record<EvaluationMetric, string> = {
   publish_failed: "Publishing failures",
   orphan_helped: "Orphans helped",
 };
+
+const METHOD_LABELS: Record<string, string> = {
+  hybrid_bm25: "Hybrid BM25",
+  baseline_cosine: "Cosine baseline",
+  external_search: "Web search",
+};
+
+const methodLabel = (method: string) =>
+  METHOD_LABELS[method] ?? method.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
+
+const statusLabel = (status: string) =>
+  STATUS_META[status as keyof typeof STATUS_META]?.label ??
+  status.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
 
 export default function EvaluationDrilldown({
   metric,
@@ -72,7 +85,7 @@ export default function EvaluationDrilldown({
           {query.isError && (
             <ErrorPanel
               title="Suggestion details could not be loaded"
-              description="The evaluation API did not return the suggestions behind this metric."
+              description="The suggestions behind this metric could not be loaded."
               onRetry={() => void query.refetch()}
               retrying={query.isFetching}
             />
@@ -94,8 +107,8 @@ export default function EvaluationDrilldown({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-caption-sm text-muted">
                     <span>{suggestion.site_name}</span>
-                    <span>{suggestion.method.replaceAll("_", " ")}</span>
-                    <span>{suggestion.status}</span>
+                    <span>{methodLabel(suggestion.method)}</span>
+                    <span>{statusLabel(suggestion.status)}</span>
                     <time dateTime={suggestion.occurred_at}>
                       {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(suggestion.occurred_at))}
                     </time>

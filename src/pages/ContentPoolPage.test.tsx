@@ -126,12 +126,12 @@ describe("ContentPoolPage", () => {
   it("opens a creation form fixed to the content-pool connector", () => {
     render(<ContentPoolPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "+ Connect pool source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect pool source" }));
     expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source");
-    expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).value).toBe(
+    expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).value).toBe(
       "pool",
     );
-    expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).disabled).toBe(
+    expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).disabled).toBe(
       true,
     );
   });

@@ -210,8 +210,11 @@ describe("EvaluationPage", () => {
   it("renders live filters, comparisons, trends and metric definitions", () => {
     renderPage();
 
-    expect(screen.getByRole("combobox", { name: "Date range" })).not.toBeNull();
-    expect(screen.getByRole("combobox", { name: "Site" })).not.toBeNull();
+    expect(screen.getByRole("combobox", { name: "Date range" }).className).toContain(
+      "field",
+    );
+    expect(screen.getByRole("combobox", { name: "Site" }).className).toContain("field");
+    expect(screen.getAllByLabelText("What this metric means")).toHaveLength(7);
     expect(screen.getByText("Editor acceptance")).not.toBeNull();
     expect(screen.getByText("Median decision time")).not.toBeNull();
     expect(screen.getByText("Placement success")).not.toBeNull();
@@ -263,7 +266,7 @@ describe("EvaluationPage", () => {
   it("opens a drill-down with the suggestions behind a metric", () => {
     renderPage();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "View suggestions" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "View matching suggestions" })[0]);
 
     expect(screen.getByRole("dialog", { name: "Accepted suggestions" })).not.toBeNull();
     expect(screen.getByText("Source article")).not.toBeNull();

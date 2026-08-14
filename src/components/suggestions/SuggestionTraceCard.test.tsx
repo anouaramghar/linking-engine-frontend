@@ -133,6 +133,37 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("95/100")).not.toBeNull();
   });
 
+  it("shows graph context without presenting structure as relevance", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={{
+          ...suggestion,
+          score_components: {
+            bm25_score: 12.4,
+            graph: {
+              snapshot_id: 8,
+              graph_version: "a".repeat(64),
+              target_in_degree: 0,
+              source_out_degree: 4,
+              target_orphan: true,
+              target_underlinked: true,
+              target_saturated: false,
+              adjustment: 0.03,
+              mode: "shadow",
+            },
+          },
+        }}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByText("Graph context")).not.toBeNull();
+    expect(screen.getByText("Target inlinks")).not.toBeNull();
+    expect(screen.getByText("Orphan")).not.toBeNull();
+    expect(screen.getByText("Observed beside BM25")).not.toBeNull();
+    expect(document.body.textContent).toContain("orphan status does not qualify");
+  });
+
   it("shows Tavily provenance without treating provider relevance as semantic score", () => {
     render(
       <SuggestionTraceCard
@@ -167,7 +198,7 @@ describe("SuggestionTraceCard", () => {
       />,
     );
 
-    expect(screen.getByText("Tavily relevance")).not.toBeNull();
+    expect(screen.getByText("Search relevance")).not.toBeNull();
     expect(screen.getByText("74%")).not.toBeNull();
     expect(screen.getByText("Safety checks")).not.toBeNull();
     expect(screen.getByText("Passed")).not.toBeNull();

@@ -58,6 +58,27 @@ export interface SuggestionScoreComponents {
     reasons: string[];
     checks: Record<string, boolean>;
   };
+  graph?: {
+    algorithm_version?: string;
+    snapshot_id?: number;
+    graph_version?: string;
+    source_out_degree?: number | null;
+    source_hub?: boolean;
+    source_saturated?: boolean;
+    target_in_degree?: number | null;
+    target_orphan?: boolean;
+    target_underlinked?: boolean;
+    target_hub?: boolean;
+    target_saturated?: boolean;
+    target_hub_score?: number | null;
+    target_saturation_score?: number | null;
+    opportunity?: number;
+    adjustment?: number;
+    baseline_rank?: number;
+    final_rank?: number;
+    applied?: boolean;
+    mode?: "off" | "shadow" | "active" | string;
+  };
 }
 
 /**

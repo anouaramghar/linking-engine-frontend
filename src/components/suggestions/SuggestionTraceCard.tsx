@@ -188,6 +188,7 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
   const bm25 = suggestion.score_components?.bm25_score;
   const externalTrust = suggestion.score_components?.external_trust;
   const externalSafety = suggestion.score_components?.external_safety;
+  const graph = suggestion.score_components?.graph;
   const timing = timingStat(suggestion, trace.data);
 
   return (
@@ -218,7 +219,7 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
         )}
         {suggestion.provider_score !== null && suggestion.provider_score !== undefined && (
           <div className="rounded-lg bg-surface-strong px-3 py-2">
-            <dt className="text-caption-sm text-muted">Tavily relevance</dt>
+            <dt className="text-caption-sm text-muted">Search relevance</dt>
             <dd className="mt-0.5 text-body-sm font-medium text-ink">
               {pct(suggestion.provider_score)}
             </dd>
@@ -280,6 +281,55 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
           reasons={externalSafety.reasons}
           checks={externalSafety.checks}
         />
+      )}
+
+      {graph && (
+        <div className="mt-3 rounded-lg border border-hairline px-3 py-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-caption-sm font-medium text-ink">Graph context</span>
+            <span className="text-caption-sm text-muted">
+              {graph.mode === "active" ? "Used in order" : "Observed beside BM25"}
+            </span>
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-caption-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-muted">Target inlinks</dt>
+              <dd className="font-medium text-body">
+                {graph.target_in_degree ?? "Unknown"}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-muted">Source outlinks</dt>
+              <dd className="font-medium text-body">
+                {graph.source_out_degree ?? "Unknown"}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-muted">Target status</dt>
+              <dd className="font-medium text-body">
+                {graph.target_orphan
+                  ? "Orphan"
+                  : graph.target_underlinked
+                    ? "Underlinked"
+                    : graph.target_saturated
+                      ? "Saturated"
+                      : "Connected"}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <dt className="text-muted">Graph adjustment</dt>
+              <dd className="font-medium text-body">
+                {graph.adjustment ? `+${graph.adjustment.toFixed(3)}` : "None"}
+              </dd>
+            </div>
+          </dl>
+          {graph.target_orphan && (
+            <p className="mt-2 text-caption-sm leading-normal text-body">
+              This structural opportunity is only considered alongside topical relevance;
+              orphan status does not qualify an otherwise weak target.
+            </p>
+          )}
+        </div>
       )}
 
       {suggestion.trace_id && (

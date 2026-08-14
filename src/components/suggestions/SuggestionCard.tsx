@@ -66,7 +66,7 @@ function SuggestionCard({
                   </span>
                 </>
               ) : (
-                <span className="text-muted">Links to</span>
+                <span className="text-muted">Target</span>
               )}
               <span className={showSource ? "text-body" : "font-medium text-ink"}>
                 {s.target_article.title}

@@ -5,6 +5,7 @@ import type { SuggestionQueueFilters } from "../api/suggestions";
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
+import QueueLink from "../components/QueueLink";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import FlowSteps from "../components/publish/FlowSteps";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
@@ -12,6 +13,7 @@ import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import QueueFilters from "../components/suggestions/QueueFilters";
 import { useIncrementalList } from "../hooks/useIncrementalList";
+import { usePageState } from "../hooks/usePageState";
 import { useQueueFilters } from "../hooks/useQueueFilters";
 import {
   usePlacement,
@@ -42,11 +44,20 @@ export default function SelectedPage() {
   const sitesQuery = useSites();
   const sites = sitesQuery.data;
   const hasSites = Boolean(sites?.length);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
+  // The same three things the queue keeps in `useQueueWorkspace`, for the same
+  // reason: which link is open, which source groups were folded away, and how
+  // far each group was expanded are the shape an operator gave this inbox before
+  // stepping out to a site or a policy. Rebuilding it by hand on every return is
+  // the work this page is supposed to be saving them.
+  const [selectedId, setSelectedId] = usePageState<number | null>("selected.previewId", null);
+  const [collapsedSources, setCollapsedSources] = usePageState<Set<string>>(
+    "selected.collapsedSources",
     () => new Set(),
   );
-  const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
+  const [groupLimits, setGroupLimits] = usePageState<Record<string, number>>(
+    "selected.groupLimits",
+    {},
+  );
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const scope = useMemo<SuggestionQueueFilters>(
@@ -109,6 +120,15 @@ export default function SelectedPage() {
   const selectedTotal = countsQuery.data?.approved ?? null;
   const isFiltered =
     siteFilter !== 0 || q.trim() !== "" || targetOrigin !== "" || hideReciprocal;
+  const selectionUpdating = Boolean(
+    suggestionsQuery.isPlaceholderData || countsQuery.isPlaceholderData,
+  );
+  const batchReviewReady =
+    selectedTotal !== null &&
+    selectedTotal > 0 &&
+    !selectionUpdating &&
+    !countsQuery.isError;
+  const actionsDisabled = review.isPending || selectionUpdating;
   const batchDestination = siteFilter > 0 ? `/publish/${siteFilter}` : "/publish";
   const batchLabel =
     siteFilter > 0 ? `Review ${siteName(siteFilter)} exact edits` : "Review selected exact edits";
@@ -160,7 +180,9 @@ export default function SelectedPage() {
         },
       );
     },
-    [review],
+    // `setSelectedId` is as stable as a `useState` setter, but it comes from a
+    // hook the lint rule cannot recognise as one, so it is named here.
+    [review, setSelectedId],
   );
 
   const reviewOne = useCallback(
@@ -192,11 +214,18 @@ export default function SelectedPage() {
     <>
       <PageHeader
         title="Selected links"
-        sub={`${selectedSummary} · nothing is live until the exact edit is approved`}
+        sub={`${selectedSummary} · exact edits require approval`}
         actions={
-          <Link to="/queue" className="btn btn-outline btn-sm">
-            Back to review queue
-          </Link>
+          <>
+            {batchReviewReady && (
+              <Link to={batchDestination} className="btn btn-primary btn-sm">
+                {batchLabel}
+              </Link>
+            )}
+            <QueueLink className="btn btn-outline btn-sm">
+              Back to review queue
+            </QueueLink>
+          </>
         }
       />
 
@@ -213,6 +242,7 @@ export default function SelectedPage() {
               sites={sites}
               isFiltered={isFiltered}
               onClear={clearFilters}
+              ariaLabel="Filter selected links"
             />
             <div className="flex flex-col gap-3 border-t border-hairline pt-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -220,20 +250,44 @@ export default function SelectedPage() {
                   {selectedSummary}
                 </div>
                 <p className="mt-1 max-w-2xl text-caption leading-normal text-muted">
-                  Open one source article's exact edit from a row, or continue to the site-level
-                  review workspace for a batch. Selection is not approval and does not schedule
-                  publication.
+                  Select links here; exact-edit review and approval happen next.
                 </p>
               </div>
-              {selectedTotal !== null && selectedTotal > 0 && (
-                <Link to={batchDestination} className="btn btn-primary flex-none">
-                  {batchLabel}
-                </Link>
-              )}
             </div>
           </div>
 
           {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+
+          {selectionUpdating && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
+            >
+              Updating selected links for the current filters. Review actions are paused until the
+              new results arrive.
+            </div>
+          )}
+
+          {!selectionUpdating && countsQuery.isError && !failed && (
+            <div
+              role="alert"
+              className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2.5 text-caption text-error-ink"
+            >
+              <span className="min-w-0 flex-1">
+                The list loaded, but the selected count could not be read, so batch review is
+                paused. You can still open an individual exact edit.
+              </span>
+              <button
+                type="button"
+                onClick={() => void countsQuery.refetch()}
+                disabled={countsQuery.isFetching}
+                className="btn btn-outline btn-sm border-error/40 bg-surface-card text-error-ink hover:border-error"
+              >
+                {countsQuery.isFetching ? "Retrying…" : "Retry count"}
+              </button>
+            </div>
+          )}
 
           {!loading && failed && (
             <ErrorPanel
@@ -270,12 +324,11 @@ export default function SelectedPage() {
               ) : (
                 <>
                   No links are selected yet. Return to the{" "}
-                  <Link
-                    to="/queue"
+                  <QueueLink
                     className="font-medium text-ink underline underline-offset-2 hover:text-primary"
                   >
                     review queue
-                  </Link>{" "}
+                  </QueueLink>{" "}
                   to choose suggestions.
                 </>
               )}
@@ -296,6 +349,7 @@ export default function SelectedPage() {
                     canShowMore={group.visibleSuggestions.length < group.suggestions.length}
                     collapsed={collapsedSources.has(group.key)}
                     onToggle={() => toggleGroup(group.key)}
+                    itemLabel="selected link"
                     onShowMore={() =>
                       setGroupLimits((current) => ({
                         ...current,
@@ -316,7 +370,7 @@ export default function SelectedPage() {
                         onReject={noop}
                         onUndo={undo}
                         onReviewPublication={reviewOne}
-                        actionsDisabled={review.isPending}
+                        actionsDisabled={actionsDisabled}
                         showSource={false}
                         showStatusBadge={false}
                       />
@@ -330,18 +384,22 @@ export default function SelectedPage() {
                   <button
                     type="button"
                     onClick={showMore}
-                    disabled={suggestionsQuery.isFetchingNextPage}
+                    disabled={selectionUpdating || suggestionsQuery.isFetchingNextPage}
                     className="btn btn-outline"
                   >
-                    {suggestionsQuery.isFetchingNextPage
-                      ? "Loading more…"
-                      : renderLimitReached
-                        ? "Render limit reached"
-                        : "Show more"}
+                    {selectionUpdating
+                      ? "Updating…"
+                      : suggestionsQuery.isFetchingNextPage
+                        ? "Loading more…"
+                        : renderLimitReached
+                          ? "Render limit reached"
+                          : "Show more"}
                   </button>
                   <span aria-live="polite" className="text-caption text-muted">
                     Showing {formatCount(renderedGroups.reduce((total, group) => total + group.visibleSuggestions.length, 0))} of{" "}
-                    {selectedTotal === null ? "—" : formatCount(selectedTotal)} selected links
+                    {selectionUpdating || selectedTotal === null
+                      ? "—"
+                      : formatCount(selectedTotal)} selected links
                     {autoLoadPaused && " · paused here to keep the page responsive"}
                   </span>
                 </div>
@@ -366,7 +424,7 @@ export default function SelectedPage() {
               error: traceQuery.error,
               onRetry: () => void traceQuery.refetch(),
             }}
-            actionsDisabled={review.isPending}
+            actionsDisabled={actionsDisabled}
             onClose={() => setSelectedId(null)}
             onAccept={noop}
             onReject={noop}

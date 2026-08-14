@@ -20,6 +20,12 @@ const STATUS_TONE: Record<DashboardUser["status"], string> = {
   revoked: "bg-error",
 };
 
+const STATUS_LABEL: Record<DashboardUser["status"], string> = {
+  pending: "Pending",
+  approved: "Approved",
+  revoked: "Revoked",
+};
+
 type AccessAction = "approve" | "revoke" | "grant-admin" | "revoke-admin";
 
 const RUN: Record<AccessAction, (id: number) => Promise<DashboardUser>> = {
@@ -66,7 +72,7 @@ export default function AccessPage() {
     <>
       <PageHeader
         title="Access"
-        sub="Everyone approved here sees the whole dashboard · only admins may admit or remove people"
+        sub="Approved users can access the dashboard · admins manage access"
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         {users.isPending && <SkeletonRows count={3} label="Loading access requests" />}
@@ -91,8 +97,7 @@ export default function AccessPage() {
             they are reading a roster. */}
         {users.data && !isAdmin && (
           <p className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body">
-            You can see who has access. Approving, revoking, and granting admin rights
-            belong to an admin — ask one of the accounts marked Admin below.
+            Ask an admin to approve, revoke, or change roles.
           </p>
         )}
 
@@ -129,7 +134,7 @@ export default function AccessPage() {
                       )}
                       <span className="badge">
                         <span aria-hidden="true" className={`dot ${STATUS_TONE[user.status]}`} />
-                        {user.status}
+                        {STATUS_LABEL[user.status]}
                       </span>
 
                       {isAdmin && user.status === "approved" && (

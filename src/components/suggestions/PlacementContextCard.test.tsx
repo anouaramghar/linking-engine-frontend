@@ -75,7 +75,7 @@ describe("PlacementContextCard", () => {
   it("shows progress while the model is reading", () => {
     renderCard({ isLoading: true });
 
-    expect(screen.getByText(/Reading the article/)).not.toBeNull();
+    expect(screen.getByText(/Reading the source article/)).not.toBeNull();
     expect(document.querySelector("blockquote")).toBeNull();
   });
 
@@ -107,7 +107,7 @@ describe("PlacementContextCard", () => {
   it("prefers progress over a stale error while retrying", () => {
     renderCard({ isLoading: true, error: httpError(502, "gone") });
 
-    expect(screen.getByText(/Reading the article/)).not.toBeNull();
+    expect(screen.getByText(/Reading the source article/)).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

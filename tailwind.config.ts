@@ -94,6 +94,17 @@ export default {
       "orb-sky": token("orb-sky"),
       "orb-rose": token("orb-rose"),
 
+      // Syntax. Derived, and the one place the system's monochrome rule is
+      // deliberately set aside: the exact-HTML review asks an operator to read
+      // markup, and markup is read in a coloured editor everywhere else they
+      // work. Held to the muted end of each hue and measured against
+      // {colors.surface-card} in both themes by `theme.contrast.test.ts`. Never
+      // used outside a code surface.
+      "code-tag": token("code-tag"),
+      "code-attr": token("code-attr"),
+      "code-value": token("code-value"),
+      "code-comment": token("code-comment"),
+
       // Semantic
       success: token("success"),
       error: token("error"),

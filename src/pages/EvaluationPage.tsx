@@ -16,6 +16,7 @@ import {
   AcceptanceTrend,
   OrphanTrend,
 } from "../components/evaluation/EvaluationTrendCharts";
+import HelpHint from "../components/HelpHint";
 import PageHeader from "../components/PageHeader";
 import { useEvaluationMetrics } from "../hooks/useEvaluation";
 import { useSites } from "../hooks/useSites";
@@ -74,11 +75,14 @@ const formatDelta = (value: number | null | undefined) => {
   return `${points > 0 ? "+" : ""}${points.toFixed(Math.abs(points) < 1 ? 2 : 1)} pp vs previous`;
 };
 
-const methodLabel = (method: string) => {
-  if (method === "hybrid_bm25") return "Hybrid BM25";
-  if (method === "baseline_cosine") return "Cosine baseline";
-  return method.replaceAll("_", " ");
+const METHOD_LABELS: Record<string, string> = {
+  hybrid_bm25: "Hybrid BM25",
+  baseline_cosine: "Cosine baseline",
+  external_search: "Web search",
 };
+
+const methodLabel = (method: string) =>
+  METHOD_LABELS[method] ?? method.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
 
 const filtersFor = (range: RangeKey, siteId: number | undefined): EvaluationFilters => {
   const selected = RANGE_OPTIONS.find((option) => option.value === range)!;
@@ -91,18 +95,6 @@ const filtersFor = (range: RangeKey, siteId: number | undefined): EvaluationFilt
     date_to: dateTo.toISOString(),
   };
 };
-
-function DefinitionHint({ text }: { text: string }) {
-  return (
-    <span
-      title={text}
-      aria-label={text}
-      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-pill border border-hairline text-caption-sm normal-case text-muted"
-    >
-      ?
-    </span>
-  );
-}
 
 function MetricCard({
   label,
@@ -130,7 +122,7 @@ function MetricCard({
       />
       <div className="eyebrow relative">
         {label}
-        <DefinitionHint text={definition} />
+        <HelpHint label="What this metric means">{definition}</HelpHint>
       </div>
       <div
         className={`relative mt-3 font-serif text-display-lg text-ink ${
@@ -149,7 +141,7 @@ function MetricCard({
           className="relative mt-3 text-caption font-medium text-ink underline underline-offset-4"
           onClick={onDetails}
         >
-          View suggestions
+          View matching suggestions
         </button>
       )}
     </div>
@@ -173,7 +165,9 @@ function CompactStat({
     <div className="rounded-xl bg-surface-strong px-4 py-3">
       <div className="text-caption-sm text-muted">
         {label}
-        {definition && <DefinitionHint text={definition} />}
+        {definition && (
+          <HelpHint label="What this metric means">{definition}</HelpHint>
+        )}
       </div>
       <div className="mt-1 text-title-md font-medium text-ink">{value}</div>
       <div className="mt-1 text-caption-sm text-muted">{detail}</div>
@@ -183,7 +177,7 @@ function CompactStat({
           className="mt-2 text-caption-sm font-medium text-ink underline underline-offset-4"
           onClick={onDetails}
         >
-          View suggestions
+          View matching suggestions
         </button>
       )}
     </div>
@@ -211,8 +205,8 @@ function MethodComparison({ methods }: { methods: MethodMetrics[] }) {
                 <th className="px-4 py-3 font-medium sm:px-6">Method</th>
                 <th className="px-4 py-3 text-right font-medium">Suggestions</th>
                 <th className="px-4 py-3 text-right font-medium">Acceptance</th>
-                <th className="px-4 py-3 text-right font-medium">Applied</th>
-                <th className="px-4 py-3 text-right font-medium sm:pr-6">Avg. semantic</th>
+                <th className="px-4 py-3 text-right font-medium">Published</th>
+                <th className="px-4 py-3 text-right font-medium sm:pr-6">Avg. semantic score</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline text-body-sm">
@@ -564,7 +558,8 @@ function DashboardBody({
 
         <section className="card px-4 py-5 sm:px-6">
           <h2 className="font-serif text-display-sm text-ink">
-            Orphan-page impact <DefinitionHint text={DEFINITION.orphans} />
+            Orphan-page impact{" "}
+            <HelpHint label="What this metric means">{DEFINITION.orphans}</HelpHint>
           </h2>
           <p className="mt-1 text-caption leading-normal text-muted">
             Latest crawl state plus verified LinkMesh publications for this cohort.
@@ -593,7 +588,7 @@ function DashboardBody({
                 className="mt-2 text-caption-sm font-medium text-ink underline underline-offset-4"
                 onClick={() => onDrilldown("orphan_helped")}
               >
-                View suggestions
+                View helped suggestions
               </button>
             </div>
           </div>
@@ -666,7 +661,6 @@ export default function EvaluationPage() {
       <PageHeader
         title="Evaluation"
         sub="Live editorial, placement and publishing performance"
-        badge="Live data"
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="card mb-4 flex flex-wrap items-end gap-3 px-4 py-4 sm:px-5">
@@ -674,7 +668,7 @@ export default function EvaluationPage() {
             Date range
             <select
               aria-label="Date range"
-              className="input mt-1 w-full min-w-40"
+              className="field mt-1 w-full min-w-40"
               value={range}
               onChange={(event) => updateFilter("range", event.target.value)}
             >
@@ -689,7 +683,7 @@ export default function EvaluationPage() {
             Site
             <select
               aria-label="Site"
-              className="input mt-1 w-full min-w-48"
+              className="field mt-1 w-full min-w-48"
               value={siteId ?? ""}
               onChange={(event) => updateFilter("site", event.target.value)}
             >
@@ -730,7 +724,6 @@ export default function EvaluationPage() {
               ? `Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(query.data.generated_at))}`
               : "Loading the latest evaluation data"}
           </span>
-          <span>Filters are saved in the page URL.</span>
         </div>
 
         {query.isPending && (

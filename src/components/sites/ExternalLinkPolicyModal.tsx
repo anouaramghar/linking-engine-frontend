@@ -250,7 +250,8 @@ export default function ExternalLinkPolicyModal({
                   Enable external suggestions
                 </span>
                 <span className="mt-1 block text-caption text-muted">
-                  Turning this off expires pending and approved external suggestions.
+                  New managed sites start with this off. Enable it only for the separate external-linking
+                  capability; turning it off expires pending and approved external suggestions.
                 </span>
               </span>
             </label>

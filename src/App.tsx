@@ -1,11 +1,27 @@
-import { lazy, Suspense, useId, useState, type ReactNode } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
 import RailTip from "./components/RailTip";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
+import { PageStateProvider } from "./hooks/usePageState";
+import {
+  QueueSearchContext,
+  queueDestination,
+  useQueueNavigation,
+  useQueueSearch,
+} from "./hooks/useQueueNavigation";
+import { QueueWorkspaceProvider } from "./hooks/useQueueWorkspace";
 import { useRail } from "./hooks/useRail";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
@@ -205,13 +221,20 @@ function RailLink({
   counts: Record<string, number | null>;
   collapsed: boolean;
 }) {
+  const location = useLocation();
+  const { remember } = useQueueNavigation();
+  const queueSearch = useQueueSearch();
+  const activeQueueSearch = location.pathname === "/queue" ? location.search : queueSearch;
   const raw = counts[item.to] ?? null;
   const count = raw !== null && raw > 0 ? raw : null;
   const noun = item.countNoun ?? "waiting";
 
   const link = (
     <NavLink
-      to={item.to}
+      to={queueDestination(item.to, activeQueueSearch)}
+      onClick={() => {
+        if (location.pathname === "/queue") remember(location.search);
+      }}
       className={({ isActive }) =>
         `relative flex min-h-11 items-center rounded-pill text-nav-link transition-colors
          duration-150 ${collapsed ? "h-11 w-11 justify-center" : "w-full gap-2.5 px-2.5"} ${
@@ -354,6 +377,10 @@ function NavCount({ count, noun, isActive }: { count: number; noun: string; isAc
  * of that choice.
  */
 function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
+  const location = useLocation();
+  const { remember } = useQueueNavigation();
+  const queueSearch = useQueueSearch();
+  const activeQueueSearch = location.pathname === "/queue" ? location.search : queueSearch;
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const groupId = useId();
@@ -364,8 +391,11 @@ function MobileNavigation({ counts }: { counts: Record<string, number | null> })
     const noun = navItem.countNoun ?? "waiting";
     return (
       <NavLink
-        to={navItem.to}
-        onClick={() => setOpen(false)}
+        to={queueDestination(navItem.to, activeQueueSearch)}
+        onClick={() => {
+          if (location.pathname === "/queue") remember(location.search);
+          setOpen(false);
+        }}
         className={({ isActive }) =>
           `flex min-h-11 items-center rounded-pill text-nav-link transition-colors duration-150 ${
             layout === "row" ? "justify-center gap-1 px-2 text-center" : "gap-2.5 px-3"
@@ -495,6 +525,19 @@ function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 }
 
 export default function App() {
+  const location = useLocation();
+  const [rememberedQueueSearch, setRememberedQueueSearch] = useState(() =>
+    location.pathname === "/queue" ? location.search : "",
+  );
+  const rememberQueueSearch = useCallback(
+    (search: string) => setRememberedQueueSearch(search),
+    [],
+  );
+  const queueNavigation = useMemo(
+    () => ({ search: rememberedQueueSearch, remember: rememberQueueSearch }),
+    [rememberedQueueSearch, rememberQueueSearch],
+  );
+
   const { data: sites } = useSites();
   const ownedSites = sites?.filter((site) => site.platform !== "pool");
   const ownedSiteCount = ownedSites?.length ?? null;
@@ -521,7 +564,11 @@ export default function App() {
   }`;
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
+    <QueueSearchContext.Provider value={queueNavigation}>
+      {/* Above <Routes>, so a page's work outlives the page. See usePageState. */}
+      <PageStateProvider>
+        <QueueWorkspaceProvider>
+          <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
       {/* The rail repeats on every route, so without this a keyboard user pays
           for it on every navigation before reaching the queue. */}
       <a
@@ -666,6 +713,9 @@ export default function App() {
           </Suspense>
         </RouteErrorBoundary>
       </main>
-    </div>
+          </div>
+        </QueueWorkspaceProvider>
+      </PageStateProvider>
+    </QueueSearchContext.Provider>
   );
 }

@@ -35,13 +35,13 @@ export const timeAgo = (iso: string | null) => {
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
   hybrid_bm25: "hybrid BM25",
-  external_search: "Tavily",
+  external_search: "Web search",
 };
 
 export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
   internal: "Internal link",
   content_pool: "External link · Content pool",
-  web_search: "External link · Tavily",
+  web_search: "External link · Web search",
 };
 
 /**
@@ -58,7 +58,7 @@ export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string 
   approved: { label: "Selected for review", dot: "bg-primary" },
   rejected: { label: "Rejected", dot: "bg-error" },
   applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
-  applied: { label: "Published live", dot: "bg-success" },
+  applied: { label: "Published", dot: "bg-success" },
   expired: { label: "Expired", dot: "bg-muted-soft" },
   failed: { label: "Publishing failed", dot: "bg-error" },
 };
@@ -77,8 +77,6 @@ export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string
   applied: "Published to the live article.",
   failed: "Publishing failed repeatedly and stopped retrying. Undo to try again.",
 };
-
-export const RQ_SCHEDULING_COPY = "Scheduled re-crawls run through RQ.";
 
 /**
  * The system's five atmospheric gradient stops — mint, peach, lavender, sky,

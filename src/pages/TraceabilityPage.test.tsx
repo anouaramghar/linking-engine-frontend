@@ -1,8 +1,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PageStateProvider } from "../hooks/usePageState";
 import TraceabilityPage from "./TraceabilityPage";
 
 const mocks = vi.hoisted(() => ({
@@ -90,7 +92,7 @@ describe("TraceabilityPage", () => {
     expect(screen.getByText(/"terminal": true/)).not.toBeNull();
 
     await user.type(screen.getByLabelText("Trace ID"), "trace-abc");
-    await user.type(screen.getByLabelText("Editor or actor"), "publication");
+    await user.type(screen.getByLabelText("Actor"), "publication");
     await user.selectOptions(screen.getByLabelText("Event"), "publish_attempt_failed");
     await user.selectOptions(screen.getByLabelText("Current status"), "failed");
     await user.selectOptions(screen.getByLabelText("Site"), "7");
@@ -112,8 +114,45 @@ describe("TraceabilityPage", () => {
       new Date("2026-08-10T23:59:59.999").toISOString(),
     );
 
-    await user.click(screen.getByRole("button", { name: "Copy Trace ID" }));
+    await user.click(screen.getByRole("button", { name: "Copy trace ID" }));
     expect(mocks.copy).toHaveBeenCalledWith("trace-abc");
     expect(screen.getByRole("button", { name: "Copied" })).not.toBeNull();
+  });
+
+  it("still holds the audit filters after a trip to another page", async () => {
+    // The shell the app renders: the provider outlives the route, the page does
+    // not. Filling in seven fields and losing them to a look at the site they
+    // name is the whole complaint this is here to keep fixed.
+    function Shell() {
+      const [onTrace, setOnTrace] = useState(true);
+      return (
+        <MemoryRouter>
+          <PageStateProvider>
+            <button type="button" onClick={() => setOnTrace((current) => !current)}>
+              Switch page
+            </button>
+            {onTrace ? <TraceabilityPage /> : <p>Sites</p>}
+          </PageStateProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<Shell />);
+
+    await user.type(screen.getByLabelText("Trace ID"), "trace-abc");
+    await user.selectOptions(screen.getByLabelText("Site"), "7");
+    await user.click(screen.getByRole("button", { name: "Apply filters" }));
+    expect(mocks.filters).toMatchObject({ trace_id: "trace-abc", site_id: 7 });
+
+    await user.click(screen.getByRole("button", { name: "Switch page" }));
+    expect(screen.queryByLabelText("Trace ID")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Switch page" }));
+
+    expect(screen.getByLabelText<HTMLInputElement>("Trace ID").value).toBe("trace-abc");
+    expect(screen.getByLabelText<HTMLSelectElement>("Site").value).toBe("7");
+    // The applied filters come back too, so the results below them are the ones
+    // that were being read rather than an unfiltered first page.
+    expect(mocks.filters).toMatchObject({ trace_id: "trace-abc", site_id: 7 });
   });
 });

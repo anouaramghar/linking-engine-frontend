@@ -1,4 +1,4 @@
-const STEPS = ["Select links", "Review exact edits & approve"];
+const STEPS = ["Select links", "Review exact edits"];
 
 /**
  * The two user-facing pages between a suggestion and a live link.

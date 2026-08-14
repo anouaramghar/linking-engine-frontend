@@ -18,6 +18,7 @@ interface Props {
   /** True when anything is narrowing the queue, so clearing is worth offering. */
   isFiltered: boolean;
   onClear: () => void;
+  ariaLabel?: string;
 }
 
 export default function QueueFilters({
@@ -26,6 +27,7 @@ export default function QueueFilters({
   sites,
   isFiltered,
   onClear,
+  ariaLabel = "Queue filters",
 }: Props) {
   const search = useDebouncedField<string>({
     value: filters.q,
@@ -37,7 +39,7 @@ export default function QueueFilters({
 
   return (
     <div
-      aria-label="Queue filters"
+      aria-label={ariaLabel}
       role="search"
       className="flex flex-col gap-2"
     >

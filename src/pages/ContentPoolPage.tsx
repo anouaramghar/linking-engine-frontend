@@ -20,6 +20,7 @@ import {
 } from "../hooks/useSites";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
+import { usePageState } from "../hooks/usePageState";
 import { errorDetail } from "../lib/errors";
 import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
@@ -51,10 +52,16 @@ export default function ContentPoolPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [auditSite, setAuditSite] = useState<Site | null>(null);
   const [deleteSite, setDeleteSite] = useState<Site | null>(null);
-  const [filter, setFilter] = useState<PoolFilter>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = usePageState<PoolFilter>("contentPool.filter", "all");
+  const [search, setSearch] = usePageState("contentPool.search", "");
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
-  const [crawlJobs, setCrawlJobs] = useState<Record<number, string>>({});
+  // The job ids this visit started. They are how a crawl the operator kicked off
+  // stays attributable to them after they leave the page and come back — the
+  // active-jobs query knows a crawl is running, but not that it is theirs.
+  const [crawlJobs, setCrawlJobs] = usePageState<Record<number, string>>(
+    "contentPool.crawlJobs",
+    {},
+  );
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const activeJobsQuery = useActiveJobs();
   const activeJobs = activeJobsQuery.data ?? [];
@@ -140,7 +147,7 @@ export default function ContentPoolPage() {
         sub={`${poolSources.length} external ${poolSources.length === 1 ? "source" : "sources"} available as read-only suggestion targets`}
         actions={
           <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            + Connect pool source
+            Connect pool source
           </button>
         }
       />
@@ -204,10 +211,10 @@ export default function ContentPoolPage() {
           />
         )}
         {!sitesQuery.isPending && !sitesQuery.isError && poolSources.length === 0 && (
-          <EmptyPanel>Connect the first trusted RSS, Atom, or Wikipedia source.</EmptyPanel>
+          <EmptyPanel>Connect a trusted RSS, Atom, or Wikipedia source to get started.</EmptyPanel>
         )}
         {!sitesQuery.isPending && poolSources.length > 0 && filtered.length === 0 && (
-          <EmptyPanel>No content-pool source matches these filters.</EmptyPanel>
+          <EmptyPanel>No sources match these filters.</EmptyPanel>
         )}
 
         <div className="flex flex-col gap-2.5">

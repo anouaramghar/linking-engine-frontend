@@ -92,6 +92,16 @@
   --c-selection: 200 184 224;
   --c-selection-ink: 12 10 9;
 
+  /* Syntax colours for the exact-HTML review, and nowhere else. The four hues
+     an editor uses, taken deep enough to clear AA on the card surface: the
+     reviewer is reading markup for a real decision, not admiring a theme.
+     (No token reference in braces here — theme.contrast.test.ts reads this
+     block by finding its closing brace, and a brace in a comment ends it.) */
+  --c-code-tag: 21 94 117;
+  --c-code-attr: 146 64 14;
+  --c-code-value: 22 101 52;
+  --c-code-comment: 120 113 108;
+
   --c-success: 22 163 74;
   --c-error: 220 38 38;
   --c-error-active: 185 28 28;
@@ -161,6 +171,14 @@
 
   --c-selection: 88 74 122;
   --c-selection-ink: 250 249 248;
+
+  /* The same four hues, lifted rather than deepened. A code surface in dark is
+     the one place that reflex is right: these are text on a card at 28 25 23,
+     so the ramp has to run the other way. */
+  --c-code-tag: 125 211 252;
+  --c-code-attr: 252 211 77;
+  --c-code-value: 134 239 172;
+  --c-code-comment: 148 141 133;
 
   --c-success: 34 197 94;
   --c-error: 220 38 38;
@@ -325,6 +343,31 @@ input[type="number"] {
   .badge {
     @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill
       bg-surface-strong px-2.5 py-1 text-caption-upper uppercase text-ink;
+  }
+
+  .disclosure-summary {
+    @apply cursor-pointer list-none;
+  }
+
+  .disclosure-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .help-hint {
+    @apply relative inline-block align-top;
+  }
+
+  /* Help is an overlay, not row content: opening it must never stretch a
+     table row or move the status badge away from the site it explains. */
+  .help-hint-popover {
+    @apply absolute right-0 top-full z-30 mt-2 rounded-lg border border-hairline
+      bg-surface-card p-3 text-left text-caption-sm normal-case tracking-normal
+      text-body shadow-lift;
+    width: min(20rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    max-height: min(16rem, calc(100dvh - 2rem));
+    overflow: auto;
+    overflow-wrap: anywhere;
   }
 
   /* The section label the system calls {typography.caption-uppercase}. */

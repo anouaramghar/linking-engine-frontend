@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
   lastFilters: {} as Record<string, unknown>,
+  refreshing: false,
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -40,7 +41,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       isPending: false,
       isError: false,
       isFetching: false,
-      isPlaceholderData: false,
+      isPlaceholderData: mocks.refreshing,
       hasNextPage: false,
       fetchNextPage: vi.fn(),
       isFetchingNextPage: false,
@@ -56,6 +57,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       isPending: false,
       isError: false,
       isFetching: false,
+      isPlaceholderData: mocks.refreshing,
       refetch: vi.fn(),
     };
   },
@@ -115,6 +117,7 @@ beforeEach(() => {
     suggestion(3, 2),
   );
   mocks.reviewMutate.mockReset();
+  mocks.refreshing = false;
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
 });
 
@@ -129,10 +132,28 @@ describe("SelectedPage", () => {
     expect(screen.getAllByText("Source 3").length).toBeGreaterThan(0);
     expect(screen.queryByText("Source 2")).toBeNull();
     expect(screen.getByText("2 selected links")).not.toBeNull();
-    expect(screen.getAllByText("Links to").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Target").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 selected link").length).toBeGreaterThan(0);
     expect(screen.queryByText("Selected for review")).toBeNull();
     expect(screen.getByRole("link", { name: "Review selected exact edits" })).not.toBeNull();
     expect(mocks.lastFilters).toMatchObject({ status: "approved" });
+  });
+
+  it("pauses review actions while filtered results are updating", () => {
+    mocks.refreshing = true;
+    renderSelected();
+
+    expect(
+      screen.getByText(
+        "Updating selected links for the current filters. Review actions are paused until the new results arrive.",
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Review selected exact edits" })).toBeNull();
+    expect(
+      screen
+        .getAllByRole("button", { name: /Review exact edit for suggestion/ })[0]
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("reviews one selected link in its site's protected workspace", async () => {
