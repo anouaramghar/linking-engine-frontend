@@ -8,6 +8,7 @@ import {
   listSuggestionPage,
   markSuggestionsExposed,
   reviewSuggestion,
+  triggerArticleAnalysis,
   triggerAnalysis,
   triggerComparison,
 } from "./suggestions";
@@ -250,12 +251,14 @@ describe("current suggestion mutations", () => {
     api.post
       .mockResolvedValueOnce({ data: { reviewed: [8, 9], skipped: [], status: "rejected" } })
       .mockResolvedValueOnce({ data: { job_id: "analysis-job" } })
-      .mockResolvedValueOnce({ data: { job_id: "comparison-job" } });
+      .mockResolvedValueOnce({ data: { job_id: "comparison-job" } })
+      .mockResolvedValueOnce({ data: { job_id: "article-job" } });
 
     await reviewSuggestion(7, "approved");
     await bulkReview([8, 9], "rejected");
     await triggerAnalysis(3);
     await triggerComparison(3);
+    await triggerArticleAnalysis(42);
 
     expect(api.put).toHaveBeenCalledWith("/suggestions/7", { status: "approved" });
     expect(api.post).toHaveBeenNthCalledWith(1, "/suggestions/bulk-review", {
@@ -264,6 +267,7 @@ describe("current suggestion mutations", () => {
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
     expect(api.post).toHaveBeenNthCalledWith(3, "/suggestions/3/compare");
+    expect(api.post).toHaveBeenNthCalledWith(4, "/articles/42/suggestions");
   });
 });
 

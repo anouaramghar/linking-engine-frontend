@@ -13,6 +13,8 @@ export interface Site {
    * credentialled rather than showing every site as broken.
    */
   has_wordpress_credentials?: boolean;
+  /** Static HTML sites can export approved plans, but cannot be written by the engine. */
+  can_export?: boolean;
   created_at: string;
   last_ingestion_status: string | null;
   /**
@@ -140,4 +142,32 @@ export interface BulkImportResult {
   created: BulkCreated[];
   skipped: BulkFailure[];
   rejected: BulkFailure[];
+}
+
+export interface ArticleImportRow {
+  url: string;
+  title?: string;
+  content_text?: string;
+  content_html?: string;
+  canonical_url?: string;
+  status_code?: number;
+  indexability?: string;
+  discovered_from?: string;
+  discovery_depth?: number;
+}
+
+export interface ArticleImportFailure {
+  row: number;
+  url: string | null;
+  reason: string;
+}
+
+export interface ArticleImportResult {
+  ingestion_run_id: number;
+  imported: number;
+  updated: number;
+  links_found: number;
+  skipped: ArticleImportFailure[];
+  rejected: ArticleImportFailure[];
+  diagnostic_summary: Record<string, number>;
 }

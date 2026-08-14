@@ -13,6 +13,7 @@ import {
   deleteSite,
   getEditorialRankingPolicy,
   getExternalLinkPolicy,
+  importArticleRows,
   listPoolAuditEvents,
   listExternalSourceEvaluations,
   POOL_AUDIT_PAGE_SIZE,
@@ -24,7 +25,11 @@ import {
   updateExternalLinkPolicy,
   updateEditorialRankingPolicy,
 } from "../api/sites";
-import type { EditorialRankingPolicyUpdate, ExternalLinkPolicyUpdate } from "../types/site";
+import type {
+  ArticleImportRow,
+  EditorialRankingPolicyUpdate,
+  ExternalLinkPolicyUpdate,
+} from "../types/site";
 
 export const useSites = (search = "") =>
   useInfiniteQuery({
@@ -57,6 +62,22 @@ export const useBulkCreateSites = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: bulkCreateSites,
+    onSuccess: () => invalidateSiteDependencies(qc),
+  });
+};
+
+export const useImportArticleRows = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      siteId,
+      rows,
+      replaceSnapshot,
+    }: {
+      siteId: number;
+      rows: ArticleImportRow[];
+      replaceSnapshot?: boolean;
+    }) => importArticleRows(siteId, rows, replaceSnapshot),
     onSuccess: () => invalidateSiteDependencies(qc),
   });
 };

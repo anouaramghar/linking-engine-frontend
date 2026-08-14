@@ -308,5 +308,9 @@ export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus)
 export const triggerAnalysis = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}`).then((r) => r.data);
 
+/** Generate the same ranked suggestions for one source article only. */
+export const triggerArticleAnalysis = (articleId: number) =>
+  api.post<JobAccepted>(`/articles/${articleId}/suggestions`).then((r) => r.data);
+
 export const triggerComparison = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}/compare`).then((r) => r.data);

@@ -31,6 +31,8 @@ interface Props {
   loading: boolean;
   progress?: Record<string, unknown> | null;
   error: boolean;
+  /** Static HTML sites can approve exact edits, but queue them as an export. */
+  readOnlyExport?: boolean;
   /** True while approval or queueing is in flight. */
   busy: boolean;
   /**
@@ -270,6 +272,7 @@ export default function PublicationReview({
   loading,
   progress,
   error,
+  readOnlyExport = false,
   busy,
   approvedNotQueued,
   selectedIds,
@@ -743,7 +746,9 @@ export default function PublicationReview({
               >
                 {busy
                   ? "Approving…"
-                  : `Approve and queue ${plural(selectedPlans.length, "exact edit")}`}
+                  : readOnlyExport
+                    ? `Approve ${plural(selectedPlans.length, "exact edit")} for CSV export`
+                    : `Approve and queue ${plural(selectedPlans.length, "exact edit")}`}
               </button>
             )}
           </div>

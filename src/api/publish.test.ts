@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   approvePublicationPlans,
+  exportPublicationCsv,
   getPendingPublicationSite,
   getPublicationPlanHtml,
   listPendingPublication,
@@ -162,6 +163,18 @@ describe("queueApprovedPlans", () => {
     await queueApprovedPlans(3, [55, 56]);
 
     expect(api.post).toHaveBeenCalledWith("/publish/3", { plan_ids: [55, 56] });
+  });
+});
+
+describe("exportPublicationCsv", () => {
+  it("downloads the server-verified non-WordPress artifact", async () => {
+    const blob = new Blob(["plan_id,plan_hash\n55,abc"]);
+    api.get.mockResolvedValue({ data: blob });
+
+    await expect(exportPublicationCsv(3)).resolves.toBe(blob);
+    expect(api.get).toHaveBeenCalledWith("/publish/3/export.csv", {
+      responseType: "blob",
+    });
   });
 });
 

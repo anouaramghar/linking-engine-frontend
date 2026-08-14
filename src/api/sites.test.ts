@@ -5,6 +5,7 @@ import {
   bulkCreateSites,
   deleteSite,
   getExternalLinkPolicy,
+  importArticleRows,
   listExternalSourceEvaluations,
   listPoolAuditEvents,
   listSites,
@@ -83,6 +84,20 @@ describe("bulkCreateSites", () => {
 
     await expect(bulkCreateSites(sites)).resolves.toEqual(result);
     expect(post).toHaveBeenCalledWith("/sites/bulk", { sites });
+  });
+});
+
+describe("importArticleRows", () => {
+  it("sends normalized CSV rows and keeps snapshot replacement explicit", async () => {
+    const rows = [{ url: "https://example.com/a", title: "A" }];
+    const result = { ingestion_run_id: 4, imported: 1, updated: 0 };
+    post.mockResolvedValue({ data: result });
+
+    await expect(importArticleRows(8, rows, true)).resolves.toEqual(result);
+    expect(post).toHaveBeenCalledWith("/sites/8/articles/import", {
+      rows,
+      replace_snapshot: true,
+    });
   });
 });
 

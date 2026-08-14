@@ -17,6 +17,7 @@ import {
   listSuggestionPage,
   markSuggestionsExposed,
   reviewSuggestion,
+  triggerArticleAnalysis,
   undoFilteredBulkReview,
 } from "../api/suggestions";
 import type {
@@ -181,3 +182,15 @@ export const useFilteredBulkUndo = () => {
 
 export const useAllFilteredSuggestionIds = () =>
   useMutation({ mutationFn: listAllSuggestionIds });
+
+/** Reuse the site analysis task with one source article as its explicit scope. */
+export const useTriggerArticleAnalysis = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (articleId: number) => triggerArticleAnalysis(articleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["suggestions"] });
+    },
+  });
+};

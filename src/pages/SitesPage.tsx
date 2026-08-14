@@ -14,6 +14,7 @@ import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import SelectionControl from "../components/SelectionControl";
 import AddSiteModal from "../components/sites/AddSiteModal";
+import ArticleImportModal from "../components/sites/ArticleImportModal";
 import BulkImportModal from "../components/sites/BulkImportModal";
 import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
 import EditorialRankingPolicyModal from "../components/sites/EditorialRankingPolicyModal";
@@ -185,11 +186,11 @@ function OpenSiteLink({ site }: { site: Site }) {
   );
 }
 
-function SiteIdentity({ site, index }: { site: Site; index: number }) {
+function SiteIdentity({ site }: { site: Site }) {
   return (
     <>
       <span
-        className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
+        className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(site.id)}`}
       >
         {initials(site.name)}
       </span>
@@ -223,6 +224,7 @@ export default function SitesPage() {
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [articleImportFor, setArticleImportFor] = useState<Site | null>(null);
   // Crawls and pipeline runs outlive the visit that started them, so the list of
   // the ones this operator started has to as well. Dropped on navigation, a job
   // someone kicked off two minutes ago becomes indistinguishable from one a
@@ -614,7 +616,7 @@ export default function SitesPage() {
         )}
 
         <div className="flex flex-col gap-2.5">
-          {visibleSites?.map((site, index) => (
+          {visibleSites?.map((site) => (
             <div
               key={site.id}
               className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5 ${
@@ -634,10 +636,10 @@ export default function SitesPage() {
                       disabled={!selectedSiteIds.has(site.id) && batchLimitReached}
                       onChange={() => toggleSelectedSite(site.id)}
                     />
-                    <SiteIdentity site={site} index={index} />
+                    <SiteIdentity site={site} />
                   </label>
                 ) : (
-                  <SiteIdentity site={site} index={index} />
+                  <SiteIdentity site={site} />
                 )}
                 <OpenSiteLink site={site} />
               </div>
@@ -779,6 +781,10 @@ export default function SitesPage() {
                             disabled: false,
                             onSelect: () => setCredentialsFor(site),
                           },
+                          {
+                            label: "Import article CSV",
+                            onSelect: () => setArticleImportFor(site),
+                          },
                         ]),
                     {
                       label: "Delete site",
@@ -858,6 +864,12 @@ export default function SitesPage() {
       </div>
       {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+      {articleImportFor && (
+        <ArticleImportModal
+          site={articleImportFor}
+          onClose={() => setArticleImportFor(null)}
+        />
+      )}
       {credentialsFor && (
         <SiteCredentialsModal
           site={credentialsFor}

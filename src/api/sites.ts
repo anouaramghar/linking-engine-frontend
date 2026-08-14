@@ -9,6 +9,8 @@ import type {
   ExternalSourceEvaluation,
   EditorialRankingPolicy,
   EditorialRankingPolicyUpdate,
+  ArticleImportResult,
+  ArticleImportRow,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -33,6 +35,18 @@ export const deleteSite = (id: number, confirmName: string) =>
 
 export const ingestSite = (id: number) =>
   api.post<JobAccepted>(`/sites/${id}/ingest`).then((r) => r.data);
+
+export const importArticleRows = (
+  siteId: number,
+  rows: ArticleImportRow[],
+  replaceSnapshot = false,
+) =>
+  api
+    .post<ArticleImportResult>(`/sites/${siteId}/articles/import`, {
+      rows,
+      replace_snapshot: replaceSnapshot,
+    })
+    .then((r) => r.data);
 
 // `publishSite` used to live here, and being reachable from the Sites page is
 // what made it dangerous: one click published everything selected, with nobody

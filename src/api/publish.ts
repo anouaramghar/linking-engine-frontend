@@ -28,6 +28,8 @@ export interface PendingPublicationSite {
    * read as publishable rather than silently hiding the review button.
    */
   can_publish?: boolean;
+  /** True for static HTML sources whose approved artifacts can be exported. */
+  can_export?: boolean;
 }
 
 export interface PendingPublicationPage {
@@ -174,4 +176,10 @@ export const approvePublicationPlans = (
 export const queueApprovedPlans = (siteId: number, planIds?: number[]) =>
   api
     .post(`/publish/${siteId}`, planIds ? { plan_ids: planIds } : undefined)
+    .then((response) => response.data);
+
+/** Download approved, hash-verified artifacts for a non-WordPress workflow. */
+export const exportPublicationCsv = (siteId: number) =>
+  api
+    .get<Blob>(`/publish/${siteId}/export.csv`, { responseType: "blob" })
     .then((response) => response.data);

@@ -1,7 +1,11 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import type { PublicationPlan, PublicationPreparation } from "../api/publish";
+import {
+  exportPublicationCsv,
+  type PublicationPlan,
+  type PublicationPreparation,
+} from "../api/publish";
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
@@ -39,6 +43,8 @@ function SiteIndex({
   hasMore,
   loadingMore,
   onLoadMore,
+  onExport,
+  exportingSiteId,
 }: {
   sites: {
     id: number;
@@ -46,6 +52,8 @@ function SiteIndex({
     selectedSuggestions: number;
     approvedPlans: number;
     canPublish: boolean;
+    canExport: boolean;
+    platform: string;
   }[];
   /** Sites whose edits are already read into this session. */
   prepared: Set<number>;
@@ -54,6 +62,8 @@ function SiteIndex({
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
+  onExport: (siteId: number) => void;
+  exportingSiteId: number | null;
 }) {
   return (
     <div>
@@ -108,25 +118,44 @@ function SiteIndex({
                 .join(" · ")}
             </div>
           </div>
-          {site.canPublish ? (
+          {site.canPublish || site.canExport ? (
             <div className="flex flex-none flex-col items-start gap-1 sm:items-end">
-              {site.selectedSuggestions > 0 ? (
+              {site.platform === "html" && site.approvedPlans > 0 ? (
                 <span className="text-caption-sm text-muted">
-                  <span className="font-medium text-ink">Required</span> &middot; Exact edits are shown
-                  before approval
+                  Approved exact edits are ready as a CSV export
+                </span>
+              ) : site.selectedSuggestions > 0 ? (
+                <span className="text-caption-sm text-muted">
+                  <span className="font-medium text-ink">Required</span> &middot; Exact edits are shown before approval
                 </span>
               ) : (
                 <span className="text-caption-sm text-muted">
                   Already read and approved &middot; only the job is left
                 </span>
               )}
-              <Link to={`/publish/${site.id}`} className="btn btn-primary">
-                {prepared.has(site.id)
-                  ? "Back to the edits"
-                  : site.selectedSuggestions > 0
-                    ? "Review exact edits"
-                    : "Queue approved edits"}
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                {(site.platform !== "html" ||
+                  site.selectedSuggestions > 0 ||
+                  site.approvedPlans === 0) && (
+                  <Link to={`/publish/${site.id}`} className="btn btn-primary">
+                    {prepared.has(site.id)
+                      ? "Back to the edits"
+                      : site.selectedSuggestions > 0
+                        ? "Review exact edits"
+                        : "Queue approved edits"}
+                  </Link>
+                )}
+                {site.platform === "html" && site.approvedPlans > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onExport(site.id)}
+                    disabled={exportingSiteId === site.id}
+                    className="btn btn-outline"
+                  >
+                    {exportingSiteId === site.id ? "Exporting…" : "Export CSV"}
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <span className="text-caption text-muted sm:text-right">
@@ -169,6 +198,8 @@ export default function PublishPage() {
 
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [queued, setQueued] = useState(false);
+  const [exportReadySiteId, setExportReadySiteId] = useState<number | null>(null);
+  const [exportingSiteId, setExportingSiteId] = useState<number | null>(null);
   // Held when approval succeeded but the job could not start. The approval
   // stands, so the only thing left to offer is a queue retry — and it has to
   // name that same subset, because queueing a plan the operator excluded is a
@@ -223,12 +254,35 @@ export default function PublishPage() {
   const queuePlans = useQueueApprovedPlans();
   const review = useReview();
 
+  const downloadExport = (id: number) => {
+    if (exportingSiteId !== null) return;
+    setExportingSiteId(id);
+    void exportPublicationCsv(id)
+      .then((blob) => {
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = `linkmesh-site-${id}-publication.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(href);
+        setNotice({ message: "The approved publication CSV was downloaded.", tone: "info" });
+      })
+      .catch(() => {
+        setNotice({ message: "The approved publication CSV could not be downloaded.", tone: "error" });
+      })
+      .finally(() => setExportingSiteId(null));
+  };
+
   const pendingSites = (pendingQuery.data ?? []).map((entry) => ({
     id: entry.site_id,
     name: entry.site_name ?? `site ${entry.site_id}`,
     selectedSuggestions: entry.selected_suggestions,
     approvedPlans: entry.approved_plans,
     canPublish: entry.can_publish !== false,
+    canExport: entry.can_export === true,
+    platform: entry.platform ?? "wordpress",
   }));
   const reviewable = pendingSites.filter(
     (site) => site.selectedSuggestions > 0 || site.approvedPlans > 0,
@@ -244,8 +298,11 @@ export default function PublishPage() {
               selectedSuggestions: activeSiteQuery.data.selected_suggestions,
               approvedPlans: activeSiteQuery.data.approved_plans,
               canPublish: activeSiteQuery.data.can_publish !== false,
+              canExport: activeSiteQuery.data.can_export === true,
+              platform: activeSiteQuery.data.platform ?? "wordpress",
             }
           : null);
+  const canPrepare = Boolean(activeSite?.canPublish || activeSite?.canExport);
 
   const runPrepare = (id: number) => {
     const key = batchKey;
@@ -310,7 +367,7 @@ export default function PublishPage() {
    */
   const attempted = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (siteId === null || !activeSite?.canPublish) return;
+    if (siteId === null || activeSite === null || !canPrepare) return;
     // Preparation exists to render *new* editorial intent. A site whose only
     // pending work is an approved plan has nothing to prepare: asking anyway
     // spends live requests to arrive at an empty review with no action on it.
@@ -336,7 +393,7 @@ export default function PublishPage() {
   }, [
     siteId,
     batchKey,
-    activeSite?.canPublish,
+    canPrepare,
     activeSite?.selectedSuggestions,
     preparePlans.data?.site_id,
     preparePlans.isError,
@@ -575,7 +632,18 @@ export default function PublishPage() {
         plans: plans.map((plan) => ({ id: plan.id, plan_hash: plan.plan_hash })),
       },
       {
-        onSuccess: () => queueApproved(plans.map((plan) => plan.id)),
+        onSuccess: () => {
+          if (activeSite?.platform === "html") {
+            setExportReadySiteId(activeSite.id);
+            setNotice({
+              message: "The exact edits were approved. Download the CSV export when ready.",
+              tone: "info",
+            });
+            void activeSiteQuery.refetch();
+            return;
+          }
+          queueApproved(plans.map((plan) => plan.id));
+        },
         onError: (error) => {
           setStale(isConflict(error));
           setNotice({
@@ -599,6 +667,9 @@ export default function PublishPage() {
    */
   const newWork = (activeSite?.selectedSuggestions ?? 0) > 0;
   const approvedWaiting = activeSite?.approvedPlans ?? 0;
+  const htmlApproved =
+    activeSite?.platform === "html" &&
+    (exportReadySiteId === activeSite.id || approvedWaiting > 0);
   /** Whether there is a batch on this page to read, approve, or retry. */
   const inReview =
     newWork ||
@@ -702,6 +773,8 @@ export default function PublishPage() {
             hasMore={Boolean(pendingQuery.hasNextPage)}
             loadingMore={pendingQuery.isFetchingNextPage}
             onLoadMore={() => void pendingQuery.fetchNextPage()}
+            onExport={downloadExport}
+            exportingSiteId={exportingSiteId}
           />
         )}
 
@@ -741,11 +814,34 @@ export default function PublishPage() {
           </EmptyPanel>
         )}
 
-        {!loading && !failed && !queued && activeSite && !activeSite.canPublish && (
+        {!loading && !failed && !queued && activeSite && !canPrepare && (
           <EmptyPanel>
-            {activeSite.name} has no WordPress account connected, so the exact edits cannot be
-            prepared. Add the account on the Sites page.
+            {activeSite.platform === "html"
+              ? `${activeSite.name} cannot prepare exact edits right now.`
+              : `${activeSite.name} has no WordPress account connected, so the exact edits cannot be prepared. Add the account on the Sites page.`}
           </EmptyPanel>
+        )}
+
+        {!loading && !failed && !queued && htmlApproved && activeSite && (
+          <div className="card mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-5">
+            <div className="min-w-0 flex-1">
+              <div className="text-body-sm font-medium text-ink">
+                Approved exact edits are ready for export
+              </div>
+              <p className="mt-1 max-w-prose text-caption leading-normal text-muted">
+                Download the approved CSV and apply these exact edits in the site’s own publishing
+                system. LinkMesh does not write to static HTML sites.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => downloadExport(activeSite.id)}
+              disabled={exportingSiteId !== null}
+              className="btn btn-primary flex-none"
+            >
+              {exportingSiteId === activeSite.id ? "Exporting…" : "Download approved CSV"}
+            </button>
+          </div>
         )}
 
         {/* Approved plans are durable, so this action cannot depend on what
@@ -775,7 +871,13 @@ export default function PublishPage() {
           </div>
         )}
 
-        {!loading && !failed && !queued && activeSite?.canPublish && inReview && (
+        {!loading &&
+          !failed &&
+          !queued &&
+          activeSite !== null &&
+          canPrepare &&
+          inReview &&
+          !htmlApproved && (
           <PublicationReview
             siteId={activeSite.id}
             siteName={activeSite.name}
@@ -805,6 +907,7 @@ export default function PublishPage() {
             onRetry={reload}
             onApproveAndQueue={approveAndQueue}
             onQueueOnly={() => queueApproved(notQueued?.planIds)}
+            readOnlyExport={activeSite?.platform === "html"}
             simulation={graphSimulation.data}
             simulationLoading={graphSimulation.isPending}
             simulationError={graphSimulation.isError}
