@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -72,6 +72,7 @@ const SITE = {
 const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
+  exposureMutate: vi.fn(),
   bulkMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
   filteredUndoMutate: vi.fn(),
@@ -195,6 +196,7 @@ vi.mock("../hooks/useSuggestions", () => ({
     };
   },
   useReview: () => ({ mutate: mocks.reviewMutate }),
+  useMarkSuggestionsExposed: () => ({ mutate: mocks.exposureMutate }),
   useBulkReview: () => ({ mutate: mocks.bulkMutate, isPending: false }),
   useFilteredBulkReview: () => ({
     mutate: mocks.filteredBulkMutate,
@@ -259,6 +261,7 @@ beforeEach(() => {
     suggestion(3, { score: 0.9, status: "applied" }),
   );
   mocks.reviewMutate.mockReset();
+  mocks.exposureMutate.mockReset();
   mocks.bulkMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
   mocks.filteredUndoMutate.mockReset();
@@ -277,6 +280,7 @@ beforeEach(() => {
   mocks.countsQueries = [];
   mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+  mocks.exposureMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
   mocks.bulkMutate.mockImplementation(
@@ -526,6 +530,37 @@ describe("ValidationPage live review state", () => {
     );
     await user.click(screen.getByRole("button", { name: /Selected.*1/ }));
     expect(screen.getByText("Source 1")).not.toBeNull();
+  });
+
+  it("captures an optional rejection reason before saving an individual decision", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Reject suggestion from Example site: Source 1 to Target 1",
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Why reject this suggestion?" })).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Wrong target" }));
+
+    expect(mocks.reviewMutate).toHaveBeenCalledWith(
+      { id: 1, status: "rejected", rejectionReason: "wrong_target" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it("records the visible queue rows as exposed once", async () => {
+    renderQueue();
+
+    await waitFor(() =>
+      expect(mocks.exposureMutate).toHaveBeenCalledWith(
+        { ids: [1, 2], surface: "queue" },
+        expect.objectContaining({ onError: expect.any(Function) }),
+      ),
+    );
+    expect(mocks.exposureMutate).toHaveBeenCalledTimes(1);
   });
 
   it("cancels a bulk action without sending or changing decisions", async () => {

@@ -6,6 +6,7 @@ import {
   bulkReviewByFilter,
   countSuggestions,
   listSuggestionPage,
+  markSuggestionsExposed,
   reviewSuggestion,
   triggerAnalysis,
   triggerComparison,
@@ -221,6 +222,29 @@ describe("discovery filters on the wire", () => {
 });
 
 describe("current suggestion mutations", () => {
+  it("records rendered suggestions on the exposure endpoint", async () => {
+    const result = { exposed: 2 };
+    api.post.mockResolvedValue({ data: result });
+
+    await expect(markSuggestionsExposed([7, 8], "preview")).resolves.toEqual(result);
+
+    expect(api.post).toHaveBeenCalledWith("/suggestions/exposure", {
+      suggestion_ids: [7, 8],
+      surface: "preview",
+    });
+  });
+
+  it("serializes an optional rejection reason without changing approval", async () => {
+    api.put.mockResolvedValue({ data: { id: 7, status: "rejected" } });
+
+    await reviewSuggestion(7, "rejected", "wrong_target");
+
+    expect(api.put).toHaveBeenCalledWith("/suggestions/7", {
+      status: "rejected",
+      rejection_reason: "wrong_target",
+    });
+  });
+
   it("uses the backend's review, generation, and comparison routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post

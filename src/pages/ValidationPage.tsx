@@ -21,6 +21,7 @@ import { useQueueWorkspace } from "../hooks/useQueueWorkspace";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
+import RejectionReasonDialog from "../components/suggestions/RejectionReasonDialog";
 import SelectionTray from "../components/suggestions/SelectionTray";
 import FlowSteps from "../components/publish/FlowSteps";
 import { useIncrementalList } from "../hooks/useIncrementalList";
@@ -30,6 +31,7 @@ import {
   useFilteredBulkReview,
   useFilteredBulkUndo,
   usePlacement,
+  useMarkSuggestionsExposed,
   useReview,
   useSuggestionCounts,
   useSuggestionEvents,
@@ -54,6 +56,7 @@ import type {
   StatusOverrides,
 } from "../lib/suggestionReview";
 import type {
+  RejectionReason,
   ReviewStatus,
   Suggestion,
   SuggestionStatus,
@@ -190,6 +193,7 @@ export default function ValidationPage() {
   );
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [pendingRejectionId, setPendingRejectionId] = useState<number | null>(null);
   const [bulkRecovery, setBulkRecovery] = useState<BulkRecovery | null>(null);
   const overrideOrder = useRef<number[]>([]);
   const focusAfterReview = useRef<number | "main" | null>(null);
@@ -293,6 +297,7 @@ export default function ValidationPage() {
   ].some((query) => query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
   const review = useReview();
+  const exposure = useMarkSuggestionsExposed();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
   const filteredUndo = useFilteredBulkUndo();
@@ -398,6 +403,23 @@ export default function ValidationPage() {
     () => renderedGroups.flatMap((group) => group.visibleSuggestions),
     [renderedGroups],
   );
+  const visibleExposureIds = useMemo(
+    () => visibleSuggestions.map((suggestion) => suggestion.id),
+    [visibleSuggestions],
+  );
+  const exposedIds = useRef(new Set<number>());
+  useEffect(() => {
+    if (loading || failed || visibleExposureIds.length === 0) return;
+    const ids = visibleExposureIds.filter((id) => !exposedIds.current.has(id));
+    if (ids.length === 0) return;
+    ids.forEach((id) => exposedIds.current.add(id));
+    exposure.mutate(
+      { ids, surface: "queue" },
+      {
+        onError: () => ids.forEach((id) => exposedIds.current.delete(id)),
+      },
+    );
+  }, [exposure, failed, loading, visibleExposureIds]);
   const shown = visibleSuggestions.length;
 
   const hasMore =
@@ -719,7 +741,11 @@ export default function ValidationPage() {
     )?.id ?? null;
   };
 
-  const decide = (id: number, status: ReviewStatus) => {
+  const decide = (
+    id: number,
+    status: ReviewStatus,
+    rejectionReason?: RejectionReason,
+  ) => {
     if (queueUpdating || confirmation || actionMutationPending) return;
     const successMessage =
       status !== "approved"
@@ -736,7 +762,7 @@ export default function ValidationPage() {
       tone: "info",
     });
     review.mutate(
-      { id, status },
+      rejectionReason ? { id, status, rejectionReason } : { id, status },
       {
         onSuccess: () => {
           applyStatuses([id], status, {
@@ -758,6 +784,11 @@ export default function ValidationPage() {
           }),
       },
     );
+  };
+
+  const requestRejection = (id: number) => {
+    if (queueUpdating || confirmation || actionMutationPending) return;
+    setPendingRejectionId(id);
   };
 
   const undo = (ids: number[]) => {
@@ -828,13 +859,13 @@ export default function ValidationPage() {
    * page, so opening a row re-renders the two rows whose selection actually
    * changed instead of all of them.
    */
-  const rowActions = useRef({ decide, undo });
+  const rowActions = useRef({ decide, requestRejection, undo });
   useEffect(() => {
-    rowActions.current = { decide, undo };
+    rowActions.current = { decide, requestRejection, undo };
   });
   const openRow = useCallback((id: number) => setSelectedId(id), [setSelectedId]);
   const acceptRow = useCallback((id: number) => rowActions.current.decide(id, "approved"), []);
-  const rejectRow = useCallback((id: number) => rowActions.current.decide(id, "rejected"), []);
+  const rejectRow = useCallback((id: number) => rowActions.current.requestRejection(id), []);
   const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
 
   const requestBulk = (action: BulkReviewAction) => {
@@ -937,7 +968,7 @@ export default function ValidationPage() {
     onNext: () => step(1),
     onPrevious: () => step(-1),
     onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
-    onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
+    onReject: () => selected?.status === "pending" && requestRejection(selected.id),
     onUndo: () => {
       if (selected?.status === "approved" || selected?.status === "rejected") {
         undo([selected.id]);
@@ -1280,11 +1311,25 @@ export default function ValidationPage() {
             actionsDisabled={queueUpdating || actionMutationPending}
             onClose={() => setSelectedId(null)}
             onAccept={() => decide(selected.id, "approved")}
-            onReject={() => decide(selected.id, "rejected")}
+            onReject={() => requestRejection(selected.id)}
             onUndo={() => undo([selected.id])}
           />
         )}
       </div>
+
+      {pendingRejectionId !== null && (
+        <RejectionReasonDialog
+          targetTitle={
+            resolvedSuggestions.find((suggestion) => suggestion.id === pendingRejectionId)
+              ?.target_article.title ?? "this suggestion"
+          }
+          onCancel={() => setPendingRejectionId(null)}
+          onChoose={(reason) => {
+            setPendingRejectionId(null);
+            decide(pendingRejectionId, "rejected", reason);
+          }}
+        />
+      )}
     </>
   );
 }

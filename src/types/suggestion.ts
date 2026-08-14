@@ -24,6 +24,14 @@ export type SuggestionStatus =
   | "failed";
 /** Statuses an editor can set directly. 'pending' undoes an earlier decision. */
 export type ReviewStatus = "approved" | "rejected" | "pending";
+export type RejectionReason =
+  | "not_relevant"
+  | "wrong_target"
+  | "bad_anchor"
+  | "bad_placement"
+  | "already_covered"
+  | "duplicate"
+  | "other";
 
 /**
  * How a non-cosine ranker chose a row. Only `hybrid_bm25` writes this today; the
@@ -125,6 +133,14 @@ export interface Suggestion {
   publish_outcome?: "inserted" | "block" | "already_present" | null;
   publish_attempts?: number;
   publish_error?: string | null;
+  shown_at?: string | null;
+  last_shown_at?: string | null;
+  exposure_count?: number;
+  reviewer_id?: string | null;
+  rejection_reason?: RejectionReason | null;
+  retrieval_version?: string | null;
+  ranking_version?: string | null;
+  final_rank?: number | null;
   created_at: string;
 }
 

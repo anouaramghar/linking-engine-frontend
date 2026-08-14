@@ -6,6 +6,7 @@ import type {
   SuggestionEvent,
   SuggestionStatus,
   SuggestionTargetOrigin,
+  RejectionReason,
 } from "../types/suggestion";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -89,8 +90,28 @@ export const countSuggestions = (filters: SuggestionQueueFilters) =>
     })
     .then((response) => response.data);
 
-export const reviewSuggestion = (id: number, status: ReviewStatus) =>
-  api.put<Suggestion>(`/suggestions/${id}`, { status }).then((r) => r.data);
+export const reviewSuggestion = (
+  id: number,
+  status: ReviewStatus,
+  rejectionReason?: RejectionReason,
+) =>
+  api
+    .put<Suggestion>(`/suggestions/${id}`, {
+      status,
+      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
+    })
+    .then((r) => r.data);
+
+export const markSuggestionsExposed = (
+  suggestionIds: number[],
+  surface: "queue" | "preview" = "queue",
+) =>
+  api
+    .post<{ exposed: number }>("/suggestions/exposure", {
+      suggestion_ids: suggestionIds,
+      surface,
+    })
+    .then((r) => r.data);
 
 /**
  * The first call for a suggestion runs a model and can take several seconds;

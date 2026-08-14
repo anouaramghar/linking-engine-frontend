@@ -32,7 +32,7 @@ const metrics: EvaluationMetrics = {
     "The date range selects suggestions generated during that period; outcomes describe that cohort.",
   provenance: {
     surface: "operational_telemetry",
-    schema_version: "evaluation_metrics_v1",
+    schema_version: "evaluation_metrics_v2",
     commit: "abc1234",
     evidence_cutoff: "2026-08-05T11:00:00Z",
     individual_labels: 70,
@@ -60,6 +60,27 @@ const metrics: EvaluationMetrics = {
     average_decision_hours: 7.5,
     median_decision_hours: 5,
     decision_time_sample: 100,
+  },
+  exposure: {
+    suggestions: 120,
+    exposed: 90,
+    unseen: 30,
+    exposure_rate: 0.75,
+    exposed_decisions: 75,
+    unseen_decisions: 25,
+    exposed_acceptance_rate: 0.64,
+  },
+  rejection_reasons: [
+    { reason: "wrong_target", count: 12 },
+    { reason: "unspecified", count: 8 },
+  ],
+  graph_impact: {
+    suggestions_with_graph_context: 80,
+    graph_adjusted_suggestions: 20,
+    exposed_graph_suggestions: 60,
+    accepted_or_published_graph_suggestions: 35,
+    orphan_targets_accepted: 10,
+    underlinked_targets_accepted: 15,
   },
   placement: { generated: 50, successful: 35, success_rate: 0.7 },
   publication: {
@@ -214,11 +235,14 @@ describe("EvaluationPage", () => {
       "field",
     );
     expect(screen.getByRole("combobox", { name: "Site" }).className).toContain("field");
-    expect(screen.getAllByLabelText("What this metric means")).toHaveLength(7);
+    expect(screen.getAllByLabelText("What this metric means")).toHaveLength(9);
     expect(screen.getByText("Editor acceptance")).not.toBeNull();
     expect(screen.getByText("Median decision time")).not.toBeNull();
     expect(screen.getByText("Placement success")).not.toBeNull();
     expect(screen.getByText("Publishing success")).not.toBeNull();
+    expect(screen.getByText("Exposure and labels")).not.toBeNull();
+    expect(screen.getByText("Graph impact and rejection reasons")).not.toBeNull();
+    expect(screen.getByText("Wrong target")).not.toBeNull();
     expect(screen.getAllByText("60%").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("+10.0 pp vs previous")).not.toBeNull();
     expect(screen.getByRole("img", { name: "Acceptance rate over time" })).not.toBeNull();
@@ -239,7 +263,7 @@ describe("EvaluationPage", () => {
     expect(screen.getByText(/More individual labels required/)).not.toBeNull();
     expect(screen.getByText(/0 of 3 sites at the label target/)).not.toBeNull();
     expect(screen.getByText(/70 individual, 30 from bulk rules/)).not.toBeNull();
-    expect(screen.getByText(/evaluation_metrics_v1 · commit abc1234/)).not.toBeNull();
+    expect(screen.getByText(/evaluation_metrics_v2 · commit abc1234/)).not.toBeNull();
     expect(screen.getByText("What these numbers cannot settle (2)")).not.toBeNull();
     expect(screen.getByText("Acceptance is not correctness.")).not.toBeNull();
   });

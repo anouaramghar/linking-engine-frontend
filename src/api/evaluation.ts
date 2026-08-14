@@ -29,6 +29,30 @@ export interface EditorialMetrics {
   decision_time_sample: number;
 }
 
+export interface ExposureMetrics {
+  suggestions: number;
+  exposed: number;
+  unseen: number;
+  exposure_rate: number | null;
+  exposed_decisions: number;
+  unseen_decisions: number;
+  exposed_acceptance_rate: number | null;
+}
+
+export interface RejectionReasonMetric {
+  reason: string;
+  count: number;
+}
+
+export interface GraphImpactMetrics {
+  suggestions_with_graph_context: number;
+  graph_adjusted_suggestions: number;
+  exposed_graph_suggestions: number;
+  accepted_or_published_graph_suggestions: number;
+  orphan_targets_accepted: number;
+  underlinked_targets_accepted: number;
+}
+
 export interface PlacementMetrics {
   generated: number;
   successful: number;
@@ -119,6 +143,7 @@ export interface EvaluationProvenance {
   evidence_cutoff: string | null;
   individual_labels: number;
   bulk_labels: number;
+  exposed_individual_labels?: number;
   label_provenance: string;
   sample_state: EvidenceSampleState;
   sites_meeting_label_target: number;
@@ -136,6 +161,9 @@ export interface EvaluationMetrics {
   cohort_definition: string;
   provenance: EvaluationProvenance;
   editorial: EditorialMetrics;
+  exposure?: ExposureMetrics;
+  rejection_reasons?: RejectionReasonMetric[];
+  graph_impact?: GraphImpactMetrics;
   placement: PlacementMetrics;
   publication: PublicationMetrics;
   orphans: OrphanMetrics;

@@ -49,6 +49,10 @@ const DEFINITION = {
     "Published suggestions divided by completed publishing outcomes: published plus terminal failures.",
   orphans:
     "Active pages with no observed inbound internal link in the latest crawl. Orphans helped are verified inserted or appended LinkMesh links to previously orphaned targets.",
+  exposure:
+    "A suggestion is exposed when the review queue renders it. Unseen decisions are kept separate because an unseen candidate is not a rejection.",
+  graph:
+    "Graph context is the generation-time structural snapshot attached to a suggestion. It describes graph opportunity, not topical relevance.",
 } as const;
 
 const formatRate = (value: number | null | undefined) => {
@@ -452,6 +456,104 @@ function MetricDefinitions({ cohortDefinition }: { cohortDefinition: string }) {
   );
 }
 
+const labelReason = (reason: string) =>
+  reason === "unspecified"
+    ? "No reason supplied"
+    : reason.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
+
+function EvidenceBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
+  const exposure = metrics.exposure;
+  const graph = metrics.graph_impact;
+  const reasons = metrics.rejection_reasons ?? [];
+  if (!exposure && !graph && reasons.length === 0) return null;
+
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {exposure && (
+        <section className="card px-4 py-5 sm:px-6">
+          <h2 className="font-serif text-display-sm text-ink">
+            Exposure and labels <HelpHint label="What this metric means">{DEFINITION.exposure}</HelpHint>
+          </h2>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            Decisions are split by whether the suggestion was rendered before review.
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <CompactStat
+              label="Exposed"
+              value={`${formatCount(exposure.exposed)} / ${formatCount(exposure.suggestions)}`}
+              detail={`${formatRate(exposure.exposure_rate)} of the cohort`}
+            />
+            <CompactStat
+              label="Unseen"
+              value={formatCount(exposure.unseen)}
+              detail={`${formatCount(exposure.unseen_decisions)} decisions excluded from exposed quality`}
+            />
+            <CompactStat
+              label="Exposed acceptance"
+              value={formatRate(exposure.exposed_acceptance_rate)}
+              detail={`${formatCount(exposure.exposed_decisions)} exposed decisions`}
+            />
+            <CompactStat
+              label="Unseen decisions"
+              value={formatCount(exposure.unseen_decisions)}
+              detail="Not treated as rejection evidence"
+            />
+          </div>
+        </section>
+      )}
+
+      {(graph || reasons.length > 0) && (
+        <section className="card px-4 py-5 sm:px-6">
+          <h2 className="font-serif text-display-sm text-ink">
+            Graph impact and rejection reasons{" "}
+            <HelpHint label="What this metric means">{DEFINITION.graph}</HelpHint>
+          </h2>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            Structural context and optional reviewer explanations captured at decision time.
+          </p>
+          {graph && (
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <CompactStat
+                label="Graph context"
+                value={formatCount(graph.suggestions_with_graph_context)}
+                detail={`${formatCount(graph.exposed_graph_suggestions)} exposed`}
+              />
+              <CompactStat
+                label="Graph adjusted"
+                value={formatCount(graph.graph_adjusted_suggestions)}
+                detail={`${formatCount(graph.accepted_or_published_graph_suggestions)} accepted or published`}
+              />
+              <CompactStat
+                label="Orphan targets accepted"
+                value={formatCount(graph.orphan_targets_accepted)}
+                detail="Generation-time graph signal"
+              />
+              <CompactStat
+                label="Underlinked accepted"
+                value={formatCount(graph.underlinked_targets_accepted)}
+                detail="Generation-time graph signal"
+              />
+            </div>
+          )}
+          {reasons.length > 0 && (
+            <div className="mt-4 border-t border-hairline pt-4">
+              <div className="text-caption-sm font-medium text-ink">Rejection reasons</div>
+              <ul className="mt-2 space-y-1 text-caption text-muted">
+                {reasons.map((item) => (
+                  <li key={item.reason} className="flex justify-between gap-3">
+                    <span>{labelReason(item.reason)}</span>
+                    <span className="font-medium text-body">{formatCount(item.count)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
 function DashboardBody({
   metrics,
   onDrilldown,
@@ -599,6 +701,8 @@ function DashboardBody({
         <AcceptanceTrend points={metrics.trend} />
         <OrphanTrend points={metrics.orphan_trend} />
       </div>
+
+      <EvidenceBreakdown metrics={metrics} />
 
       <MethodComparison methods={metrics.methods} />
       <ScoreRangePerformance ranges={metrics.score_ranges} />
