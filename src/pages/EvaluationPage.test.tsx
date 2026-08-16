@@ -316,7 +316,10 @@ describe("EvaluationPage", () => {
 
     await waitFor(() => expect(getEvaluationCsv).toHaveBeenCalledWith({ site_id: 1 }));
     expect(createObjectURL).toHaveBeenCalledWith(blob);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:evaluation");
+    await waitFor(
+      () => expect(revokeObjectURL).toHaveBeenCalledWith("blob:evaluation"),
+      { timeout: 1_500 },
+    );
   });
 
   it("uses an unavailable value when a metric has no sample", () => {

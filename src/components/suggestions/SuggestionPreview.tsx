@@ -52,7 +52,7 @@ export default function SuggestionPreview({
   const onKeyDown = useFocusTrap(panel, onClose, overlaid);
 
   const panelClass =
-    "h-full min-h-0 w-full flex-none overflow-y-auto border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
+    "h-full min-h-0 w-full flex-none overflow-y-auto overscroll-contain border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
 
   const body = (
     <>
@@ -173,7 +173,7 @@ export default function SuggestionPreview({
       )}
 
       {publicationMessage && (
-        <div aria-label="Publish status" className="card mt-3 px-4 py-3">
+        <div role="region" aria-label="Publish status" className="card mt-3 px-4 py-3">
           <div className="eyebrow">Publish status</div>
           <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
           {s.status === "failed" && s.publish_error && (

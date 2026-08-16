@@ -1,4 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
@@ -53,8 +54,20 @@ export default function ContentPoolPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [auditSite, setAuditSite] = useState<Site | null>(null);
   const [deleteSite, setDeleteSite] = useState<Site | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = usePageState<PoolFilter>("contentPool.filter", "all");
-  const [search, setSearch] = usePageState("contentPool.search", "");
+  const search = searchParams.get("q") ?? "";
+  const setSearch = (value: string) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value.trim() === "") next.delete("q");
+        else next.set("q", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
   // The job ids this visit started. They are how a crawl the operator kicked off
   // stays attributable to them after they leave the page and come back — the
@@ -159,7 +172,8 @@ export default function ContentPoolPage() {
             <input
               className="field"
               type="search"
-              placeholder="Search name or URL"
+              name="q"
+              placeholder="Search name or URL…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />

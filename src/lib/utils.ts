@@ -8,7 +8,24 @@ export const scorePercent = (score: number) => Math.round(score * 100);
 
 export const pct = (n: number) => `${scorePercent(n)}%`;
 
-export const formatCount = (count: number) => new Intl.NumberFormat("en-US").format(count);
+const numberFormatter = new Intl.NumberFormat();
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+export const formatCount = (count: number) => numberFormatter.format(count);
+
+export const downloadBlob = (blob: Blob, filename: string) => {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  // Let the browser start the download before releasing the object URL. Some
+  // browsers cancel the download when the URL is revoked in the same tick.
+  window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+};
 
 export const sitePlatformLabel = (platform: "wordpress" | "html" | "pool") => {
   if (platform === "wordpress") return "WP REST API";
@@ -26,10 +43,15 @@ export const initials = (name: string) =>
 
 export const timeAgo = (iso: string | null) => {
   if (!iso) return "never";
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
+  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!Number.isFinite(seconds)) return "unknown";
+  const absoluteSeconds = Math.abs(seconds);
+  if (absoluteSeconds < 60) return relativeTimeFormatter.format(Math.round(-seconds), "second");
+  if (absoluteSeconds < 3600)
+    return relativeTimeFormatter.format(Math.round(-seconds / 60), "minute");
+  if (absoluteSeconds < 86400)
+    return relativeTimeFormatter.format(Math.round(-seconds / 3600), "hour");
+  return relativeTimeFormatter.format(Math.round(-seconds / 86400), "day");
 };
 
 export const METHOD_LABEL: Record<string, string> = {

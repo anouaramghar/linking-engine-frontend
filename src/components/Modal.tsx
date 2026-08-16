@@ -86,7 +86,7 @@ export default function Modal({
 
             The negative margin buys back room for a 2px focus ring at 2px
             offset, which an overflow container would otherwise shave. */}
-        <div className="-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto px-2">
+        <div className="-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2">
           {children}
         </div>
       </div>

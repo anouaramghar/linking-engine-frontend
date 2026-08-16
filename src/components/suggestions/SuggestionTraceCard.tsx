@@ -108,6 +108,95 @@ const checkIsAdverse = (key: string, value: boolean | number | string | null) =>
   return BLOCKING_WHEN_TRUE.has(key) ? value : key === "https" && !value;
 };
 
+const finalOrderLabel = (value: string | undefined, method: string) => {
+  if (value === "bm25_512") return "BM25-512";
+  if (value === "cosine_semantic_similarity") return "Cosine similarity";
+  if (value) return value.replaceAll("_", " ");
+  if (method === "baseline_cosine") return "Cosine similarity";
+  return "Not recorded";
+};
+
+const rankLabel = (value: number | null | undefined, missing: string) =>
+  value === null || value === undefined ? missing : `#${value}`;
+
+function EvidenceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="min-w-0 text-muted">{label}</dt>
+      <dd className="break-all text-right font-medium text-body">{value}</dd>
+    </div>
+  );
+}
+
+function RankingEvidence({ suggestion }: { suggestion: Suggestion }) {
+  const components = suggestion.score_components;
+  const hasEvidence = Boolean(
+    suggestion.final_rank !== null && suggestion.final_rank !== undefined,
+  ) || Boolean(
+    suggestion.retrieval_version || suggestion.ranking_version,
+  ) || Boolean(
+    components &&
+      (components.final_order ||
+        components.fusion_rank !== undefined ||
+        components.dense_rank !== undefined ||
+        components.lexical_rank !== undefined ||
+        components.recipe),
+  );
+
+  if (!hasEvidence) return null;
+
+  const finalOrder = finalOrderLabel(components?.final_order, suggestion.method);
+  const retrievalVersion = suggestion.retrieval_version ?? components?.version;
+
+  return (
+    <div className="mt-3 rounded-lg border border-hairline px-3 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-caption-sm font-medium text-ink">How the rank was decided</span>
+        {suggestion.final_rank !== null && suggestion.final_rank !== undefined && (
+          <span className="badge">Final rank #{suggestion.final_rank}</span>
+        )}
+      </div>
+      <p className="mt-1 text-caption-sm leading-normal text-body">
+        {components?.final_order === "bm25_512"
+          ? "BM25-512 decides the delivered order after dense and lexical retrieval widen the candidate pool. Semantic match remains the separate cosine similarity shown above."
+          : `The delivered order uses ${finalOrder}. Semantic match remains the separate similarity score shown above.`}
+      </p>
+
+      <details className="mt-2">
+        <summary className="disclosure-summary text-caption-sm font-medium text-ink hover:text-primary">
+          Show ranking details
+        </summary>
+        <dl className="mt-2 grid gap-1 text-caption-sm">
+          <EvidenceRow label="Final ordering" value={finalOrder} />
+          {components?.fusion_rank !== undefined && (
+            <EvidenceRow
+              label="Fusion position"
+              value={rankLabel(components.fusion_rank, "Not recorded")}
+            />
+          )}
+          {components?.dense_rank !== undefined && (
+            <EvidenceRow
+              label="Dense retrieval position"
+              value={rankLabel(components.dense_rank, "Not retrieved")}
+            />
+          )}
+          {components?.lexical_rank !== undefined && (
+            <EvidenceRow
+              label="Lexical retrieval position"
+              value={rankLabel(components.lexical_rank, "Not retrieved")}
+            />
+          )}
+          {components?.recipe && <EvidenceRow label="Retrieval recipe" value={components.recipe} />}
+          {retrievalVersion && <EvidenceRow label="Retrieval version" value={retrievalVersion} />}
+          {suggestion.ranking_version && (
+            <EvidenceRow label="Ranking version" value={suggestion.ranking_version} />
+          )}
+        </dl>
+      </details>
+    </div>
+  );
+}
+
 /**
  * The individual checks behind an external verdict, and why it went that way.
  *
@@ -194,6 +283,8 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
   return (
     <section aria-label="Suggestion traceability" className="card mb-5 mt-5 p-4">
       <div className="eyebrow">Why this suggestion</div>
+
+      <RankingEvidence suggestion={suggestion} />
 
       <dl
         aria-label="Suggestion statistics"

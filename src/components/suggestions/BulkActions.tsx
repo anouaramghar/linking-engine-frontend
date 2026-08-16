@@ -64,18 +64,42 @@ export default function BulkActions({
 
   // Opening the confirmation disables the button that opened it, so focus has
   // to be handed on deliberately or it falls to the body and a keyboard user
-  // loses the destructive prompt they just raised. Confirm takes focus on
-  // open; Cancel hands it back to its own trigger. Confirming does not restore
-  // it — the queue moves on, and the page places focus itself.
+  // loses the destructive prompt they just raised. Cancel takes focus on open;
+  // it is the safe default, and cancelling hands it back to its own trigger.
+  // Confirming does not restore it — the queue moves on, and the page places
+  // focus itself.
   const acceptButton = useRef<HTMLButtonElement>(null);
   const rejectButton = useRef<HTMLButtonElement>(null);
   const restoreFocusTo = useRef<BulkReviewAction | null>(null);
+  const secondaryMenu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const action = restoreFocusTo.current;
     if (confirmation || !action) return;
     restoreFocusTo.current = null;
     (action === "approve" ? acceptButton : rejectButton).current?.focus();
   }, [confirmation]);
+
+  useEffect(() => {
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const menu = secondaryMenu.current;
+      if (!menu?.open || menu.contains(event.target as Node)) return;
+      menu.open = false;
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      const menu = secondaryMenu.current;
+      if (event.key !== "Escape" || !menu?.open) return;
+      event.preventDefault();
+      menu.open = false;
+      menu.querySelector<HTMLElement>("summary")?.focus();
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
 
   const cancel = () => {
     restoreFocusTo.current = confirmation?.action ?? null;
@@ -138,7 +162,7 @@ export default function BulkActions({
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div aria-label="Suggestion status filters" className="min-w-0">
+      <div role="region" aria-label="Suggestion status filters" className="min-w-0">
         <div className="flex flex-wrap items-center gap-1">
           {primaryChips.map((chip) => (
             <button
@@ -159,7 +183,7 @@ export default function BulkActions({
             </button>
           ))}
           {secondaryChips.length > 0 && (
-            <details className="relative">
+            <details ref={secondaryMenu} className="relative">
               <summary
                 aria-label={
                   activeSecondary
@@ -187,7 +211,10 @@ export default function BulkActions({
                   <button
                     key={chip.key}
                     type="button"
-                    onClick={() => onSelect(chip.key)}
+                    onClick={() => {
+                      onSelect(chip.key);
+                      if (secondaryMenu.current) secondaryMenu.current.open = false;
+                    }}
                     aria-pressed={active === chip.key}
                     className={
                       "touch-target flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-caption font-medium sm:min-h-10 " +
@@ -215,6 +242,7 @@ export default function BulkActions({
           <span className="text-caption text-muted">Apply decisions by match score</span>
         </summary>
         <div
+          role="region"
           aria-label="Bulk review controls"
           className="flex flex-col gap-3 pt-3"
         >
@@ -312,11 +340,10 @@ export default function BulkActions({
               Selected links stay offline and unscheduled until the exact edits are approved.
             </div>
           </div>
-          <button type="button" onClick={cancel} className="btn btn-outline btn-sm">
+          <button type="button" onClick={cancel} autoFocus className="btn btn-outline btn-sm">
             Cancel
           </button>
           <button
-            autoFocus
             type="button"
             onClick={onConfirm}
             disabled={confirmationBlocked}

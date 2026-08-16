@@ -337,7 +337,7 @@ export default function SelectedPage() {
 
           {!loading && !failed && groups.length > 0 && (
             <>
-              <div className="flex flex-col gap-3" aria-label="Selected links list">
+              <div role="region" className="flex flex-col gap-3" aria-label="Selected links list">
                 {renderedGroups.map((group) => (
                   <SuggestionGroup
                     key={group.key}

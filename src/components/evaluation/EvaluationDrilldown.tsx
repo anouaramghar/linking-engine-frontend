@@ -76,7 +76,7 @@ export default function EvaluationDrilldown({
           </button>
         </div>
 
-        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
           {/* The same three panels the rest of the app uses for the same three
               states. This surface used to hand-roll all three, which is how a
               failure here ended up quieter than a failure anywhere else: it was

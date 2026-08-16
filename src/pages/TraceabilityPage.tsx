@@ -6,7 +6,7 @@ import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { usePageState } from "../hooks/usePageState";
 import { useSites } from "../hooks/useSites";
 import { useTraceEvents } from "../hooks/useTraceability";
-import { formatCount } from "../lib/utils";
+import { downloadBlob, formatCount } from "../lib/utils";
 
 const PAGE_SIZE = 50;
 
@@ -111,12 +111,7 @@ export default function TraceabilityPage() {
     setExporting(true);
     try {
       const blob = await getTraceEventsCsv(filters);
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = href;
-      anchor.download = "linkmesh-traceability.csv";
-      anchor.click();
-      URL.revokeObjectURL(href);
+      downloadBlob(blob, "linkmesh-traceability.csv");
     } finally {
       setExporting(false);
     }
@@ -140,7 +135,7 @@ export default function TraceabilityPage() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label className="text-caption text-muted">
               Trace ID
-              <input className="field mt-1" value={draft.traceId} onChange={(event) => setDraft({ ...draft, traceId: event.target.value })} placeholder="Paste a trace ID" />
+              <input className="field mt-1" value={draft.traceId} onChange={(event) => setDraft({ ...draft, traceId: event.target.value })} placeholder="Paste a trace ID…" />
             </label>
             <label className="text-caption text-muted">
               Actor

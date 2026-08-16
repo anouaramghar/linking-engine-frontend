@@ -1,7 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ContentPoolPage from "./ContentPoolPage";
+
+const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
 
 const mocks = vi.hoisted(() => ({
   sites: { data: [] as unknown[], isPending: false, isError: false, isFetching: false, refetch: vi.fn() },

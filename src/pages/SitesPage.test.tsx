@@ -1,11 +1,18 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
 
 const navigate = vi.hoisted(() => vi.fn());
 
-vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router-dom")>()),
+  useNavigate: () => navigate,
+}));
+
+const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
 
 const mocks = vi.hoisted(() => ({
   sites: {
@@ -306,10 +313,9 @@ describe("SitesPage load states", () => {
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
-    // `formatCount`, which pins the separator rather than leaving it to
-    // whatever locale the browser happens to be in.
+    // `formatCount`, which follows the operator's locale.
     expect(document.body.textContent).toContain("3,914");
-    expect(document.body.textContent).toContain("2 h ago");
+    expect(document.body.textContent).toContain("2 hours ago");
     expect(document.body.textContent).not.toContain("Soon");
   });
 });
@@ -631,8 +637,8 @@ describe("SitesPage row affordances", () => {
     mocks.sites.data = [CRAWLED_SITE];
     render(<SitesPage />);
 
-    // The tooltip is mouse-only, so the reason has to live in the accessible
-    // name as well — that is the copy this asserts on.
+    // The compact hint exposes the reason in its accessible name as well as
+    // the disclosure content — that is the copy this asserts on.
     const badge = screen.getByLabelText(/Crawl failed\./);
     expect(badge.getAttribute("title")).toContain(
       "403 from https://www.vibe.com/wp-json/wp/v2/posts",
@@ -646,25 +652,22 @@ describe("SitesPage row affordances", () => {
     ).toBe(true);
   });
 
-  it("closes the status explanation after five seconds", () => {
-    vi.useFakeTimers();
-    try {
-      mocks.sites.data = [CRAWLED_SITE];
-      render(<SitesPage />);
+  it("closes the status explanation on Escape and outside click", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
 
-      const summary = screen.getByLabelText("Why this status?");
-      const details = summary.parentElement as HTMLDetailsElement;
-      fireEvent.click(summary);
-      expect(details.open).toBe(true);
+    const summary = screen.getByLabelText("Why this status?");
+    const details = summary.parentElement as HTMLDetailsElement;
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
 
-      act(() => vi.advanceTimersByTime(4_999));
-      expect(details.open).toBe(true);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(details.open).toBe(false);
 
-      act(() => vi.advanceTimersByTime(1));
-      expect(details.open).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    fireEvent.pointerDown(document.body);
+    expect(details.open).toBe(false);
   });
 
   it("opens the live site in a new tab instead of asking for a copy and paste", () => {

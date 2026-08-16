@@ -53,11 +53,15 @@ export default function ConfirmDialog({
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             autoComplete="off"
+            spellCheck={false}
             className="field mt-2"
           />
         </div>
       )}
       <div className="mt-6 flex gap-2">
+        <button type="button" onClick={onCancel} autoFocus className="btn btn-outline">
+          Cancel
+        </button>
         <button
           type="button"
           onClick={onConfirm}
@@ -65,9 +69,6 @@ export default function ConfirmDialog({
           className={`btn flex-1 ${danger ? "btn-danger" : "btn-primary"}`}
         >
           {pending ? "Working…" : confirmLabel}
-        </button>
-        <button type="button" onClick={onCancel} className="btn btn-outline">
-          Cancel
         </button>
       </div>
     </Modal>

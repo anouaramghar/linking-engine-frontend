@@ -60,7 +60,7 @@ export default function SuggestionGroup({
               aria-hidden
               className="flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong bg-surface-card text-body-sm font-medium text-ink"
             >
-              {collapsed ? "+" : "-"}
+              {collapsed ? "+" : "−"}
             </span>
             <span className="min-w-0">
               <span id={headingId} className="block truncate text-body-md font-medium text-ink">

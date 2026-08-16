@@ -186,6 +186,24 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
+  it("shows final delivery rank separately from semantic similarity", () => {
+    render(
+      <SuggestionCard
+        suggestion={{ ...suggestion("pending"), score: 0.89, final_rank: 1 }}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Final rank #1")).not.toBeNull();
+    expect(screen.getByText("89%")).not.toBeNull();
+    expect(screen.getByText("Semantic match")).not.toBeNull();
+  });
+
   it("identifies a content-pool target as an external link", () => {
     const external = {
       ...suggestion("pending"),

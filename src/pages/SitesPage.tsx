@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
 import { ingestSite } from "../api/sites";
@@ -44,8 +44,8 @@ const GRID =
   "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
 
-const batchIdFromUrl = () => {
-  const value = Number(new URLSearchParams(window.location.search).get("batch"));
+const batchIdFromParams = (params: URLSearchParams) => {
+  const value = Number(params.get("batch"));
   return Number.isInteger(value) && value > 0 ? value : null;
 };
 
@@ -213,7 +213,19 @@ function SiteIdentity({ site }: { site: Site }) {
 
 export default function SitesPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = usePageState("sites.search", "");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get("q") ?? "";
+  const setSearch = (value: string) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value.trim() === "") next.delete("q");
+        else next.set("q", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const sitesQuery = useSites(search);
   const sites = useMemo(
     () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
@@ -276,18 +288,13 @@ export default function SitesPage() {
   );
   const selectVisibleRef = useRef<HTMLInputElement>(null);
   const selectVisibleMobileRef = useRef<HTMLInputElement>(null);
-  const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
+  const batchId = batchIdFromParams(searchParams);
   const [confirmCancelBatch, setConfirmCancelBatch] = useState(false);
   const createBatch = useCreatePipelineBatch();
   const batchQuery = usePipelineBatch(batchId);
   const retryPipelineSite = useRetryPipelineSite();
   const cancelBatch = useCancelPipelineBatch();
 
-  useEffect(() => {
-    const syncBatchFromUrl = () => setBatchId(batchIdFromUrl());
-    window.addEventListener("popstate", syncBatchFromUrl);
-    return () => window.removeEventListener("popstate", syncBatchFromUrl);
-  }, []);
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
@@ -365,10 +372,11 @@ export default function SitesPage() {
   };
 
   const showBatch = (nextBatchId: number) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("batch", String(nextBatchId));
-    window.history.pushState({}, "", url);
-    setBatchId(nextBatchId);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("batch", String(nextBatchId));
+      return next;
+    });
   };
 
   const launchBatch = async () => {
@@ -519,8 +527,9 @@ export default function SitesPage() {
             <span className="sr-only">Search sources</span>
             <input
               type="search"
+              name="q"
               className="field"
-              placeholder="Search name, URL or connector"
+              placeholder="Search name, URL or connector…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />

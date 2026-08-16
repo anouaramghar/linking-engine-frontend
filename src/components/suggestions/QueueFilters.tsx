@@ -48,6 +48,7 @@ export default function QueueFilters({
           <span className="sr-only">Search article titles</span>
           <input
             type="search"
+            name="q"
             value={search.draft}
             onChange={(event) => search.change(event.target.value)}
             onBlur={search.flush}

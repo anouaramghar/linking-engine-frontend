@@ -20,7 +20,7 @@ import HelpHint from "../components/HelpHint";
 import PageHeader from "../components/PageHeader";
 import { useEvaluationMetrics } from "../hooks/useEvaluation";
 import { useSites } from "../hooks/useSites";
-import { formatCount } from "../lib/utils";
+import { downloadBlob, formatCount } from "../lib/utils";
 
 type RangeKey = "7d" | "30d" | "90d" | "all";
 
@@ -133,7 +133,7 @@ function MetricCard({
           loading ? "animate-pulse text-muted" : ""
         }`}
       >
-        {loading ? "···" : value}
+        {loading ? "…" : value}
       </div>
       <div className="relative mt-2 text-caption leading-normal text-muted">{detail}</div>
       {comparison && (
@@ -213,7 +213,7 @@ function MethodComparison({ methods }: { methods: MethodMetrics[] }) {
                 <th className="px-4 py-3 text-right font-medium sm:pr-6">Avg. semantic score</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-hairline text-body-sm">
+            <tbody className="divide-y divide-hairline text-body-sm tabular-nums">
               {methods.map((method) => (
                 <tr key={method.method}>
                   <td className="px-4 py-4 font-medium text-ink sm:px-6">
@@ -264,7 +264,7 @@ function ScoreRangePerformance({ ranges }: { ranges: ScoreRangeMetrics[] }) {
               <th className="px-4 py-3 text-right font-medium sm:pr-6">Acceptance</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-hairline text-body-sm">
+          <tbody className="divide-y divide-hairline text-body-sm tabular-nums">
             {ranges.map((range) => (
               <tr key={range.label}>
                 <td className="px-4 py-4 font-medium text-ink sm:px-6">{range.label}</td>
@@ -304,7 +304,7 @@ function SitesBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
                 <th className="px-4 py-3 text-right font-medium sm:pr-6">Published</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-hairline text-body-sm">
+            <tbody className="divide-y divide-hairline text-body-sm tabular-nums">
               {metrics.sites.map((site) => (
                 <tr key={site.site_id}>
                   <td className="px-4 py-4 font-medium text-ink sm:px-6">{site.site_name}</td>
@@ -745,14 +745,7 @@ export default function EvaluationPage() {
     setExportError(false);
     try {
       const blob = await getEvaluationCsv(filters);
-      const href = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = `linkmesh-evaluation-${range}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(href);
+      downloadBlob(blob, `linkmesh-evaluation-${range}.csv`);
     } catch {
       setExportError(true);
     } finally {
@@ -826,7 +819,7 @@ export default function EvaluationPage() {
           <span>
             {query.data
               ? `Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(query.data.generated_at))}`
-              : "Loading the latest evaluation data"}
+              : "Loading the latest evaluation data…"}
           </span>
         </div>
 
@@ -842,8 +835,8 @@ export default function EvaluationPage() {
                   "Publishing success",
                 ][index]}
                 value="—"
-                detail="Loading live metrics"
-                definition="Loading metric definition"
+                detail="Loading live metrics…"
+                definition="Loading metric definition…"
                 orb={orb}
                 loading
               />

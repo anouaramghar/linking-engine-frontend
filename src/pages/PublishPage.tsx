@@ -23,7 +23,7 @@ import {
 } from "../hooks/usePublish";
 import { useReview } from "../hooks/useSuggestions";
 import { isConflict, isNotFound } from "../lib/errors";
-import { formatCount } from "../lib/utils";
+import { downloadBlob, formatCount } from "../lib/utils";
 
 const plural = (count: number, word: string) =>
   `${count} ${count === 1 ? word : `${word}s`}`;
@@ -71,9 +71,10 @@ function SiteIndex({
         <span className="sr-only">Search sites waiting for publication review</span>
         <input
           type="search"
+          name="q"
           value={search}
           onChange={(event) => onSearch(event.target.value)}
-          placeholder="Search waiting sites"
+          placeholder="Search waiting sites…"
           className="field w-full"
         />
       </label>
@@ -184,7 +185,18 @@ export default function PublishPage() {
   const params = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [siteSearch, setSiteSearch] = usePageState("publish.siteSearch", "");
+  const siteSearch = searchParams.get("q") ?? "";
+  const setSiteSearch = (value: string) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value.trim() === "") next.delete("q");
+        else next.set("q", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const deferredSiteSearch = useDeferredValue(siteSearch);
   const routeJobId = searchParams.get("job");
   const focusSuggestionValue = searchParams.get("suggestion");
@@ -259,14 +271,7 @@ export default function PublishPage() {
     setExportingSiteId(id);
     void exportPublicationCsv(id)
       .then((blob) => {
-        const href = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = href;
-        link.download = `linkmesh-site-${id}-publication.csv`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(href);
+        downloadBlob(blob, `linkmesh-site-${id}-publication.csv`);
         setNotice({ message: "The approved publication CSV was downloaded.", tone: "info" });
       })
       .catch(() => {

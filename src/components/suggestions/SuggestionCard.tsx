@@ -37,6 +37,7 @@ function SuggestionCard({
   showStatusBadge = true,
 }: Props) {
   const meta = STATUS_META[s.status];
+  const finalRank = s.final_rank ?? null;
 
   return (
     <li
@@ -53,7 +54,11 @@ function SuggestionCard({
         <button
           type="button"
           onClick={() => onOpen(s.id)}
-          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}`}
+          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}${
+            finalRank === null
+              ? `; semantic match ${pct(s.score)}`
+              : `; final rank #${finalRank}; semantic match ${pct(s.score)}`
+          }`}
           className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
         >
           <span className="min-w-0 flex-1">
@@ -77,8 +82,13 @@ function SuggestionCard({
               )}
             </span>
           </span>
-          <span className="flex w-[72px] flex-none flex-col items-end text-right sm:w-[104px]">
-            <span className="block text-body-md font-medium text-ink">{pct(s.score)}</span>
+          <span className="flex w-[96px] flex-none flex-col items-end text-right sm:w-[120px]">
+            {finalRank !== null && (
+              <span className="block text-caption-sm font-medium text-ink">
+                Final rank #{finalRank}
+              </span>
+            )}
+            <span className="block tabular-nums text-body-md font-medium text-ink">{pct(s.score)}</span>
             <span className="mb-1 mt-1 block h-[3px] w-full overflow-hidden rounded-pill bg-hairline">
               <span
                 className="block h-full rounded-pill bg-primary"
