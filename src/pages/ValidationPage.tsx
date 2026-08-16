@@ -305,8 +305,8 @@ export default function ValidationPage() {
   const filteredReview = useFilteredBulkReview();
   const filteredUndo = useFilteredBulkUndo();
 
-  // The suggestions query stays disabled until sites arrive, so it reports
-  // "pending" before it has any work to do — gate it on the sites we have.
+  // The queue queries run independently of the sites label query, so an empty
+  // or failed sites response must not hide their own loading/error state.
   const queueQueries = [
     suggestionsQuery,
     fleetCountsQuery,
@@ -317,7 +317,7 @@ export default function ValidationPage() {
   ];
   const loading =
     sitesQuery.isPending ||
-    (hasSites && suggestionsQuery.isPending);
+    suggestionsQuery.isPending;
   const failed = sitesQuery.isError || suggestionsQuery.isError;
   const bulkCountQueryFailed = [
     fleetCountsQuery,
@@ -335,7 +335,14 @@ export default function ValidationPage() {
   const fetching = queueQueries.some((query) => query.isFetching);
   const retry = () => {
     void sitesQuery.refetch();
-    if (hasSites) queueQueries.forEach((query) => void query.refetch());
+    void suggestionsQuery.refetch();
+    void fleetCountsQuery.refetch();
+    void scopedCountsQuery.refetch();
+    void pendingPublicationQuery.refetch();
+    if (bulkCountsWanted) {
+      void acceptCountsQuery.refetch();
+      void rejectCountsQuery.refetch();
+    }
   };
 
   // Overrides bridge the short refetch after a review. Resolution ignores any

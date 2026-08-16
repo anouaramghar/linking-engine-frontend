@@ -1115,6 +1115,18 @@ describe("ValidationPage load states", () => {
     expect(document.body.textContent).not.toContain("No suggestions match these filters");
   });
 
+  it("retries queue data even when the sites query has no data", async () => {
+    const user = userEvent.setup();
+    mocks.sitesQuery = query({ data: [] });
+    mocks.suggestionsQuery = query({ isError: true });
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(mocks.sitesQuery.refetch).toHaveBeenCalled();
+    expect(mocks.suggestionsQuery.refetch).toHaveBeenCalled();
+  });
+
   it("points a brand-new account at the Sites page", () => {
     mocks.suggestions.length = 0;
     mocks.sitesQuery = query({ data: [] });

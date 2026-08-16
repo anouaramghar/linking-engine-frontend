@@ -139,14 +139,12 @@ export default function SelectedPage() {
       ? "Selected count unavailable"
       : `${formatCount(selectedTotal)} selected ${selectedTotal === 1 ? "link" : "links"}`;
 
-  const loading = sitesQuery.isPending || (hasSites && suggestionsQuery.isPending);
+  const loading = sitesQuery.isPending || suggestionsQuery.isPending;
   const failed = sitesQuery.isError || suggestionsQuery.isError;
   const retry = () => {
     void sitesQuery.refetch();
-    if (hasSites) {
-      void suggestionsQuery.refetch();
-      void countsQuery.refetch();
-    }
+    void suggestionsQuery.refetch();
+    void countsQuery.refetch();
   };
 
   const showMore = () => {

@@ -21,12 +21,23 @@ const SECOND_SITE = { ...SITE, id: 2, name: "Second site" };
 const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
+  sitesRefetch: vi.fn(),
+  suggestionsRefetch: vi.fn(),
+  countsRefetch: vi.fn(),
+  sitesEmpty: false,
+  sitesError: false,
+  suggestionsError: false,
   lastFilters: {} as Record<string, unknown>,
   refreshing: false,
 }));
 
 vi.mock("../hooks/useSites", () => ({
-  useSites: () => ({ data: [SITE, SECOND_SITE], isPending: false, isError: false, refetch: vi.fn() }),
+  useSites: () => ({
+    data: mocks.sitesEmpty ? [] : [SITE, SECOND_SITE],
+    isPending: false,
+    isError: mocks.sitesError,
+    refetch: mocks.sitesRefetch,
+  }),
 }));
 
 vi.mock("../hooks/useSuggestions", () => ({
@@ -39,9 +50,10 @@ vi.mock("../hooks/useSuggestions", () => ({
           (filters.siteId === undefined || item.site_id === filters.siteId),
       ),
       isPending: false,
-      isError: false,
+      isError: mocks.suggestionsError,
       isFetching: false,
       isPlaceholderData: mocks.refreshing,
+      refetch: mocks.suggestionsRefetch,
       hasNextPage: false,
       fetchNextPage: vi.fn(),
       isFetchingNextPage: false,
@@ -58,7 +70,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       isError: false,
       isFetching: false,
       isPlaceholderData: mocks.refreshing,
-      refetch: vi.fn(),
+      refetch: mocks.countsRefetch,
     };
   },
   useReview: () => ({ mutate: mocks.reviewMutate, isPending: false }),
@@ -117,6 +129,12 @@ beforeEach(() => {
     suggestion(3, 2),
   );
   mocks.reviewMutate.mockReset();
+  mocks.sitesRefetch.mockReset();
+  mocks.suggestionsRefetch.mockReset();
+  mocks.countsRefetch.mockReset();
+  mocks.sitesEmpty = false;
+  mocks.sitesError = false;
+  mocks.suggestionsError = false;
   mocks.refreshing = false;
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
 });
@@ -154,6 +172,19 @@ describe("SelectedPage", () => {
         .getAllByRole("button", { name: /Review exact edit for suggestion/ })[0]
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("retries queue data even when the sites query has no data", async () => {
+    const user = userEvent.setup();
+    mocks.sitesEmpty = true;
+    mocks.suggestionsError = true;
+    renderSelected();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(mocks.sitesRefetch).toHaveBeenCalled();
+    expect(mocks.suggestionsRefetch).toHaveBeenCalled();
+    expect(mocks.countsRefetch).toHaveBeenCalled();
   });
 
   it("reviews one selected link in its site's protected workspace", async () => {
