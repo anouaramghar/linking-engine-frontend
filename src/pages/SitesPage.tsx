@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
@@ -13,13 +13,6 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import SelectionControl from "../components/SelectionControl";
-import AddSiteModal from "../components/sites/AddSiteModal";
-import ArticleImportModal from "../components/sites/ArticleImportModal";
-import BulkImportModal from "../components/sites/BulkImportModal";
-import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
-import EditorialRankingPolicyModal from "../components/sites/EditorialRankingPolicyModal";
-import ExternalLinkPolicyModal from "../components/sites/ExternalLinkPolicyModal";
-import SiteCredentialsModal from "../components/sites/SiteCredentialsModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
@@ -89,17 +82,31 @@ interface TrackedJob {
   jobId: string;
 }
 
+const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
+const ArticleImportModal = lazy(() => import("../components/sites/ArticleImportModal"));
+const BulkImportModal = lazy(() => import("../components/sites/BulkImportModal"));
+const BatchPipelinePanel = lazy(() => import("../components/sites/BatchPipelinePanel"));
+const EditorialRankingPolicyModal = lazy(
+  () => import("../components/sites/EditorialRankingPolicyModal"),
+);
+const ExternalLinkPolicyModal = lazy(
+  () => import("../components/sites/ExternalLinkPolicyModal"),
+);
+const SiteCredentialsModal = lazy(() => import("../components/sites/SiteCredentialsModal"));
+
+const activeJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
+
 function CurrentSiteStatus({
   site,
-  activeJobs,
-  trackedJobs,
+  activeJobsBySite,
+  trackedJobsBySite,
 }: {
   site: Site;
-  activeJobs: JobRun[];
-  trackedJobs: TrackedJob[];
+  activeJobsBySite: Map<number, JobRun>;
+  trackedJobsBySite: Map<number, TrackedJob>;
 }) {
   const siteId = site.id;
-  const active = activeJobs.find((job) => job.site_id === siteId);
+  const active = activeJobsBySite.get(siteId);
   if (active) {
     return (
       <JobStatusBadge
@@ -114,7 +121,7 @@ function CurrentSiteStatus({
     );
   }
 
-  const tracked = [...trackedJobs].reverse().find((job) => job.siteId === siteId);
+  const tracked = trackedJobsBySite.get(siteId);
   if (tracked) {
     return <JobStatusBadge jobId={tracked.jobId} kind={tracked.kind} />;
   }
@@ -217,10 +224,25 @@ export default function SitesPage() {
       ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
       : null;
   const activeJobsQuery = useActiveJobs();
-  const activeJobs = activeJobsQuery.data ?? [];
+  const activeJobs = useMemo(() => activeJobsQuery.data ?? [], [activeJobsQuery.data]);
   const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const activeJobsBySite = useMemo(() => {
+    const index = new Map<number, JobRun>();
+    for (const job of activeJobs) {
+      if (!index.has(job.site_id)) index.set(job.site_id, job);
+    }
+    return index;
+  }, [activeJobs]);
+  const activeJobsBySiteKind = useMemo(() => {
+    const index = new Map<string, JobRun>();
+    for (const job of activeJobs) {
+      const key = activeJobKey(job.site_id, job.kind);
+      if (!index.has(key)) index.set(key, job);
+    }
+    return index;
+  }, [activeJobs]);
   const hasActiveJob = (siteId: number, kind: JobKind) =>
-    activeJobs.some((job) => job.site_id === siteId && job.kind === kind);
+    activeJobsBySiteKind.has(activeJobKey(siteId, kind));
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -231,6 +253,13 @@ export default function SitesPage() {
   // colleague started, and the only way back to its progress was to start
   // another.
   const [jobs, setJobs] = usePageState<TrackedJob[]>("sites.jobs", []);
+  const trackedJobsBySite = useMemo(() => {
+    const index = new Map<number, TrackedJob>();
+    // Assignment order preserves the previous reverse().find behavior: the
+    // newest tracked entry for a site wins.
+    for (const job of jobs) index.set(job.siteId, job);
+    return index;
+  }, [jobs]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
@@ -546,16 +575,18 @@ export default function SitesPage() {
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
         {batchQuery.data && (
-          <BatchPipelinePanel
-            batch={batchQuery.data}
-            sites={sites ?? []}
-            retryingSiteId={
-              retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
-            }
-            onRetry={(siteId) => void retryBatchSite(siteId)}
-            cancelling={cancelBatch.isPending}
-            onCancel={() => setConfirmCancelBatch(true)}
-          />
+          <Suspense fallback={null}>
+            <BatchPipelinePanel
+              batch={batchQuery.data}
+              sites={sites ?? []}
+              retryingSiteId={
+                retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
+              }
+              onRetry={(siteId) => void retryBatchSite(siteId)}
+              cancelling={cancelBatch.isPending}
+              onCancel={() => setConfirmCancelBatch(true)}
+            />
+          </Suspense>
         )}
 
         {batchId !== null && batchQuery.isError && (
@@ -700,8 +731,8 @@ export default function SitesPage() {
               <div className="flex flex-wrap items-center gap-1.5">
                 <CurrentSiteStatus
                   site={site}
-                  activeJobs={activeJobs}
-                  trackedJobs={jobs}
+                  activeJobsBySite={activeJobsBySite}
+                  trackedJobsBySite={trackedJobsBySite}
                 />
                 {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
@@ -862,35 +893,37 @@ export default function SitesPage() {
           </div>
         )}
       </div>
-      {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
-      {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
-      {articleImportFor && (
-        <ArticleImportModal
-          site={articleImportFor}
-          onClose={() => setArticleImportFor(null)}
-        />
-      )}
-      {credentialsFor && (
-        <SiteCredentialsModal
-          site={credentialsFor}
-          onClose={() => setCredentialsFor(null)}
-          onDone={(message) => setNotice({ message, tone: "info" })}
-        />
-      )}
-      {policySite && (
-        <ExternalLinkPolicyModal
-          site={policySite}
-          onClose={() => setPolicySite(null)}
-          onSaved={(message) => setNotice({ message, tone: "info" })}
-        />
-      )}
-      {rankingPolicySite && (
-        <EditorialRankingPolicyModal
-          site={rankingPolicySite}
-          onClose={() => setRankingPolicySite(null)}
-          onSaved={(message) => setNotice({ message, tone: "info" })}
-        />
-      )}
+      <Suspense fallback={null}>
+        {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
+        {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+        {articleImportFor && (
+          <ArticleImportModal
+            site={articleImportFor}
+            onClose={() => setArticleImportFor(null)}
+          />
+        )}
+        {credentialsFor && (
+          <SiteCredentialsModal
+            site={credentialsFor}
+            onClose={() => setCredentialsFor(null)}
+            onDone={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+        {policySite && (
+          <ExternalLinkPolicyModal
+            site={policySite}
+            onClose={() => setPolicySite(null)}
+            onSaved={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+        {rankingPolicySite && (
+          <EditorialRankingPolicyModal
+            site={rankingPolicySite}
+            onClose={() => setRankingPolicySite(null)}
+            onSaved={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+      </Suspense>
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}

@@ -123,11 +123,13 @@ describe("ContentPoolPage", () => {
     expect(link.getAttribute("rel")).toBe("noreferrer");
   });
 
-  it("opens a creation form fixed to the content-pool connector", () => {
+  it("opens a creation form fixed to the content-pool connector", async () => {
     render(<ContentPoolPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Connect pool source" }));
-    expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source");
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source"),
+    );
     expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).value).toBe(
       "pool",
     );

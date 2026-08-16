@@ -256,17 +256,20 @@ export default function ValidationPage() {
     }),
     [scope, scoreWindow, effectiveStatus],
   );
-  const suggestionsQuery = useSuggestions(queueFilters, hasSites);
+  // These endpoints are tenant-scoped and return empty results for an empty
+  // fleet. Start them alongside the sites request so the site list cannot
+  // become a serial dependency for the queue.
+  const suggestionsQuery = useSuggestions(queueFilters);
   const sourceSuggestions = suggestionsQuery.items;
   const refreshingQueueData = Boolean(suggestionsQuery.isPlaceholderData);
-  const fleetCountsQuery = useSuggestionCounts({}, hasSites);
+  const fleetCountsQuery = useSuggestionCounts({});
   // The chips label the list, so they count inside the same window it shows —
   // otherwise "Pending review · 805" sits above a filtered queue of nine.
   const scopedFilters = useMemo(
     () => ({ ...scope, ...scoreWindow }),
     [scope, scoreWindow],
   );
-  const scopedCountsQuery = useSuggestionCounts(scopedFilters, hasSites);
+  const scopedCountsQuery = useSuggestionCounts(scopedFilters);
   // The two threshold counts label the bulk buttons, and a bulk rule only ever
   // matches pending rows — so on any other status chip they label a control
   // that is already disabled. Two aggregate queries per threshold and per site
@@ -283,7 +286,7 @@ export default function ValidationPage() {
   );
   // Read-only here. The queue owns the exact-edit review surface; this query
   // only tells it which selected site's work is ready to open.
-  const pendingPublicationQuery = usePendingPublication(hasSites);
+  const pendingPublicationQuery = usePendingPublication();
   // Only a *stale* answer pauses review: `isPlaceholderData` means these counts
   // still describe the previous filter, so acting on them would act on the
   // wrong rows. A background refetch is not that — reviewing a row invalidates
@@ -297,7 +300,7 @@ export default function ValidationPage() {
   ].some((query) => query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
   const review = useReview();
-  const exposure = useMarkSuggestionsExposed();
+  const { mutate: markExposed } = useMarkSuggestionsExposed();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
   const filteredUndo = useFilteredBulkUndo();
@@ -413,13 +416,13 @@ export default function ValidationPage() {
     const ids = visibleExposureIds.filter((id) => !exposedIds.current.has(id));
     if (ids.length === 0) return;
     ids.forEach((id) => exposedIds.current.add(id));
-    exposure.mutate(
+    markExposed(
       { ids, surface: "queue" },
       {
         onError: () => ids.forEach((id) => exposedIds.current.delete(id)),
       },
     );
-  }, [exposure, failed, loading, visibleExposureIds]);
+  }, [failed, loading, markExposed, visibleExposureIds]);
   const shown = visibleSuggestions.length;
 
   const hasMore =

@@ -563,6 +563,16 @@ describe("ValidationPage live review state", () => {
     expect(mocks.exposureMutate).toHaveBeenCalledTimes(1);
   });
 
+  it("does not retry the same exposure batch when recording it fails", async () => {
+    mocks.exposureMutate.mockImplementation((_variables, options) =>
+      options?.onError?.(new Error("exposure endpoint unavailable")),
+    );
+
+    renderQueue();
+
+    await waitFor(() => expect(mocks.exposureMutate).toHaveBeenCalledTimes(1));
+  });
+
   it("cancels a bulk action without sending or changing decisions", async () => {
     const user = userEvent.setup();
     renderQueue();

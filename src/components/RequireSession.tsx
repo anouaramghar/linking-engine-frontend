@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 
 import { useSession } from "../hooks/useSession";
 import LogoLoadingAnimation from "./LogoLoadingAnimation";
-import LoginPage from "../pages/LoginPage";
 import { ErrorPanel } from "./QueryState";
+
+const LoginPage = lazy(() => import("../pages/LoginPage"));
 
 /**
  * The dashboard's front door in the browser.
@@ -38,5 +39,17 @@ export default function RequireSession({ children }: { children: ReactNode }) {
     );
   }
 
-  return user ? <>{children}</> : <LoginPage />;
+  return user ? (
+    <>{children}</>
+  ) : (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[100dvh] items-center justify-center">
+          <LogoLoadingAnimation size="lg" label="Loading the sign-in screen" className="text-ink" />
+        </div>
+      }
+    >
+      <LoginPage />
+    </Suspense>
+  );
 }

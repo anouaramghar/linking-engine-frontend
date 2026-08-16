@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   PREPARE_MAX_ARTICLES,
@@ -11,7 +11,8 @@ import type { GraphSimulation } from "../../types/graph";
 import Highlighted from "../Highlighted";
 import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import SelectionControl from "../SelectionControl";
-import HtmlDiff from "./HtmlDiff";
+
+const HtmlDiff = lazy(() => import("./HtmlDiff"));
 
 interface Props {
   siteId: number;
@@ -77,13 +78,13 @@ const plural = (count: number, word: string) =>
  */
 const isWrite = (link: PlanLink) => link.outcome !== "already_present";
 
-/** Words for a change whose passage could not be located in the stored HTML. */
+/** Words for a change whose prepared passage cannot be shown. */
 const fallbackCopy = (link: PlanLink) => {
   if (link.outcome === "already_present") {
     return "The article already links here, so nothing is written for this one.";
   }
   if (link.outcome === "block") {
-    return `${link.target_url} is added to the read-also block at the end of the article.`;
+    return "An in-text placement was not available, so this link is added to the Read also block at the end of the article.";
   }
   return `A link to ${link.target_url} is added${
     link.anchor_text ? ` on "${link.anchor_text}"` : ""
@@ -115,13 +116,13 @@ function Stat({
 }
 
 /**
- * One link and the sentence it lands in.
+ * One link and the evidence for where it is written.
  *
- * The passage comes out of the stored `updated_html`, so what is read here is
- * the artifact the approval names, not a second rendering that could disagree
- * with it. For an in-text link the words do not change at all; only the markup
- * does, which is why this marks the anchor rather than showing two versions of
- * one identical sentence.
+ * `placement_context` is prepared evidence for in-text links. The exact HTML
+ * diff, loaded separately below, is authoritative for the final artifact. For
+ * an in-text link the words do not change at all; only the markup does, which
+ * is why this marks the anchor rather than showing two versions of one
+ * identical sentence. A Read also block has no in-text passage to highlight.
  *
  * The link is printed once. It used to appear in a summary list and again in
  * the change panel below it, so an article said everything twice.
@@ -142,7 +143,7 @@ function LinkRow({
   onRemove: () => void;
 }) {
   const passage = useMemo(() => {
-    if (link.outcome === "already_present" || !link.placement_context || !link.anchor_text) {
+    if (link.outcome !== "inserted" || !link.placement_context || !link.anchor_text) {
       return null;
     }
     return link.placement_context.includes(link.anchor_text)
@@ -163,8 +164,11 @@ function LinkRow({
             <span className="badge">{outcomeLabel[link.outcome]}</span>
             <span className="min-w-0 break-all text-caption text-body">{link.target_url}</span>
           </div>
-          {!open && writes && link.anchor_text && (
+          {!open && link.outcome === "inserted" && link.anchor_text && (
             <p className="mt-1.5 text-caption text-muted">on “{link.anchor_text}”</p>
+          )}
+          {!open && link.outcome === "block" && (
+            <p className="mt-1.5 text-caption text-muted">at end of article</p>
           )}
         </div>
         {/* One wrong link out of four used to cost a trip back to the queue and
@@ -187,9 +191,7 @@ function LinkRow({
             <Highlighted context={passage.text} anchor={passage.anchor} />
           </blockquote>
           <p className="mt-2 text-caption-sm leading-normal text-muted">
-            {link.outcome === "block"
-              ? "This entry is added at the end of the article."
-              : "The marked words become the link. The wording of the article does not change."}
+            The marked words become the link. The wording of the article does not change.
           </p>
         </>
       ) : open ? (
@@ -249,7 +251,17 @@ function ExactHtml({ siteId, planId }: { siteId: number; planId: number }) {
           The exact HTML could not be loaded. Close and open this section to retry.
         </div>
       )}
-      {html && <HtmlDiff original={html.original_html} updated={html.updated_html} />}
+      {html && (
+        <Suspense
+          fallback={
+            <div role="status" className="mt-3 text-caption text-muted">
+              Rendering exact HTML…
+            </div>
+          }
+        >
+          <HtmlDiff original={html.original_html} updated={html.updated_html} />
+        </Suspense>
+      )}
     </details>
   );
 }

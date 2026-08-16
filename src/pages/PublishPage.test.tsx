@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
   prepareHookError: false,
   sitesQuery: {} as Record<string, unknown>,
   pendingQuery: {} as Record<string, unknown>,
+  activeSiteQuery: {} as Record<string, unknown>,
 }));
 
 vi.mock("../api/publish", async (importOriginal) => {
@@ -111,6 +112,7 @@ vi.mock("../hooks/usePublish", () => ({
     isError: false,
     isFetching: false,
     refetch: vi.fn(),
+    ...mocks.activeSiteQuery,
   }),
   usePreparePublicationPlans: () => ({
     data: mocks.prepareHookData,
@@ -167,9 +169,11 @@ const preparedFor = (
   overrides: Record<string, unknown> = {},
   plans = [PLAN],
 ) => {
+  const selectedSuggestions =
+    typeof overrides.selected_suggestions === "number" ? overrides.selected_suggestions : 1;
   mocks.pendingPublication = [
     ...mocks.pendingPublication.filter((entry) => entry.site_id !== site),
-    { site_id: site, selected_suggestions: 1, approved_plans: 0 },
+    { site_id: site, selected_suggestions: selectedSuggestions, approved_plans: 0 },
   ];
   mocks.preparedData[site] = {
     site_id: site,
@@ -213,6 +217,7 @@ beforeEach(() => {
   mocks.prepareHookError = false;
   mocks.sitesQuery = {};
   mocks.pendingQuery = {};
+  mocks.activeSiteQuery = {};
   mocks.getPlanHtml.mockResolvedValue({
     id: PLAN.id,
     plan_hash: PLAN.plan_hash,
@@ -285,6 +290,7 @@ describe("PublishPage site list", () => {
     renderPublish("/publish/1");
 
     expect(mocks.prepareMutate).toHaveBeenCalledTimes(1);
+    await screen.findByText(PLAN.source_url);
     await user.click(screen.getByRole("link", { name: "All sites waiting" }));
     expect(document.body.textContent).toContain("Prepared");
 
@@ -293,7 +299,7 @@ describe("PublishPage site list", () => {
     // Reading the live articles a second time for a site already read is the
     // cost this cache exists to refuse.
     expect(mocks.prepareMutate).toHaveBeenCalledTimes(1);
-    expect(document.body.textContent).toContain(PLAN.source_url);
+    await screen.findByText(PLAN.source_url);
   });
 
   it("keeps the ticks of a site the operator walked away from", async () => {
@@ -303,14 +309,14 @@ describe("PublishPage site list", () => {
     renderPublish("/publish/1");
 
     await user.click(
-      screen.getByRole("checkbox", {
+      await screen.findByRole("checkbox", {
         name: `Include the edit to ${SECOND_PLAN.source_url} in approval`,
       }),
     );
     await user.click(screen.getByRole("link", { name: "All sites waiting" }));
     await user.click(screen.getAllByRole("link", { name: "Back to the edits" })[0]);
 
-    expect(document.body.textContent).toContain("1 of 2 selected");
+    await screen.findByText("1 of 2 selected");
   });
 
   it("prepares the next site after the previous site's job finished", async () => {
@@ -926,11 +932,34 @@ describe("PublishPage approval", () => {
     renderPublish();
     await user.click(screen.getByRole("button", { name: "Show the change" }));
 
-    // The passage is read back out of the stored HTML, so what is on screen is
-    // the artifact the approval names.
+    // The prepared passage gives the operator readable context; the exact HTML
+    // view below remains the authoritative artifact for approval.
     expect(document.body.textContent).toContain("solar panel costs");
     expect(screen.getByText("solar panel").tagName).toBe("MARK");
     expect(document.body.textContent).toContain(
+      "The marked words become the link. The wording of the article does not change.",
+    );
+  });
+
+  it("describes a Read also block as an end-of-article placement", async () => {
+    const user = userEvent.setup();
+    const blockPlan: PublicationPlan = {
+      ...PLAN,
+      links: [{ ...PLAN.links[0], outcome: "block" }],
+    };
+    preparedFor(1, {}, [blockPlan]);
+    renderPublish();
+
+    expect(document.body.textContent).toContain("at end of article");
+    expect(document.body.textContent).not.toContain('on “solar panel”');
+
+    await user.click(screen.getByRole("button", { name: "Show the change" }));
+
+    expect(document.querySelector("mark")).toBeNull();
+    expect(document.body.textContent).toContain(
+      "An in-text placement was not available, so this link is added to the Read also block at the end of the article.",
+    );
+    expect(document.body.textContent).not.toContain(
       "The marked words become the link. The wording of the article does not change.",
     );
   });
@@ -1008,7 +1037,7 @@ describe("PublishPage approval", () => {
 
   it("returns one link to the queue and prepares the article again", async () => {
     const user = userEvent.setup();
-    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    preparedFor(1, { selected_suggestions: 2 }, [PLAN, SECOND_PLAN]);
     renderPublish();
 
     mocks.prepareMutate.mockClear();
@@ -1027,6 +1056,44 @@ describe("PublishPage approval", () => {
     );
     expect(mocks.prepareMutate).toHaveBeenCalledWith(1, expect.anything());
     expect(document.body.textContent).toContain("went back to the review queue");
+  });
+
+  it("returns a focused link to the queue without preparing it again", async () => {
+    const user = userEvent.setup();
+    preparedFor(1);
+    renderPublish("/publish/1?suggestion=1");
+
+    mocks.prepareMutate.mockClear();
+    await user.click(
+      screen.getByRole("button", {
+        name: `Remove the link to ${PLAN.links[0].target_url} from ${PLAN.source_url} and return it to the queue`,
+      }),
+    );
+
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
+    expect(screen.getByText("Review queue")).not.toBeNull();
+  });
+
+  it("treats an empty site after removing its last batch link as success", async () => {
+    const user = userEvent.setup();
+    mocks.reviewMutate.mockImplementation((_variables, options) => {
+      mocks.pendingPublication = [];
+      mocks.activeSiteQuery = {
+        error: { response: { status: 404 } },
+        isError: true,
+      };
+      options?.onSuccess?.();
+    });
+    preparedFor(1);
+    renderPublish();
+
+    mocks.prepareMutate.mockClear();
+    await user.click(screen.getByRole("button", { name: /^Remove the link/ }));
+
+    expect(mocks.prepareMutate).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("went back to the review queue");
+    expect(document.body.textContent).toContain("This site has no links waiting for review");
+    expect(document.body.textContent).not.toContain("The review could not be loaded");
   });
 
   it("says a link is already publishing rather than removing it", async () => {

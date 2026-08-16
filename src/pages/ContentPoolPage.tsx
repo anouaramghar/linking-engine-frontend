@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 
 import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
@@ -9,8 +9,6 @@ import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
-import AddSiteModal from "../components/sites/AddSiteModal";
-import PoolAuditModal from "../components/sites/PoolAuditModal";
 import {
   useApprovePoolSource,
   useDeleteSite,
@@ -24,6 +22,9 @@ import { usePageState } from "../hooks/usePageState";
 import { errorDetail } from "../lib/errors";
 import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
+
+const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
+const PoolAuditModal = lazy(() => import("../components/sites/PoolAuditModal"));
 
 type PoolFilter = "all" | "approved" | "not_approved" | "quarantined";
 
@@ -395,15 +396,17 @@ export default function ContentPoolPage() {
         )}
       </div>
 
-      {showAdd && (
-        <AddSiteModal
-          title="Connect a pool source"
-          initialPlatform="pool"
-          lockPlatform
-          onClose={() => setShowAdd(false)}
-        />
-      )}
-      {auditSite && <PoolAuditModal site={auditSite} onClose={() => setAuditSite(null)} />}
+      <Suspense fallback={null}>
+        {showAdd && (
+          <AddSiteModal
+            title="Connect a pool source"
+            initialPlatform="pool"
+            lockPlatform
+            onClose={() => setShowAdd(false)}
+          />
+        )}
+        {auditSite && <PoolAuditModal site={auditSite} onClose={() => setAuditSite(null)} />}
+      </Suspense>
       {deleteSite && (
         <ConfirmDialog
           title={`Delete ${deleteSite.name}?`}

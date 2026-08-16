@@ -566,7 +566,7 @@ describe("SitesPage WordPress account", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
     fireEvent.click(screen.getByText("Add WordPress account"));
 
-    fireEvent.change(screen.getByLabelText("WordPress username"), {
+    fireEvent.change(await screen.findByLabelText("WordPress username"), {
       target: { value: "editor" },
     });
     fireEvent.change(screen.getByLabelText("Application password"), {
@@ -585,13 +585,13 @@ describe("SitesPage WordPress account", () => {
     );
   });
 
-  it("refuses half a credential without asking the engine", () => {
+  it("refuses half a credential without asking the engine", async () => {
     withCredentials(false);
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
     fireEvent.click(screen.getByText("Add WordPress account"));
 
-    fireEvent.change(screen.getByLabelText("WordPress username"), {
+    fireEvent.change(await screen.findByLabelText("WordPress username"), {
       target: { value: "editor" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
@@ -600,13 +600,13 @@ describe("SitesPage WordPress account", () => {
     expect(mocks.setCredentials.mutate).not.toHaveBeenCalled();
   });
 
-  it("asks before detaching an account, because it stops publication", () => {
+  it("asks before detaching an account, because it stops publication", async () => {
     withCredentials(true);
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
     fireEvent.click(screen.getByText("Replace WordPress account"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove this account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this account" }));
     expect(mocks.clearCredentials.mutate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove account" }));

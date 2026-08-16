@@ -70,8 +70,10 @@ export default function SelectedPage() {
     }),
     [hideReciprocal, q, siteFilter, targetOrigin],
   );
-  const suggestionsQuery = useSuggestions(scope, hasSites);
-  const countsQuery = useSuggestionCounts(scope, hasSites);
+  // Suggestions and counts are tenant-scoped and safely return empty results
+  // when there are no sites. They should not wait for the labels query above.
+  const suggestionsQuery = useSuggestions(scope);
+  const countsQuery = useSuggestionCounts(scope);
   const review = useReview();
   const sourceSuggestions = suggestionsQuery.items;
 

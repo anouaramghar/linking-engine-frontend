@@ -541,8 +541,7 @@ export default function App() {
   const { data: sites } = useSites();
   const ownedSites = sites?.filter((site) => site.platform !== "pool");
   const ownedSiteCount = ownedSites?.length ?? null;
-  const hasSites = Boolean(ownedSites?.length);
-  const { data: counts } = useSuggestionCounts({}, hasSites);
+  const { data: counts } = useSuggestionCounts({});
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.

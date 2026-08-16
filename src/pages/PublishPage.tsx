@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
@@ -12,7 +12,6 @@ import PageHeader from "../components/PageHeader";
 import QueueLink from "../components/QueueLink";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import FlowSteps from "../components/publish/FlowSteps";
-import PublicationReview from "../components/publish/PublicationReview";
 import { usePageState } from "../hooks/usePageState";
 import { useGraphSimulation } from "../hooks/useGraph";
 import {
@@ -23,13 +22,14 @@ import {
   useQueueApprovedPlans,
 } from "../hooks/usePublish";
 import { useReview } from "../hooks/useSuggestions";
-import { isConflict } from "../lib/errors";
+import { isConflict, isNotFound } from "../lib/errors";
 import { formatCount } from "../lib/utils";
 
 const plural = (count: number, word: string) =>
   `${count} ${count === 1 ? word : `${word}s`}`;
 
 const NO_TICKS: Set<number> = new Set();
+const PublicationReview = lazy(() => import("../components/publish/PublicationReview"));
 
 /**
  * Sites holding selected links, newest work first is not a thing here: the list
@@ -287,21 +287,26 @@ export default function PublishPage() {
   const reviewable = pendingSites.filter(
     (site) => site.selectedSuggestions > 0 || site.approvedPlans > 0,
   );
+  /** Removing the last item makes the site endpoint intentionally return 404. */
+  const activeSiteGone =
+    siteId !== null && activeSiteQuery.isError && isNotFound(activeSiteQuery.error);
   const activeSite =
     siteId === null
       ? null
-      : reviewable.find((site) => site.id === siteId) ??
-        (activeSiteQuery.data
-          ? {
-              id: activeSiteQuery.data.site_id,
-              name: activeSiteQuery.data.site_name ?? `site ${activeSiteQuery.data.site_id}`,
-              selectedSuggestions: activeSiteQuery.data.selected_suggestions,
-              approvedPlans: activeSiteQuery.data.approved_plans,
-              canPublish: activeSiteQuery.data.can_publish !== false,
-              canExport: activeSiteQuery.data.can_export === true,
-              platform: activeSiteQuery.data.platform ?? "wordpress",
-            }
-          : null);
+      : activeSiteGone
+        ? null
+        : reviewable.find((site) => site.id === siteId) ??
+          (activeSiteQuery.data
+            ? {
+                id: activeSiteQuery.data.site_id,
+                name: activeSiteQuery.data.site_name ?? `site ${activeSiteQuery.data.site_id}`,
+                selectedSuggestions: activeSiteQuery.data.selected_suggestions,
+                approvedPlans: activeSiteQuery.data.approved_plans,
+                canPublish: activeSiteQuery.data.can_publish !== false,
+                canExport: activeSiteQuery.data.can_export === true,
+                platform: activeSiteQuery.data.platform ?? "wordpress",
+              }
+            : null);
   const canPrepare = Boolean(activeSite?.canPublish || activeSite?.canExport);
 
   const runPrepare = (id: number) => {
@@ -449,13 +454,14 @@ export default function PublishPage() {
   /**
    * Send one link back to the queue.
    *
-   * A plan's hash covers the whole article, so a link cannot be dropped from an
-   * approval on its own: the suggestion returns to pending and the article is
-   * rendered again without it. That costs a second preparation, which is still
-   * cheaper than the trip to the queue and back that this replaces.
+   * A focused review no longer has a valid scope after its link is removed, so
+   * it returns to the queue instead of preparing that same link again. A batch
+   * review keeps going only when other selected links remain.
    */
   const removeLink = (suggestionId: number) => {
     if (siteId === null || busy || removing !== null) return;
+    const focusedReview = focusSuggestionId !== null;
+    const remainingSelected = Math.max(0, (activeSite?.selectedSuggestions ?? 1) - 1);
     setNotice(null);
     setRemoving(suggestionId);
     review.mutate(
@@ -463,15 +469,21 @@ export default function PublishPage() {
       {
         onSuccess: () => {
           setRemoving(null);
-          setNotice({
-            message:
-              "That link went back to the review queue. The remaining edits are being prepared again.",
-            tone: "info",
-          });
           forget(batchKey);
           preparePlans.reset();
           graphSimulation.reset();
-          runPrepare(siteId);
+          if (focusedReview) {
+            navigate("/queue");
+            return;
+          }
+          setNotice({
+            message:
+              remainingSelected > 0
+                ? "That link went back to the review queue. The remaining edits are being prepared again."
+                : "That link went back to the review queue. No other edits are waiting for this site.",
+            tone: "info",
+          });
+          if (remainingSelected > 0) runPrepare(siteId);
         },
         onError: (error) => {
           setRemoving(null);
@@ -691,7 +703,7 @@ export default function PublishPage() {
     (siteId !== null && activeSiteQuery.isPending);
   const failed =
     (siteId === null && pendingQuery.isError) ||
-    (siteId !== null && activeSiteQuery.isError);
+    (siteId !== null && activeSiteQuery.isError && !activeSiteGone);
   const selectedTotal =
     pendingQuery.totalSelectedSuggestions ??
     reviewable.reduce((total, site) => total + site.selectedSuggestions, 0);
@@ -878,43 +890,45 @@ export default function PublishPage() {
           canPrepare &&
           inReview &&
           !htmlApproved && (
-          <PublicationReview
-            siteId={activeSite.id}
-            siteName={activeSite.name}
-            data={reviewData}
-            focus={
-              focused
-                ? { suggestionId: focused.suggestionId, onShowAll: showAllPlans }
-                : null
-            }
-            focusMissing={focus !== null && focused === null}
-            loading={
-              preparation === undefined &&
-              (preparing === siteId || preparePlans.isPending)
-            }
-            progress={preparePlans.progress}
-            error={
-              (preparePlans.isError || prepareFailed === siteId) &&
-              preparation === undefined
-            }
-            busy={busy || removing !== null}
-            approvedNotQueued={notQueued !== null && !showDurableRecovery}
-            selectedIds={selectedIds}
-            onToggle={toggleTick}
-            onToggleAll={toggleAllTicks}
-            removingSuggestionId={removing}
-            onRemoveLink={removeLink}
-            onRetry={reload}
-            onApproveAndQueue={approveAndQueue}
-            onQueueOnly={() => queueApproved(notQueued?.planIds)}
-            readOnlyExport={activeSite?.platform === "html"}
-            simulation={graphSimulation.data}
-            simulationLoading={graphSimulation.isPending}
-            simulationError={graphSimulation.isError}
-            onSimulate={(suggestionIds) =>
-              graphSimulation.mutate({ siteId: activeSite.id, suggestionIds })
-            }
-          />
+          <Suspense fallback={<SkeletonRows count={3} label="Loading the exact review" />}>
+            <PublicationReview
+              siteId={activeSite.id}
+              siteName={activeSite.name}
+              data={reviewData}
+              focus={
+                focused
+                  ? { suggestionId: focused.suggestionId, onShowAll: showAllPlans }
+                  : null
+              }
+              focusMissing={focus !== null && focused === null}
+              loading={
+                preparation === undefined &&
+                (preparing === siteId || preparePlans.isPending)
+              }
+              progress={preparePlans.progress}
+              error={
+                (preparePlans.isError || prepareFailed === siteId) &&
+                preparation === undefined
+              }
+              busy={busy || removing !== null}
+              approvedNotQueued={notQueued !== null && !showDurableRecovery}
+              selectedIds={selectedIds}
+              onToggle={toggleTick}
+              onToggleAll={toggleAllTicks}
+              removingSuggestionId={removing}
+              onRemoveLink={removeLink}
+              onRetry={reload}
+              onApproveAndQueue={approveAndQueue}
+              onQueueOnly={() => queueApproved(notQueued?.planIds)}
+              readOnlyExport={activeSite?.platform === "html"}
+              simulation={graphSimulation.data}
+              simulationLoading={graphSimulation.isPending}
+              simulationError={graphSimulation.isError}
+              onSimulate={(suggestionIds) =>
+                graphSimulation.mutate({ siteId: activeSite.id, suggestionIds })
+              }
+            />
+          </Suspense>
         )}
       </div>
     </>
