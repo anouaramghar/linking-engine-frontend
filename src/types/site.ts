@@ -171,3 +171,10 @@ export interface ArticleImportResult {
   rejected: ArticleImportFailure[];
   diagnostic_summary: Record<string, number>;
 }
+
+export interface PoolSourceValidationResult {
+  base_url: string | null;
+  valid: boolean;
+  source_type: "wikipedia" | "rss_atom" | null;
+  reason: string | null;
+}

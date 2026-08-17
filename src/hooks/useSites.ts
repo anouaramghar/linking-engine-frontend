@@ -14,6 +14,7 @@ import {
   getEditorialRankingPolicy,
   getExternalLinkPolicy,
   importArticleRows,
+  ingestPoolSourceBatch,
   listPoolAuditEvents,
   listExternalSourceEvaluations,
   POOL_AUDIT_PAGE_SIZE,
@@ -24,6 +25,7 @@ import {
   revokePoolSource,
   updateExternalLinkPolicy,
   updateEditorialRankingPolicy,
+  validatePoolSources,
 } from "../api/sites";
 import type {
   ArticleImportRow,
@@ -147,6 +149,23 @@ export const usePoolAuditEvents = (siteId: number | null) => {
     ...query,
     events: query.data?.pages.flatMap((page) => page) ?? [],
   };
+};
+
+export const useValidatePoolSources = () =>
+  useMutation({
+    mutationFn: validatePoolSources,
+  });
+
+export const usePoolIngestionBatch = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ingestPoolSourceBatch,
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
+        qc.invalidateQueries({ queryKey: ["sites"] }),
+      ]),
+  });
 };
 
 export const useExternalLinkPolicy = (siteId: number | null) =>

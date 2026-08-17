@@ -29,4 +29,10 @@ export default tseslint.config(
     files: ["**/*.test.{ts,tsx}"],
     languageOptions: { globals: globals.node },
   },
+  {
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
+    },
+  },
 );
