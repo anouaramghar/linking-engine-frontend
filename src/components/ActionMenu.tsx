@@ -28,7 +28,15 @@ const MARGIN = 8;
  * fixed elements, so `fixed` escapes that clip while the menu stays put in the
  * DOM — which is what keeps Tab leaving it in the right place.
  */
-export default function ActionMenu({ label, items }: { label: string; items: MenuItem[] }) {
+export default function ActionMenu({
+  label,
+  ariaLabel = label,
+  items,
+}: {
+  label: string;
+  ariaLabel?: string;
+  items: MenuItem[];
+}) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -67,8 +75,12 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
       below + box.height + MARGIN > window.innerHeight &&
       anchor.top - box.height - GAP > MARGIN;
 
+    const clampedBelow = Math.min(
+      below,
+      Math.max(MARGIN, window.innerHeight - box.height - MARGIN),
+    );
     setPosition({
-      top: flip ? anchor.top - box.height - GAP : below,
+      top: flip ? anchor.top - box.height - GAP : clampedBelow,
       // Right-aligned to the trigger, then held inside the window.
       left: Math.max(
         MARGIN,
@@ -98,8 +110,17 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
       if (event.key === "Escape") close();
     };
     // A fixed pop-out cannot follow its trigger, so scrolling dismisses it
-    // rather than leaving it stranded over unrelated rows.
-    const onViewportChange = () => close(false);
+    // rather than leaving it stranded over unrelated rows. Scrolling the menu's
+    // own overflow is not that and must not close it.
+    //
+    // Focus goes back to the trigger only when it is inside the menu that is
+    // about to unmount — otherwise it would fall to the body. Dragging it back
+    // unconditionally would scroll a mouse user's viewport to the trigger,
+    // undoing the scroll that dismissed the menu in the first place.
+    const onViewportChange = (event: Event) => {
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      close(menu.current?.contains(document.activeElement) ?? false);
+    };
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -142,6 +163,7 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
       <button
         ref={trigger}
         type="button"
+        aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -166,13 +188,13 @@ export default function ActionMenu({ label, items }: { label: string; items: Men
           ref={menu}
           id={menuId}
           role="menu"
-          aria-label={label}
+          aria-label={ariaLabel}
           onKeyDown={onMenuKeyDown}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) close(false);
           }}
           style={{ top: position?.top ?? -9999, left: position?.left ?? -9999 }}
-          className="card fixed z-40 w-48 py-2 shadow-lift"
+          className="card fixed z-40 max-h-[calc(100dvh-1rem)] w-48 max-w-[calc(100vw-1rem)] overflow-y-auto py-2 shadow-lift"
         >
           {items.map((item) => (
             <button

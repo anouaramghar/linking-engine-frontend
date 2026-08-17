@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 
@@ -12,12 +13,27 @@ vi.mock("./hooks/useSuggestions", () => ({
   useSuggestionCounts: () => ({ data: { pending: 3 } }),
 }));
 
+vi.mock("./hooks/usePublish", () => ({
+  usePendingPublication: () => ({
+    data: [],
+  }),
+}));
+
 vi.mock("./hooks/useHealth", () => ({
   useHealth: () => ({ isError: false, isPending: false }),
 }));
 
+vi.mock("./hooks/useSession", () => ({
+  useSession: () => ({ data: { id: 1, telegram_id: 42, username: "amir", display_name: null } }),
+  useLogout: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock("./pages/ValidationPage", () => ({
   default: () => <div>Queue page</div>,
+}));
+
+vi.mock("./pages/PublishPage", () => ({
+  default: () => <div>Publish page</div>,
 }));
 
 vi.mock("./pages/SitesPage", () => ({
@@ -28,15 +44,41 @@ vi.mock("./pages/EvaluationPage", () => ({
   default: () => <div>Evaluation page</div>,
 }));
 
+vi.mock("./pages/ContentPoolPage", () => ({
+  default: () => <div>Content pool page</div>,
+}));
+
+/**
+ * This jsdom build ships no `localStorage`, which is why `useRail` and
+ * `useTheme` both reach for it optionally and inside a `catch`. Without a stub
+ * the rail would simply never persist here and the test below would pass by
+ * doing nothing, so the storage is real enough to fail if the hook stops
+ * writing to it.
+ */
+const store = new Map<string, string>();
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, String(value)),
+    removeItem: (key: string) => void store.delete(key),
+    clear: () => store.clear(),
+  },
+});
+
 afterEach(cleanup);
+beforeEach(() => store.clear());
+
+const shell = (path = "/queue") =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <App />
+    </MemoryRouter>,
+  );
 
 describe("App shell", () => {
-  it("offers complete mobile and desktop navigation without hiding a route", () => {
-    render(
-      <MemoryRouter initialEntries={["/queue"]}>
-        <App />
-      </MemoryRouter>,
-    );
+  it("keeps the review workflow in the queue while exposing the other destinations", () => {
+    shell();
 
     const mobile = screen.getByRole("navigation", { name: "Mobile navigation" });
     const desktop = screen.getByRole("navigation", { name: "Primary navigation" });
@@ -44,16 +86,14 @@ describe("App shell", () => {
     for (const nav of [mobile, desktop]) {
       expect(nav.querySelector('a[href="/queue"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/sites"]')).not.toBeNull();
+      expect(nav.querySelector('a[href="/content-pool"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/evaluation"]')).not.toBeNull();
+      expect(nav.querySelector('a[href="/access"]')).not.toBeNull();
     }
   });
 
   it("announces engine health in whichever shell is visible", () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>,
-    );
+    shell("/");
 
     const statuses = screen.getAllByRole("status");
     expect(statuses).toHaveLength(2);
@@ -61,5 +101,71 @@ describe("App shell", () => {
       expect(status.getAttribute("aria-live")).toBe("polite");
       expect(status.textContent).toContain("Engine ready");
     }
+  });
+});
+
+describe("Rail collapse", () => {
+  const rail = () => screen.getByRole("navigation", { name: "Primary navigation" });
+
+  it("keeps every destination named once the labels are hidden", async () => {
+    const user = userEvent.setup();
+    shell();
+
+    // Expanded, the label is the visible text. Collapsed, it is an `sr-only`
+    // span and a tooltip — and only the first of those is a name. A rail that
+    // reads as four unlabelled links to a screen reader is not collapsed, it is
+    // broken, so this asserts the names survive the transition rather than
+    // asserting which element carries them.
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    // Scoped to the rail: jsdom applies no stylesheet, so the mobile row is in
+    // the document too and "Sites" would match in both shells.
+    for (const name of [
+      "Review queue",
+      "Sites",
+      "Content Pool",
+      "Evaluation",
+      "Traceability",
+      "Access",
+    ]) {
+      expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
+    }
+    expect(rail().querySelectorAll("a")).toHaveLength(6);
+  });
+
+  it("carries each count when the badge cannot show it", async () => {
+    const user = userEvent.setup();
+    shell();
+
+    // The collapsed rail draws an indicator dot, not "3" — the number has to
+    // reach assistive tech some other way or it is simply gone.
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    const queue = rail().querySelector('a[href="/queue"]');
+    expect(queue?.textContent).toContain("3 pending");
+    expect(rail().querySelector('a[href="/publish"]')).toBeNull();
+  });
+
+  it("remembers the choice, because it is a workspace preference", async () => {
+    const user = userEvent.setup();
+    const first = shell();
+
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
+
+    first.unmount();
+    shell();
+
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
+  });
+
+  it("offers one theme control per shell, never two for one preference", () => {
+    shell();
+
+    // One in the rail, one in the mobile header — the two never appear at the
+    // same breakpoint. A third used to ride along in `PageHeader`, wired to a
+    // context no provider mounted, so it showed the wrong value and changed
+    // nothing.
+    expect(screen.getAllByRole("group", { name: "Colour theme" })).toHaveLength(2);
   });
 });

@@ -43,7 +43,11 @@ export const useFocusTrap = (
 
     return () => {
       document.body.style.overflow = overflow;
-      previouslyFocused?.focus?.();
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      } else {
+        document.getElementById("main")?.focus();
+      }
     };
   }, [active, panel]);
 

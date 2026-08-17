@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useBulkReview,
   useFilteredBulkReview,
+  useReview,
   useSuggestions,
 } from "./useSuggestions";
 
@@ -57,6 +58,26 @@ describe("useSuggestions", () => {
 });
 
 describe("queue mutations", () => {
+  it("does not refetch every loaded queue page after one decision", async () => {
+    const { result } = renderHook(() => useReview());
+    const mutation = result.current as unknown as {
+      onSuccess: () => Promise<unknown>;
+    };
+
+    await mutation.onSuccess();
+
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["suggestions", "queue"],
+      refetchType: "none",
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["suggestions", "counts"],
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["publish", "pending"],
+    });
+  });
+
   it.each([
     ["explicit", useBulkReview],
     ["filtered", useFilteredBulkReview],

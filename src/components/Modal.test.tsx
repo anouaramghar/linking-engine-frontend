@@ -26,6 +26,24 @@ describe("Modal", () => {
     expect(screen.getByRole("heading", { name: "Connect a site" })).not.toBeNull();
   });
 
+  it("can announce a destructive confirmation as an alert dialog", () => {
+    render(
+      <Modal
+        title="Reject selected suggestions?"
+        ariaLabel="Confirm selected suggestions"
+        role="alertdialog"
+        onClose={vi.fn()}
+      >
+        <button type="button">Confirm</button>
+      </Modal>,
+    );
+
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Confirm selected suggestions",
+    });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+  });
+
   it("moves focus in on open and restores it on close", async () => {
     const opener = document.createElement("button");
     document.body.append(opener);
@@ -71,5 +89,18 @@ describe("Modal", () => {
 
     fireEvent.mouseDown(backdrop);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("can protect a review from accidental backdrop dismissal", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Review exact edits" onClose={onClose} dismissOnBackdrop={false}>
+        <button type="button">Approve</button>
+      </Modal>,
+    );
+
+    fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

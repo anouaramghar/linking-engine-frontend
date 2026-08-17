@@ -15,6 +15,7 @@ import {
   bulkReview,
   bulkReviewByFilter,
   countSuggestions,
+  getSuggestionEvents,
   listSuggestionPage,
   reviewSuggestion,
 } from "./suggestions";
@@ -42,6 +43,16 @@ const EVERY_FILTER = {
 } as const;
 
 describe("mixed-method queue reads", () => {
+  it("loads lifecycle history only for the requested suggestion", async () => {
+    api.get.mockResolvedValue({ data: [] });
+
+    await getSuggestionEvents(17);
+
+    expect(api.get).toHaveBeenCalledWith("/suggestions/17/events", {
+      params: { limit: 50 },
+    });
+  });
+
   it("asks the list endpoint for every method", async () => {
     api.get.mockResolvedValue({
       data: { items: [], total: 0, limit: 1000, next_cursor: null },

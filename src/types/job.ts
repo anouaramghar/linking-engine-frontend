@@ -1,4 +1,8 @@
-export type JobKind = "ingestion" | "analysis" | "publication";
+export type JobKind =
+  | "ingestion"
+  | "analysis"
+  | "publication_preparation"
+  | "publication";
 
 export type JobStatusValue =
   | "queued"
@@ -39,6 +43,7 @@ export interface JobRun {
   kind: JobKind;
   status: JobStatusValue;
   queue_job_id: string | null;
+  requested_by?: string | null;
   attempts: number;
   result: Record<string, unknown> | null;
   progress: JobProgress | null;

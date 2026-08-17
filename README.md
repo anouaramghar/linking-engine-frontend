@@ -5,6 +5,33 @@ internal-link suggestions, starting crawl and publish jobs, and monitoring their
 progress. Browser requests stay on the same origin and are proxied to the LinkMesh
 backend in both development and production.
 
+## Trust boundary
+
+The browser never holds the backend API key. Vite (development) and nginx
+(production) inject `LINKMESH_API_KEY` only on the server side of the `/api`
+proxy. Anyone who can reach that proxy therefore inherits full backend
+authority for the key it holds.
+
+Mitigations in this repo:
+
+- Dev server and the documented Docker publish bind to **loopback only**.
+- Unsafe `/api` methods require the custom header `X-LinkMesh-Client: dashboard`
+  (sent by the SPA). Bare HTML form CSRF cannot set it.
+- nginx accepts only allowlisted `Host` values (`localhost`, `127.0.0.1`, plus
+  optional `LINKMESH_SERVER_NAMES`). Unknown hosts are dropped.
+- Browser security headers (`X-Frame-Options`, `nosniff`, `Referrer-Policy`, …).
+- A restrictive Content Security Policy limits scripts, connections, images, fonts, and
+  framing to the dashboard's expected same-origin resources.
+- Telegram identifies each operator. First contact creates a pending request; another
+  approved operator must approve it before Telegram issues a one-time login code.
+- nginx verifies the resulting session before it injects the shared backend key.
+
+Telegram login is a second layer, not permission to expose the service publicly. Keep the
+deployment behind its IP-restricted firewall and put a TLS terminator in front of the
+container before any non-loopback exposure; WordPress application passwords travel
+through this path. Approved dashboard operators intentionally have full internal access;
+there are no per-person roles or site scopes.
+
 ## Requirements
 
 - Node.js 22 and npm
@@ -22,7 +49,8 @@ npm.cmd ci
 npm.cmd run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite forwards `/api` requests to `BACKEND_URL`.
+Open <http://127.0.0.1:5173>. Vite listens on loopback only and forwards `/api`
+requests to `BACKEND_URL`.
 
 Edit `.env` for your local backend:
 
@@ -55,16 +83,32 @@ Build the nginx image:
 docker build -t linkmesh-dashboard:local .
 ```
 
-Run it against a backend on the Windows host:
+Run it against a backend on the Windows host. Publish **only on loopback**
+unless an authenticating TLS edge already protects the port:
 
 ```powershell
-docker run --rm --name linkmesh-dashboard -p 8080:80 `
+docker run --rm --name linkmesh-dashboard -p 127.0.0.1:8080:80 `
   -e BACKEND_URL=http://host.docker.internal:8000 `
   -e LINKMESH_API_KEY=replace-with-your-api-key `
   linkmesh-dashboard:local
 ```
 
 Then open <http://127.0.0.1:8080>.
+
+For a named host behind a TLS terminator, pass the public hostname so Host
+allowlisting accepts it:
+
+```powershell
+docker run --rm --name linkmesh-dashboard -p 127.0.0.1:8080:80 `
+  -e BACKEND_URL=http://host.docker.internal:8000 `
+  -e LINKMESH_API_KEY=replace-with-your-api-key `
+  -e LINKMESH_SERVER_NAMES=dashboard.example.com `
+  linkmesh-dashboard:local
+```
+
+Terminate TLS on the reverse proxy in front of this container (HTTPS to
+browsers). Do not treat plain `http://` on a routable interface as a supported
+production path when operators enter WordPress credentials.
 
 For a Compose deployment, set `BACKEND_URL` to the backend service name, such as
 `http://api:8000`. The container deliberately exits before nginx starts when
@@ -78,5 +122,6 @@ variable or an unauthenticated proxy from presenting as a backend outage.
 | `VITE_API_BASE_URL` | Browser build | `/api` | Same-origin base path for API requests |
 | `BACKEND_URL` | Vite and nginx proxies | `http://127.0.0.1:8000` in development; `http://api:8000` in the image | Backend origin |
 | `LINKMESH_API_KEY` | Vite and nginx proxies | None | Server-side `X-API-Key` header; required by the production image |
+| `LINKMESH_SERVER_NAMES` | nginx | empty | Extra space-separated Host names accepted besides localhost / 127.0.0.1 |
 
 Do not commit `.env`; only `.env.example` belongs in Git.

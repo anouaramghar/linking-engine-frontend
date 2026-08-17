@@ -5,13 +5,18 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import {
   bulkReview,
   bulkReviewByFilter,
   countSuggestions,
+  getPlacement,
+  getSuggestionEvents,
+  listAllSuggestionIds,
   listSuggestionPage,
   reviewSuggestion,
+  undoFilteredBulkReview,
 } from "../api/suggestions";
 import type {
   SuggestionCursor,
@@ -31,10 +36,14 @@ export const useSuggestions = (
     placeholderData: keepPreviousData,
     enabled,
   });
+  const items = useMemo(
+    () => query.data?.pages.flatMap((page) => page.items) ?? [],
+    [query.data],
+  );
 
   return {
     ...query,
-    items: query.data?.pages.flatMap((page) => page.items) ?? [],
+    items,
   };
 };
 
@@ -54,17 +63,70 @@ export const useSuggestionCounts = (
     enabled,
   });
 
+/**
+ * The placement for the open suggestion, fetched only while one is open.
+ *
+ * Deliberately outside the `["suggestions"]` key namespace: reviewing a row
+ * invalidates that whole tree, and a placement is unaffected by a decision —
+ * sharing the prefix would throw away a generated answer and pay to regenerate
+ * it every time the editor approved something.
+ *
+ * Never stale, because it is not: the engine stores the answer on the row, so a
+ * refetch can only return what is already in the cache.
+ */
+const PLACEMENT_CACHE_MS = 15 * 60 * 1000;
+
+export const usePlacement = (suggestionId: number | null) =>
+  useQuery({
+    queryKey: ["placement", suggestionId],
+    queryFn: () => getPlacement(suggestionId as number),
+    enabled: suggestionId !== null,
+    staleTime: Infinity,
+    gcTime: PLACEMENT_CACHE_MS,
+    // A failed generation is worth one automatic retry — but not the default
+    // three, which would keep an editor waiting through three model timeouts
+    // before the card admits anything is wrong. Beyond that it is their call.
+    retry: 1,
+  });
+
+/** Lazy audit history for the one suggestion whose detail drawer is open. */
+export const useSuggestionEvents = (suggestionId: number | null) =>
+  useQuery({
+    queryKey: ["suggestion-events", suggestionId],
+    queryFn: () => getSuggestionEvents(suggestionId as number),
+    enabled: suggestionId !== null,
+  });
+
 const useInvalidateQueue = () => {
   const qc = useQueryClient();
   return () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["suggestions"] }),
+      qc.invalidateQueries({ queryKey: ["suggestion-events"] }),
+      qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
+    ]);
+};
+
+/**
+ * A single decision is already represented locally by ValidationPage. Mark the
+ * paginated rows stale without immediately downloading every loaded page again;
+ * refresh only the small counters and publication-inbox summary.
+ */
+const useInvalidateSingleReview = () => {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({
+        queryKey: ["suggestions", "queue"],
+        refetchType: "none",
+      }),
+      qc.invalidateQueries({ queryKey: ["suggestions", "counts"] }),
       qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
     ]);
 };
 
 export const useReview = () => {
-  const invalidate = useInvalidateQueue();
+  const invalidate = useInvalidateSingleReview();
   return useMutation({
     mutationFn: ({ id, status }: { id: number; status: ReviewStatus }) =>
       reviewSuggestion(id, status),
@@ -89,3 +151,14 @@ export const useFilteredBulkReview = () => {
     onSettled: invalidate,
   });
 };
+
+export const useFilteredBulkUndo = () => {
+  const invalidate = useInvalidateQueue();
+  return useMutation({
+    mutationFn: undoFilteredBulkReview,
+    onSettled: invalidate,
+  });
+};
+
+export const useAllFilteredSuggestionIds = () =>
+  useMutation({ mutationFn: listAllSuggestionIds });

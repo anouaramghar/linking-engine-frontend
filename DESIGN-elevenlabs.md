@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: ElevenLabs-design-analysis
-description: A voice-AI brand whose marketing surfaces read like a quietly editorial print magazine. The base canvas is off-white (`#f5f5f5`) holding warm near-black ink (`#292524`); the brand voltage is photographic, not chromatic — soft pastel atmospheric gradient orbs (mint → peach → lavender → sky) drift through the page as the only "color" moments. Display runs Waldenburg Light at weight 300 — the editorial signature. Inter carries body, navigation, captions. CTAs are subtle: a near-black ink pill is the primary, a transparent outline is the secondary. The brand trusts atmospheric photography and modest type weights to do all of the brand work; there is no neon accent, no saturated CTA color, no developer-tools dark canvas.
+description: A voice-AI brand whose marketing surfaces read like a quietly editorial print magazine. The base canvas is off-white (`#f5f5f5`) holding warm near-black ink (`#292524`); the brand voltage is photographic, not chromatic — soft pastel atmospheric gradient orbs (mint → peach → lavender → sky) drift through the page, with one restrained amber ring reserved for the Telegram sign-in card. Display runs Waldenburg Light at weight 300 — the editorial signature. Inter carries body, navigation, captions. CTAs are subtle: a near-black ink pill is the primary, a transparent outline is the secondary. The brand trusts atmospheric photography and modest type weights to do all of the brand work; neon is reserved for authentication, never dashboard chrome, and there is no saturated CTA color or developer-tools dark canvas.
 
 colors:
   primary: "#292524"
@@ -31,6 +31,7 @@ colors:
   gradient-rose: "#e8b8c4"
   semantic-error: "#dc2626"
   semantic-success: "#16a34a"
+  login-neon: "#e5bd70"
 
 typography:
   display-mega:
@@ -254,7 +255,7 @@ components:
 
 ## Overview
 
-ElevenLabs reads like a quietly editorial print magazine that happens to be a voice-AI product. The base canvas is off-white `{colors.canvas}` (#f5f5f5) holding warm near-black ink `{colors.ink}` (#0c0a09). The brand voltage is **photographic, not chromatic**: soft pastel atmospheric gradient orbs (mint, peach, lavender, sky, rose) drift through the page as the only "color" moments. There is no neon accent, no saturated CTA color, no dark-canvas dev-tools atmosphere.
+ElevenLabs reads like a quietly editorial print magazine that happens to be a voice-AI product. The base canvas is off-white `{colors.canvas}` (#f5f5f5) holding warm near-black ink `{colors.ink}` (#0c0a09). The brand voltage is **photographic, not chromatic**: soft pastel atmospheric gradient orbs (mint, peach, lavender, sky, rose) drift through the page. A restrained amber ring is the one exception, reserved for the Telegram sign-in hand-off; it does not enter dashboard chrome or CTA styling.
 
 Type pairs **Waldenburg Light** (custom serif at weight 300) for display with **Inter** for body, navigation, captions. The display weight at 300 is the editorial signature — never bold, never heavy.
 
@@ -263,6 +264,7 @@ CTAs are subtle: a near-black ink pill (`{component.button-primary}`) is the pri
 **Key Characteristics:**
 - Off-white canvas, warm near-black ink. No saturated CTA color.
 - Single primary action: ink pill at `{rounded.pill}`. Atmospheric gradients carry visual brand voltage.
+- Authentication exception: `{colors.login-neon}` is reserved for the animated Telegram sign-in ring and is not used in dashboard chrome.
 - Display runs Waldenburg Light at weight 300 — editorial magazine voice.
 - Body runs Inter at 400 with subtle letter-spacing (+0.15-0.18px).
 - Pastel gradient orbs (5 tokens: mint, peach, lavender, sky, rose) used as atmospheric brand decoration only.
@@ -311,6 +313,10 @@ These appear ONLY as soft radial-gradient atmospheric orbs inside `{component.gr
 ### Semantic
 - **Success** (`{colors.semantic-success}` — #16a34a): Confirmation.
 - **Error** (`{colors.semantic-error}` — #dc2626): Validation errors.
+
+### Authentication Accent
+- **Login Neon** (`{colors.login-neon}` — #e5bd70): A restrained amber ring around the Telegram sign-in card.
+- **Scope**: Authentication hand-off only. It is decorative, aria-hidden, and never used for dashboard state or calls to action.
 
 ## Typography
 

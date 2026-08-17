@@ -80,7 +80,11 @@ export default function SiteStatusBadge(props: SiteStatusBadgeProps) {
     analysis?.label ?? (status ? LABELS[status] ?? status : "Never crawled");
 
   return (
-    <span className="badge" title={analysis?.title} aria-label={label}>
+    <span
+      className="badge"
+      title={analysis?.title}
+      aria-label={analysis?.title ? `${label}. ${analysis.title}` : label}
+    >
       <span className={`dot ${dot}`} />
       {label}
     </span>

@@ -21,36 +21,58 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   created_at: "2026-07-16T10:00:00Z",
 });
 
-const renderPreview = (status: Suggestion["status"], onUndo = vi.fn()) =>
+/** Placement is generated per suggestion by the page; these tests are about
+ *  everything else in the drawer, so they render it already resolved. */
+const placement = {
+  data: {
+    suggestion_id: 1,
+    found: true,
+    placement_context: "The long steep pulls fewer acids out of the grounds.",
+    anchor_text: "fewer acids",
+    llm_model: "google/gemma-4-31b-it",
+    generated_at: "2026-08-03T10:00:00Z",
+  },
+  isLoading: false,
+  error: null,
+  onRetry: vi.fn(),
+};
+
+const renderPreview = (
+  status: Suggestion["status"],
+  onUndo = vi.fn(),
+  onReviewPublication?: () => void,
+) =>
   render(
     <SuggestionPreview
       suggestion={suggestion(status)}
       siteName="Example site"
+      placement={placement}
       onClose={vi.fn()}
       onAccept={vi.fn()}
       onReject={vi.fn()}
       onUndo={onUndo}
+      onReviewPublication={onReviewPublication}
     />,
   );
 
 describe("SuggestionPreview publication state", () => {
-  it("keeps the live cosine score without advertising unsupported future signals", () => {
+  it("keeps suggestion details without advertising unsupported future signals", () => {
     renderPreview("pending");
 
-    expect(screen.getByText("90%")).not.toBeNull();
     expect(screen.getByText("Internal link")).not.toBeNull();
     expect(screen.getByText("Placement context")).not.toBeNull();
-    expect(screen.getAllByText("Soon")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Soon");
     expect(document.body.textContent).not.toContain("GraphSAGE");
     expect(document.body.textContent).not.toContain("Shared taxonomy");
   });
 
-  it("labels Hybrid suggestions without calling the score BM25 confidence", () => {
+  it("does not render the removed similarity summary card", () => {
     const hybrid = { ...suggestion("pending"), method: "hybrid_bm25" };
     render(
       <SuggestionPreview
         suggestion={hybrid}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -58,51 +80,26 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Semantic similarity")).not.toBeNull();
+    expect(screen.queryByText("Semantic similarity")).toBeNull();
     expect(screen.queryByText("Cosine baseline")).toBeNull();
-  });
-
-  it("reports the BM25 selection score as its own raw number", () => {
-    // The percentage is similarity; BM25 is what chose the row. Showing BM25 as a
-    // second percentage would read as a confidence, which it is not.
-    const hybrid: Suggestion = {
-      ...suggestion("pending"),
-      method: "hybrid_bm25",
-      score_components: {
-        version: "hybrid_bm25_v1",
-        final_order: "bm25_512",
-        bm25_score: 12.47,
-        semantic: 0.9,
-      },
-    };
-    render(
-      <SuggestionPreview
-        suggestion={hybrid}
-        siteName="Example site"
-        onClose={vi.fn()}
-        onAccept={vi.fn()}
-        onReject={vi.fn()}
-        onUndo={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText("Selected by BM25 · score 12.5")).not.toBeNull();
-    expect(screen.getByText("90%")).not.toBeNull();
-    expect(screen.queryByText("12%")).toBeNull();
-  });
-
-  it("shows no selection score when the engine reported none", () => {
-    // A baseline row, or an engine that predates the components.
-    renderPreview("pending");
-
     expect(screen.queryByText(/Selected by BM25/)).toBeNull();
   });
 
-  it("identifies an approved suggestion as queued but not live", () => {
+  it("identifies a selected suggestion as chosen but not yet approved", () => {
     renderPreview("approved");
 
-    expect(screen.getByText("Queued for publish")).not.toBeNull();
-    expect(screen.getByText("Queued for the next publish batch. Not live yet.")).not.toBeNull();
+    expect(screen.getByText("Selected for review")).not.toBeNull();
+    expect(
+      screen.getByText("Selected for review. Not scheduled and not live until its exact edit is approved."),
+    ).not.toBeNull();
+  });
+
+  it("offers a direct exact-edit review action for a selected suggestion", () => {
+    const onReviewPublication = vi.fn();
+    renderPreview("approved", vi.fn(), onReviewPublication);
+
+    fireEvent.click(screen.getByRole("button", { name: "Review exact edit" }));
+    expect(onReviewPublication).toHaveBeenCalledTimes(1);
   });
 
   it("identifies an in-progress publication", () => {
@@ -151,8 +148,8 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Queued for publish")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByText("Selected for review")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
     expect(onUndo).toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
@@ -170,10 +167,10 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo decision/ })).toBeNull();
   });
 
-  it("shows the Hybrid method on a current card", () => {
+  it("keeps method details out of the compact queue row", () => {
     render(
       <SuggestionCard
         suggestion={{ ...suggestion("pending"), method: "hybrid_bm25" }}
@@ -186,7 +183,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("hybrid BM25")).not.toBeNull();
+    expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
   it("identifies a content-pool target as an external link", () => {
@@ -204,6 +201,7 @@ describe("SuggestionPreview publication state", () => {
       <SuggestionPreview
         suggestion={external}
         siteName="Example site"
+        placement={placement}
         onClose={vi.fn()}
         onAccept={vi.fn()}
         onReject={vi.fn()}
@@ -218,7 +216,91 @@ describe("SuggestionPreview publication state", () => {
     );
   });
 
-  it("shows the origin on a queue card", () => {
+  it("shows a direct Tavily target with its discovery context", () => {
+    const webSearch: Suggestion = {
+      ...suggestion("pending"),
+      target_article: {
+        id: null,
+        title: "Independent SEO guide",
+        url: "https://reference.example/seo-guide",
+      },
+      target_origin: "web_search",
+      target_site_name: "Tavily",
+      method: "external_search",
+      external_snippet: "Independent guidance about useful SEO links.",
+      search_query: "SEO Orlando",
+    };
+    render(
+      <SuggestionPreview
+        suggestion={webSearch}
+        siteName="Example site"
+        placement={placement}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("External link · Tavily")).not.toBeNull();
+    expect(screen.getByText("Tavily")).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "Independent guidance about useful SEO links.",
+    );
+    expect(document.body.textContent).toContain("Search query: SEO Orlando");
+    expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
+      "https://reference.example/seo-guide",
+    );
+  });
+
+  it("renders a quarantined row and offers the only way back", () => {
+    // The worker returns 'failed' rows in the default queue. A status the
+    // client does not know about reads its metadata off undefined, which takes
+    // the whole queue down rather than one card, and leaves the editor no way
+    // to retry a suggestion the worker has stopped retrying.
+    const onUndo = vi.fn();
+    render(
+      <SuggestionCard
+        suggestion={suggestion("failed")}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={onUndo}
+      />,
+    );
+
+    expect(screen.getByText("Publishing failed")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Undo decision/ }));
+    expect(onUndo).toHaveBeenCalled();
+  });
+
+  it("explains a quarantined row in the drawer", () => {
+    const failed = {
+      ...suggestion("failed"),
+      publish_error: "HTTP 403: editor-bot needs permission to edit posts",
+    };
+    render(
+      <SuggestionPreview
+        suggestion={failed}
+        siteName="Example site"
+        placement={placement}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Publishing failed")).not.toBeNull();
+    expect(document.body.textContent).toContain("stopped retrying");
+    expect(document.body.textContent).toContain(
+      "HTTP 403: editor-bot needs permission to edit posts",
+    );
+  });
+
+  it("keeps the target origin on a compact queue card", () => {
     render(
       <SuggestionCard
         suggestion={{

@@ -48,9 +48,10 @@ const STATUS_VALUES: StatusFilter[] = [
   "applying",
   "applied",
   "expired",
+  "failed",
 ];
 
-const ORIGIN_VALUES: SuggestionTargetOrigin[] = ["internal", "content_pool"];
+const ORIGIN_VALUES: SuggestionTargetOrigin[] = ["internal", "content_pool", "web_search"];
 
 /**
  * Every reader below falls back to the default rather than trusting the URL.

@@ -60,6 +60,7 @@ describe("AddSiteModal", () => {
 
     expect(document.body.textContent).toContain("RSS/Atom feed URL");
     expect(screen.queryByRole("textbox", { name: /WordPress username/ })).toBeNull();
+    expect(screen.getByLabelText(/Domain registration date/)).not.toBeNull();
   });
 
   it("rejects incomplete WordPress credentials before calling the API", () => {

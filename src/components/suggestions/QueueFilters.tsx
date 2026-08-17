@@ -39,10 +39,10 @@ export default function QueueFilters({
     <div
       aria-label="Queue filters"
       role="search"
-      className="card flex flex-col gap-3 p-3 sm:p-4"
+      className="flex flex-col gap-2"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <label className="flex min-w-0 flex-1 items-center sm:min-w-[16rem]">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <label className="col-span-2 flex min-w-0 flex-1 items-center sm:col-auto sm:min-w-[16rem]">
           <span className="sr-only">Search article titles</span>
           <input
             type="search"
@@ -59,7 +59,7 @@ export default function QueueFilters({
           aria-label="Site filter"
           value={filters.siteId}
           onChange={(event) => onChange({ siteId: Number(event.target.value) })}
-          className={`${control} w-full cursor-pointer sm:w-auto`}
+          className={`${control} min-w-0 w-full cursor-pointer sm:w-auto`}
         >
           <option value={0}>All sites</option>
           {sites?.map((site) => (
@@ -77,17 +77,25 @@ export default function QueueFilters({
               targetOrigin: event.target.value as SuggestionTargetOrigin | "",
             })
           }
-          className={`${control} w-full cursor-pointer sm:w-auto`}
+          className={`${control} min-w-0 w-full cursor-pointer sm:w-auto`}
         >
           {/* The same words the card's badge uses, so the filter and the row it
               selects describe a target the same way. */}
           <option value="">Any target</option>
           <option value="internal">{TARGET_ORIGIN_LABEL.internal}</option>
           <option value="content_pool">{TARGET_ORIGIN_LABEL.content_pool}</option>
+          <option value="web_search">{TARGET_ORIGIN_LABEL.web_search}</option>
         </select>
 
         {isFiltered && (
-          <button type="button" onClick={onClear} className="btn btn-text btn-sm">
+          <button
+            type="button"
+            onClick={() => {
+              search.cancel();
+              onClear();
+            }}
+            className="btn btn-text btn-sm col-span-2 justify-self-start sm:col-auto"
+          >
             Clear filters
           </button>
         )}

@@ -1,3 +1,4 @@
+import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import { useJob } from "../../hooks/useJobs";
 import {
   isActiveJobStatus,
@@ -7,16 +8,6 @@ import {
 import type { JobKind, JobStatus } from "../../types/job";
 
 type JobSnapshot = Pick<JobStatus, "status" | "progress" | "error">;
-
-function ActivityDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5" aria-hidden="true">
-      {[0, 1, 2].map((index) => (
-        <span key={index} className={`job-activity-dot job-activity-dot-${index + 1}`} />
-      ))}
-    </span>
-  );
-}
 
 export default function JobStatusBadge({
   jobId,
@@ -47,7 +38,11 @@ export default function JobStatusBadge({
       aria-live="polite"
       aria-label={label}
     >
-      {active ? <ActivityDots /> : <span className={`dot ${dotColor}`} />}
+      {active ? (
+        <LogoLoadingAnimation size="xs" className="text-primary flex-none" aria-hidden="true" />
+      ) : (
+        <span className={`dot ${dotColor}`} />
+      )}
       {label}
     </span>
   );

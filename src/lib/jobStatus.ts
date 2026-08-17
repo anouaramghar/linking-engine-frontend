@@ -14,6 +14,7 @@ const STAGE_LABELS: Record<string, string> = {
   reconciling: "Finishing crawl",
   encoding: "Analyzing",
   suggesting: "Finding suggestions",
+  preparing: "Preparing exact edits",
   publishing: "Publishing",
 };
 
@@ -32,6 +33,12 @@ const KIND_LABELS: Record<
     running: "Analyzing",
     succeeded: "Analyzed",
     failed: "Analysis failed",
+  },
+  publication_preparation: {
+    queued: "Preparation queued",
+    running: "Preparing exact edits",
+    succeeded: "Edits prepared",
+    failed: "Preparation failed",
   },
   publication: {
     queued: "Publication queued",

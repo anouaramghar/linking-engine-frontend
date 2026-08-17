@@ -8,9 +8,23 @@ import type { SiteCreate } from "../../types/site";
 /** Which control a validation failure belongs to, so it can say so and be reached. */
 type ErrorField = "base_url" | "credentials";
 
-export default function AddSiteModal({ onClose }: { onClose: () => void }) {
+export default function AddSiteModal({
+  onClose,
+  initialPlatform = "wordpress",
+  lockPlatform = false,
+  title = "Connect a site",
+}: {
+  onClose: () => void;
+  initialPlatform?: SiteCreate["platform"];
+  lockPlatform?: boolean;
+  title?: string;
+}) {
   const create = useCreateSite();
-  const [form, setForm] = useState<SiteCreate>({ name: "", base_url: "", platform: "wordpress" });
+  const [form, setForm] = useState<SiteCreate>({
+    name: "",
+    base_url: "",
+    platform: initialPlatform,
+  });
   const [clientError, setClientError] = useState<{
     field: ErrorField;
     message: string;
@@ -18,6 +32,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
   const nameId = useId();
   const urlId = useId();
   const platformId = useId();
+  const domainRegisteredId = useId();
   const usernameId = useId();
   const passwordId = useId();
   const credentialsHintId = useId();
@@ -62,7 +77,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal title="Connect a site" onClose={onClose} panelClassName="max-w-md">
+    <Modal title={title} onClose={onClose} panelClassName="max-w-md">
       <form onSubmit={submit}>
         <div className="flex flex-col gap-4">
           <div>
@@ -108,6 +123,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
               name="platform"
               className="field"
               value={form.platform}
+              disabled={lockPlatform}
               onChange={(e) => {
                 const platform = e.target.value as SiteCreate["platform"];
                 set({
@@ -115,6 +131,7 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
                   ...(platform === "wordpress"
                     ? {}
                     : { wp_username: undefined, wp_app_password: undefined }),
+                  ...(platform === "pool" ? {} : { domain_registered_at: undefined }),
                 });
               }}
             >
@@ -123,10 +140,32 @@ export default function AddSiteModal({ onClose }: { onClose: () => void }) {
               <option value="pool">Content pool (RSS or Wikipedia)</option>
             </select>
             {form.platform === "pool" && (
-              <p className="mt-1.5 text-caption leading-relaxed text-muted">
-                Use an RSS/Atom feed URL or a Wikipedia article URL. Pool content is a read-only
-                suggestion target and refreshes daily.
-              </p>
+              <>
+                <p className="mt-1.5 text-caption leading-relaxed text-muted">
+                  Use an RSS/Atom feed URL or a Wikipedia article URL. Pool content is a read-only
+                  suggestion target and refreshes daily.
+                </p>
+                <label
+                  htmlFor={domainRegisteredId}
+                  className="mt-3 block text-caption font-medium text-ink"
+                >
+                  Domain registration date{" "}
+                  <span className="font-normal text-muted">(optional)</span>
+                  <input
+                    id={domainRegisteredId}
+                    className="field mt-1.5"
+                    type="date"
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={form.domain_registered_at ?? ""}
+                    onChange={(event) =>
+                      set({ domain_registered_at: event.target.value || undefined })
+                    }
+                  />
+                  <span className="mt-1 block text-caption-sm font-normal text-muted">
+                    Used by the trust score. Leave empty when the real date is unknown.
+                  </span>
+                </label>
+              </>
             )}
           </div>
           {form.platform === "wordpress" && (
