@@ -67,22 +67,46 @@ export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
 };
 
 /**
- * Status is carried by a dot beside its own text label, never by tinting the
- * label itself. The design system has exactly two chromatic semantics
- * ({colors.semantic-success} and {colors.semantic-error}); the in-between
- * states borrow ink and muted rather than inventing a warning hue, and
- * "Publishing" pulses because it is the only status that is still moving.
+ * Status is carried by a dot beside its own text label, and now by the ground
+ * the label sits on as well.
+ *
+ * The tint is a second channel, never the only one: every status below still
+ * ships its dot and its full word, so nothing here depends on colour being
+ * seen. What the tint buys is scanning speed — a column of identical grey pills
+ * made an operator read the word to learn the state, on every row.
+ *
+ * `pending` and `expired` take no tint on purpose. A review queue is mostly
+ * pending, so tinting it would spend the signal on the majority and leave the
+ * four states worth noticing competing with a wall of colour.
  */
-export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string }> = {
-  pending: { label: "Pending review", dot: "bg-muted-soft" },
+export const STATUS_META: Record<
+  SuggestionStatus,
+  { label: string; dot: string; tint: string }
+> = {
+  pending: { label: "Pending review", dot: "bg-muted-soft", tint: "" },
   // The wire value stays `approved`, but the editor still has to approve the
   // exact publication edit before anything is queued or written to the site.
-  approved: { label: "Selected for review", dot: "bg-primary" },
-  rejected: { label: "Rejected", dot: "bg-error" },
-  applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
-  applied: { label: "Published", dot: "bg-success" },
-  expired: { label: "Expired", dot: "bg-muted-soft" },
-  failed: { label: "Publishing failed", dot: "bg-error" },
+  // Lavender rather than green: this is the selection ground the app already
+  // uses for "chosen, not yet done", and a green here would claim the row is
+  // published when it is only picked.
+  approved: {
+    label: "Selected for review",
+    dot: "bg-primary",
+    tint: "bg-tint-active",
+  },
+  rejected: { label: "Rejected", dot: "bg-error", tint: "bg-tint-negative" },
+  applying: {
+    label: "Publishing",
+    dot: "bg-primary animate-pulse",
+    tint: "bg-tint-progress",
+  },
+  applied: { label: "Published", dot: "bg-success", tint: "bg-tint-positive" },
+  expired: { label: "Expired", dot: "bg-muted-soft", tint: "" },
+  failed: {
+    label: "Publishing failed",
+    dot: "bg-error",
+    tint: "bg-tint-negative",
+  },
 };
 
 /**
@@ -116,8 +140,38 @@ const ORB_PLATE_CLASSES = [
 
 /**
  * A {component.voice-icon-circular} plate, blooming one of the five stops over
- * {colors.surface-strong}. Sites cycle the palette by index, so a fleet reads
- * as one system rather than five unrelated badges.
+ * {colors.surface-strong}. Sites cycle the palette so a fleet reads as one
+ * system rather than five unrelated badges.
+ *
+ * Keyed to the site's id, not its position in the list. Position was wrong in a
+ * way that only showed up in use: the hue is the one thing on the row an
+ * operator recognises before reading anything, and deleting a site or landing
+ * on a differently-ordered response re-coloured every site below it. An id is
+ * the only thing about a site that never moves, so it is what the colour hangs
+ * on — and it is what lets the queue and the Sites page agree without passing
+ * an index between two pages that sort differently.
  */
-export const orbPlateClass = (index: number) =>
-  ORB_PLATE_CLASSES[index % ORB_PLATE_CLASSES.length];
+export const orbPlateClass = (siteId: number) =>
+  ORB_PLATE_CLASSES[Math.abs(siteId) % ORB_PLATE_CLASSES.length];
+
+/**
+ * The same five stops as a wash across a header band rather than a filled
+ * plate: the stop fades out by 55%, so the tint colours the edge the group
+ * starts at and the text further along still sits on the plain soft canvas.
+ *
+ * Held at 10%. The band carries {colors.muted} caption text, and the wash is
+ * drawn *under* it — at this strength the ground moves by about 0.15 of a
+ * contrast point in either theme, which keeps the pairing above AA that
+ * `theme.contrast.test.ts` measures against the untinted canvas.
+ */
+const ORB_WASH_CLASSES = [
+  "bg-[linear-gradient(to_right,theme(colors.orb-mint/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-peach/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-lavender/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-sky/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-rose/10%),transparent_55%)]",
+] as const;
+
+/** The wash matching a site's plate, so one site reads as one hue everywhere. */
+export const orbWashClass = (siteId: number) =>
+  ORB_WASH_CLASSES[Math.abs(siteId) % ORB_WASH_CLASSES.length];

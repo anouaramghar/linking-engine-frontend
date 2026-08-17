@@ -16,7 +16,6 @@ import BulkRecoveryPanel from "../components/suggestions/BulkRecoveryPanel";
 import type { BulkRecovery } from "../components/suggestions/BulkRecoveryPanel";
 import QueueFilters from "../components/suggestions/QueueFilters";
 import { useQueueFilters, type QueueFilterState } from "../hooks/useQueueFilters";
-import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
 import { useQueueWorkspace } from "../hooks/useQueueWorkspace";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
@@ -112,6 +111,7 @@ const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_PAGE_SIZE = 20;
 const SOURCE_SUGGESTION_HARD_LIMIT = 1_000;
+const SELECTION_URL_DELAY_MS = 120;
 
 const EMPTY_COUNTS: SuggestionCounts = {
   pending: 0,
@@ -176,21 +176,29 @@ export default function ValidationPage() {
   const [selectedId, setSelectedIdState] = useState<number | null>(() =>
     readSelectedSuggestion(searchParams.get("suggestion")),
   );
-  const setSelectedId = useCallback(
-    (id: number | null) => {
-      setSelectedIdState(id);
+  const selectionUrlSyncMounted = useRef(false);
+  const setSelectedId = useCallback((id: number | null) => {
+    setSelectedIdState(id);
+  }, []);
+  useEffect(() => {
+    // Keep the navigation snapshot stable during rapid selection changes.
+    if (!selectionUrlSyncMounted.current) {
+      selectionUrlSyncMounted.current = true;
+      return;
+    }
+    const timer = window.setTimeout(() => {
       setSearchParams(
         (current) => {
           const next = new URLSearchParams(current);
-          if (id === null) next.delete("suggestion");
-          else next.set("suggestion", String(id));
+          if (selectedId === null) next.delete("suggestion");
+          else next.set("suggestion", String(selectedId));
           return next;
         },
         { replace: true },
       );
-    },
-    [setSearchParams],
-  );
+    }, SELECTION_URL_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [selectedId, setSearchParams]);
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingRejectionId, setPendingRejectionId] = useState<number | null>(null);
@@ -962,35 +970,6 @@ export default function ValidationPage() {
     pendingPublicationQuery.isPending || pendingPublicationQuery.isError;
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
-
-  const step = (delta: number) => {
-    if (queueUpdating || navigableSuggestions.length === 0) return;
-    const current = navigableSuggestions.findIndex((item) => item.id === selectedId);
-    const target = current === -1 ? 0 : current + delta;
-    if (target >= navigableSuggestions.length) {
-      if (hasMore) showMore();
-      return;
-    }
-    setSelectedId(navigableSuggestions[Math.max(0, target)].id);
-  };
-
-  useQueueShortcuts({
-    onNext: () => step(1),
-    onPrevious: () => step(-1),
-    onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
-    onReject: () => selected?.status === "pending" && requestRejection(selected.id),
-    onUndo: () => {
-      if (selected?.status === "approved" || selected?.status === "rejected") {
-        undo([selected.id]);
-      } else if (notice?.undoIds?.length) {
-        undo(notice.undoIds);
-      }
-    },
-    onEscape: () => {
-      if (confirmation) setConfirmation(null);
-      else setSelectedId(null);
-    },
-  });
 
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.

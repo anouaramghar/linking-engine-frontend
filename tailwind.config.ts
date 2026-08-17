@@ -120,6 +120,17 @@ export default {
       // This is the one semantic that must travel: a dark red on an ink canvas
       // is unreadable, so the dark theme lightens it instead.
       "error-ink": token("error-ink"),
+
+      // Status grounds. Named for what the state *is* rather than for the hue
+      // it happens to take, so "published" can be re-pointed without every
+      // badge in the app learning a new colour name. Always paired with the
+      // status label — the tint is a second channel on top of the words, never
+      // the only one. Measured against `ink` in both themes by
+      // `theme.contrast.test.ts`.
+      "tint-positive": token("tint-positive"),
+      "tint-negative": token("tint-negative"),
+      "tint-active": token("tint-active"),
+      "tint-progress": token("tint-progress"),
     },
     borderRadius: {
       none: "0px",
@@ -170,8 +181,17 @@ export default {
         "nav-link": ["15px", { lineHeight: "1.4", letterSpacing: "0", fontWeight: "500" }],
       },
       spacing: {
-        // The 4px-multiple scale is already Tailwind's; only the section
-        // rhythm needs adding.
+        // The 4px-multiple scale is already Tailwind's. These named dashboard
+        // geometry values keep the queue and chart widths from becoming
+        // unreviewable arbitrary classes.
+        // Wide enough for the "Final rank #N" line that sits above the score.
+        score: "96px",
+        "score-wide": "120px",
+        meter: "3px",
+        filter: "16rem",
+        decision: "220px",
+        "decision-review": "290px",
+        chart: "620px",
         section: "96px",
       },
       boxShadow: {
@@ -186,13 +206,55 @@ export default {
         lift: "0 8px 24px rgb(0 0 0 / var(--shadow-lift))",
         drawer: "0 8px 40px rgb(0 0 0 / var(--shadow-drawer))",
       },
+      /**
+       * Motion is tokenised for the same reason colour is: the dashboard's
+       * transitions were written inline at each call site, so "a state change"
+       * lasted 150ms in the rail and 200ms on a card with no rule saying which
+       * was right. Duration here encodes *consequence*, not taste — feedback is
+       * faster than a state change, which is faster than something arriving.
+       */
+      transitionTimingFunction: {
+        // Exponential ease-out. Motion in this app decelerates into place; it
+        // never overshoots, because a review desk that bounces is a review desk
+        // that looks unsure of the decision it just recorded.
+        settle: "cubic-bezier(0.16, 1, 0.3, 1)",
+      },
+      transitionDuration: {
+        // Acknowledgement of a press: below the threshold where it reads as lag.
+        feedback: "120ms",
+        // A control or row changing state.
+        state: "200ms",
+        // Something entering or leaving the composition.
+        arrive: "280ms",
+      },
       keyframes: {
         rowIn: {
           from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "none" },
         },
+        /**
+         * The score meter draws itself rather than appearing pre-filled.
+         *
+         * `scaleX` on a span whose width is already the score, not an animated
+         * `width`: the queue mounts up to a page of these at once, and width is
+         * a layout property. The pill's end cap is squashed while the transform
+         * is in flight and exact at rest, which is the right way round.
+         */
+        meterFill: {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" },
+        },
+        /** A notice arrives from the edge it is anchored to. */
+        noticeIn: {
+          from: { opacity: "0", transform: "translateY(-6px)" },
+          to: { opacity: "1", transform: "none" },
+        },
       },
-      animation: { rowIn: "rowIn .25s ease both" },
+      animation: {
+        rowIn: "rowIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
+        meterFill: "meterFill .5s cubic-bezier(0.16, 1, 0.3, 1) both",
+        noticeIn: "noticeIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
+      },
     },
   },
   plugins: [],

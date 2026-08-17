@@ -246,6 +246,9 @@ describe("EvaluationPage", () => {
     expect(screen.getAllByText("60%").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("+10.0 pp vs previous")).not.toBeNull();
     expect(screen.getByRole("img", { name: "Acceptance rate over time" })).not.toBeNull();
+    expect(
+      screen.getByRole("table", { name: "Acceptance rate data over time" }),
+    ).not.toBeNull();
     expect(screen.getByText(/First snapshot recorded/)).not.toBeNull();
     expect(screen.getByText("How these metrics are calculated")).not.toBeNull();
     expect(screen.getByText(metrics.cohort_definition)).not.toBeNull();

@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-14T00:00:00Z",
+  "title": "Design System: LinkMesh Dashboard",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Warm Ink Action",
+        "canonical": "#292524",
+        "tonalRamp": ["#171412", "#292524", "#3b3532", "#514a46", "#6b625c", "#887e76", "#aca39b", "#d8d3ce"]
+      },
+      "primary-active": {
+        "role": "primary",
+        "displayName": "Deep Ink Press",
+        "canonical": "#0c0a09",
+        "tonalRamp": ["#080706", "#0c0a09", "#201c1a", "#38312e", "#554b46", "#776b63", "#a29890", "#d2cbc5"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Warm Near Black",
+        "canonical": "#0c0a09",
+        "tonalRamp": ["#080706", "#0c0a09", "#201c1a", "#38312e", "#554b46", "#776b63", "#a29890", "#d2cbc5"]
+      },
+      "body": {
+        "role": "neutral",
+        "displayName": "Readable Body",
+        "canonical": "#4e4e4e",
+        "tonalRamp": ["#252525", "#383838", "#4e4e4e", "#666666", "#808080", "#9a9a9a", "#b8b8b8", "#d9d9d9"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Stone Metadata",
+        "canonical": "#706a62",
+        "tonalRamp": ["#332f2c", "#4b4641", "#625c55", "#706a62", "#8d857c", "#aaa39b", "#c8c2bc", "#e5e1dd"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Off-White Canvas",
+        "canonical": "#f5f5f5",
+        "tonalRamp": ["#242424", "#454545", "#686868", "#8c8c8c", "#b0b0b0", "#cfcfcf", "#e5e5e5", "#f5f5f5"]
+      },
+      "canvas-soft": {
+        "role": "neutral",
+        "displayName": "Soft Canvas",
+        "canonical": "#fafafa",
+        "tonalRamp": ["#252525", "#484848", "#6c6c6c", "#909090", "#b4b4b4", "#d2d2d2", "#e8e8e8", "#fafafa"]
+      },
+      "surface-card": {
+        "role": "neutral",
+        "displayName": "Paper Card",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#262626", "#4b4b4b", "#707070", "#959595", "#b9b9b9", "#d5d5d5", "#ebebeb", "#ffffff"]
+      },
+      "surface-strong": {
+        "role": "neutral",
+        "displayName": "Strong Surface",
+        "canonical": "#f0efed",
+        "tonalRamp": ["#242322", "#464544", "#696866", "#8d8c89", "#b0afad", "#cecdca", "#e3e2df", "#f0efed"]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Quiet Hairline",
+        "canonical": "#e7e5e4",
+        "tonalRamp": ["#222120", "#454443", "#696867", "#8d8c8b", "#b1b0af", "#cccac9", "#dcdad9", "#e7e5e4"]
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Strong Boundary",
+        "canonical": "#d6d3d1",
+        "tonalRamp": ["#201f1e", "#42403f", "#656361", "#898684", "#aaa7a5", "#c0bdbb", "#cdcac8", "#d6d3d1"]
+      },
+      "hairline-control": {
+        "role": "neutral",
+        "displayName": "Control Boundary",
+        "canonical": "#928c84",
+        "tonalRamp": ["#2f2d2a", "#48443f", "#625d56", "#7a746c", "#928c84", "#aaa49c", "#c1bbb4", "#d9d4ce"]
+      },
+      "selection": {
+        "role": "tertiary",
+        "displayName": "Selection Lavender",
+        "canonical": "#c8b8e0",
+        "tonalRamp": ["#2f273d", "#473b5c", "#62527c", "#806da0", "#9d89bd", "#b3a0ce", "#c0aed8", "#c8b8e0"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Healthy Green",
+        "canonical": "#16a34a",
+        "tonalRamp": ["#062b13", "#0a4a21", "#0f6f31", "#12903f", "#16a34a", "#47b96e", "#80d09a", "#bce9c8"]
+      },
+      "error": {
+        "role": "semantic",
+        "displayName": "Action Red",
+        "canonical": "#dc2626",
+        "tonalRamp": ["#3b0808", "#650d0d", "#921414", "#ba1d1d", "#dc2626", "#e75a5a", "#ef9090", "#f8c2c2"]
+      },
+      "login-neon": {
+        "role": "authentication",
+        "displayName": "Telegram Amber Ring",
+        "canonical": "#cc9149",
+        "tonalRamp": ["#422a0f", "#6d4317", "#946020", "#b8782e", "#cc9149", "#d8a66d", "#e2bd91", "#f0dcc1"]
+      },
+      "orb-mint": {
+        "role": "atmospheric",
+        "displayName": "Pastel Mint",
+        "canonical": "#a7e5d3",
+        "tonalRamp": ["#163c32", "#286451", "#3e8d71", "#63b497", "#a7e5d3", "#b9eadb", "#caeee2", "#e0f7ef"]
+      },
+      "orb-peach": {
+        "role": "atmospheric",
+        "displayName": "Pastel Peach",
+        "canonical": "#f4c5a8",
+        "tonalRamp": ["#5a2c17", "#844523", "#af6236", "#d28b62", "#f4c5a8", "#f6d0b8", "#f8dbca", "#fcebe2"]
+      },
+      "orb-lavender": {
+        "role": "atmospheric",
+        "displayName": "Pastel Lavender",
+        "canonical": "#c8b8e0",
+        "tonalRamp": ["#2f273d", "#473b5c", "#62527c", "#806da0", "#9d89bd", "#b3a0ce", "#c0aed8", "#c8b8e0"]
+      },
+      "orb-sky": {
+        "role": "atmospheric",
+        "displayName": "Pastel Sky",
+        "canonical": "#a8c8e8",
+        "tonalRamp": ["#172d45", "#2b5077", "#3f719f", "#6694bf", "#a8c8e8", "#b9d4ed", "#c9dff2", "#e0edf9"]
+      },
+      "orb-rose": {
+        "role": "atmospheric",
+        "displayName": "Pastel Rose",
+        "canonical": "#e8b8c4",
+        "tonalRamp": ["#4b202b", "#713441", "#994c5d", "#c07a89", "#e8b8c4", "#edc5cf", "#f1d1d9", "#f8e4e9"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Editorial Serif", "purpose": "Light section and page headings." },
+      "title": { "displayName": "Operator Title", "purpose": "Inter titles for cards and decisions." },
+      "body": { "displayName": "Queue Body", "purpose": "Compact running text for desktop scanning." },
+      "label": { "displayName": "Tracked Label", "purpose": "Eyebrows, badges, and metric captions." }
+    },
+    "shadows": [
+      { "name": "soft", "value": "0 4px 16px rgb(0 0 0 / var(--shadow-soft))", "purpose": "Single hover lift for cards." },
+      { "name": "lift", "value": "0 8px 24px rgb(0 0 0 / var(--shadow-lift))", "purpose": "Menus and raised support surfaces." },
+      { "name": "drawer", "value": "0 8px 40px rgb(0 0 0 / var(--shadow-drawer))", "purpose": "The overlaid suggestion detail drawer." }
+    ],
+    "motion": [
+      { "name": "row-in", "value": "rowIn .25s ease both", "purpose": "Subtle arrival for newly rendered queue rows." },
+      { "name": "selection-url", "value": "120ms debounce", "purpose": "Batch navigation snapshots while visible selection stays immediate." },
+      { "name": "reduced-motion", "value": "speed 0 and no active animation frame", "purpose": "Respect reduced motion without a live no-op loop." }
+    ],
+    "breakpoints": [
+      { "name": "desktop", "value": "1024px", "purpose": "Primary supported dashboard composition." },
+      { "name": "wide", "value": "1280px", "purpose": "Expanded rail/content breathing room." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The scarce ink-pill action for committing the next operator step.",
+      "html": "<button class=\"ds-btn-primary\">SELECT</button>",
+      "css": ".ds-btn-primary { background: rgb(var(--c-primary)); color: rgb(var(--c-on-primary)); padding: 10px 20px; min-height: 40px; border: 1px solid rgb(var(--c-primary)); border-radius: 9999px; font: 500 15px/1 Inter, system-ui, sans-serif; transition: background-color .2s, border-color .2s; } .ds-btn-primary:hover { background: rgb(var(--c-primary-active)); border-color: rgb(var(--c-primary-active)); } .ds-btn-primary:focus-visible { outline: 2px solid rgb(var(--c-ink)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "A reversible or secondary action that keeps the ink pill reserved.",
+      "html": "<button class=\"ds-btn-outline\">REJECT</button>",
+      "css": ".ds-btn-outline { background: transparent; color: rgb(var(--c-ink)); padding: 10px 20px; min-height: 40px; border: 1px solid rgb(var(--c-hairline-strong)); border-radius: 9999px; font: 500 15px/1 Inter, system-ui, sans-serif; transition: border-color .2s, color .2s; } .ds-btn-outline:hover { border-color: rgb(var(--c-ink)); } .ds-btn-outline:focus-visible { outline: 2px solid rgb(var(--c-ink)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "text-input",
+      "description": "A readable filter field with a stable focus boundary.",
+      "html": "<input class=\"ds-input\" aria-label=\"Search article titles\" placeholder=\"Search titles…\" />",
+      "css": ".ds-input { width: 100%; height: 44px; padding: 12px 16px; background: rgb(var(--c-surface-card)); color: rgb(var(--c-ink)); border: 1px solid rgb(var(--c-hairline-control)); border-radius: 8px; font: 400 14px/1.5 Inter, system-ui, sans-serif; } .ds-input::placeholder { color: rgb(var(--c-muted)); } .ds-input:focus { border-color: rgb(var(--c-ink)); box-shadow: inset 0 0 0 1px rgb(var(--c-ink)); outline: none; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The stable paper-like container for a queue group or metric surface.",
+      "html": "<section class=\"ds-card\"><h2>Link suggestions</h2><p>Review the current queue.</p></section>",
+      "css": ".ds-card { padding: 16px; background: rgb(var(--c-surface-card)); color: rgb(var(--c-ink)); border: 1px solid rgb(var(--c-hairline)); border-radius: 16px; } .ds-card:hover { box-shadow: 0 4px 16px rgb(0 0 0 / var(--shadow-soft)); }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "A compact textual state label that never relies on color alone.",
+      "html": "<span class=\"ds-badge\">PENDING REVIEW</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; padding: 4px 10px; background: rgb(var(--c-surface-strong)); color: rgb(var(--c-ink)); border-radius: 9999px; font: 600 12px/1.4 Inter, system-ui, sans-serif; letter-spacing: .96px; text-transform: uppercase; }"
+    },
+    {
+      "name": "Queue Row",
+      "kind": "custom",
+      "refersTo": "queue-row",
+      "description": "A stable suggestion row with a score column and decision actions.",
+      "html": "<article class=\"ds-queue-row\"><span>Source article → Target article</span><span class=\"ds-score\">82%</span></article>",
+      "css": ".ds-queue-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; background: rgb(var(--c-surface-card)); color: rgb(var(--c-ink)); border: 1px solid rgb(var(--c-hairline)); border-radius: 16px; } .ds-queue-row[aria-current=\"true\"] { border-color: rgb(var(--c-ink)); } .ds-score { min-width: 72px; color: rgb(var(--c-ink)); font: 500 16px/1.5 Inter, system-ui, sans-serif; text-align: right; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Review Desk",
+    "overview": "LinkMesh is a desktop operator workspace that should feel calm while a person makes high-consequence editorial decisions. It inherits the incumbent ElevenLabs-inspired world: an off-white canvas, warm near-black ink, quiet hairlines, and an editorial serif for headings. Brand voltage comes from atmospheric pastel orbs, never from loud dashboard chrome.\n\nThe interface is dense by intention. A reviewer scans many suggestions, filters them, selects exact edits, and moves the approved work into the publication inbox. The visual system therefore favors stable rows, modest controls, explicit status language, and a single restrained action treatment over decorative variety. The product is desktop-only by decision; desktop widths are the supported composition.",
+    "keyCharacteristics": [
+      "Off-white canvas and warm ink establish a low-noise reading floor.",
+      "Inter carries the operator UI; EB Garamond supplies the light editorial display voice.",
+      "Ink pills are reserved for primary actions; status color never stands alone.",
+      "Cards use a hairline and one soft shadow tier, not stacked effects.",
+      "The queue is the primary work surface: selection, pending feedback, and exact-edit hand-off stay visible.",
+      "Atmospheric orbs are decoration only; they never become button fills or text colors."
+    ],
+    "rules": [
+      { "name": "The Role-Name Rule", "body": "Components consume semantic token names such as canvas, ink, and hairline; they do not choose raw palette values at the call site.", "section": "colors" },
+      { "name": "The Scan-First Rule", "body": "Product surfaces default to the compact dashboard body step; larger type is earned by content that requires sustained reading.", "section": "typography" },
+      { "name": "The One-Tier Rule", "body": "A card is either held by its hairline or lifted by its documented soft shadow; it does not accumulate competing effects.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use semantic token names and keep light/dark palette changes in the theme layer.",
+      "Do keep the queue's primary action and exact-edit publication hand-off distinct and visible.",
+      "Do announce dynamic selection, loading, error, and success states with plain language.",
+      "Do reserve atmospheric gradients for decoration and use explicit dimensions for remote images.",
+      "Do use named spacing values when geometry repeats across queue and evaluation surfaces."
+    ],
+    "donts": [
+      "Don't introduce a saturated CTA color or use an orb as a button, text, or state fill.",
+      "Don't make a status depend on color, a hover tooltip, or a chart point's title alone.",
+      "Don't add mobile-only defects to the desktop product gate; mobile is outside the supported surface by decision.",
+      "Don't debounce the visible queue selection itself; only its URL snapshot may settle later.",
+      "Don't keep a requestAnimationFrame loop alive when motion is disabled or the document is hidden."
+    ]
+  }
+}

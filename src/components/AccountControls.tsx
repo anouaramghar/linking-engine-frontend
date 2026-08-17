@@ -27,6 +27,7 @@ export const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: 
   // is the one the config deliberately does not own, so a reader cannot check it
   // against the system.
   const dim = size === "sm" ? "h-7 w-7 text-caption-sm" : "h-8 w-8 text-caption";
+  const pixels = size === "sm" ? 28 : 32;
   const avatarUrl = getUserAvatarUrl(user);
 
   if (avatarUrl && !imgError) {
@@ -34,6 +35,10 @@ export const UserAvatar = ({ user, size = "md" }: { user: DashboardUser; size?: 
       <img
         src={avatarUrl}
         alt={describeUser(user)}
+        width={pixels}
+        height={pixels}
+        loading="eager"
+        decoding="async"
         onError={() => setImgError(true)}
         className={`${dim} flex-none rounded-full object-cover ring-1 ring-primary/25`}
       />

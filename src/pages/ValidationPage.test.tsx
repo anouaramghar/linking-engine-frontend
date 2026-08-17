@@ -1,6 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BulkReviewChunkError } from "../api/suggestions";
@@ -12,6 +18,11 @@ import ValidationPage from "./ValidationPage";
 function PublishStub() {
   const { siteId } = useParams();
   return <div>Legacy approval link for site {siteId}</div>;
+}
+
+function QueueLocationProbe() {
+  const [searchParams] = useSearchParams();
+  return <span data-testid="queue-location">{searchParams.toString()}</span>;
 }
 
 /**
@@ -29,9 +40,12 @@ const renderQueue = (initialEntry = "/") => {
         <Route
           path="/"
           element={
-            <QueueWorkspaceProvider>
-              <ValidationPage />
-            </QueueWorkspaceProvider>
+            <>
+              <QueueLocationProbe />
+              <QueueWorkspaceProvider>
+                <ValidationPage />
+              </QueueWorkspaceProvider>
+            </>
           }
         />
         <Route path="/publish" element={<div>Approval site list</div>} />

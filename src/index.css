@@ -107,6 +107,35 @@
   --c-error-active: 185 28 28;
   --c-error-ink: 185 28 28;
 
+  /**
+   * Status tints — the grounds a status badge takes when it reports a state,
+   * added because a queue where every status was the same grey pill made the
+   * operator read seven words to learn one thing.
+   *
+   * No token reference in braces anywhere in this block: theme.contrast.test.ts
+   * finds this palette's closing brace by searching for the first one, so a
+   * brace in a comment ends the block early and every token below it silently
+   * disappears from the contrast run.
+   *
+   * These are opaque values, not the orbs at an opacity. Two reasons. The orbs
+   * are decoration drawn at 28-45% and re-anchored per theme for that job, so
+   * borrowing them for a ground that carries 12px semibold text would tie a
+   * contrast floor to a decorative token. And an alpha tint composites against
+   * whatever is behind it — a badge sits on the card, the strong surface, and
+   * the soft canvas in different views, so its contrast would be a different
+   * number in each. Flat values measure once and hold everywhere.
+   *
+   * The hue follows the meaning the app already assigns: positive from
+   * semantic-success, negative from semantic-error, active from the selection
+   * lavender, progress from the sky stop. Pending and expired deliberately take
+   * no tint — a queue is mostly pending, and tinting the default state would
+   * spend the signal on the majority.
+   */
+  --c-tint-positive: 219 244 228;
+  --c-tint-negative: 253 226 226;
+  --c-tint-active: 230 223 243;
+  --c-tint-progress: 219 232 246;
+
   --shadow-soft: 0.04;
   --shadow-lift: 0.08;
   --shadow-drawer: 0.16;
@@ -190,6 +219,15 @@
   --c-error-active: 185 28 28;
   --c-error-ink: 252 165 165;
 
+  /* The same four meanings, deepened rather than lightened. A pale mint pill on
+     an ink page is a light source, and the badge would outshine the row it
+     describes; taken below the card instead, the tint reads as a stained
+     surface and the near-white label sits on it at 11:1 or better. */
+  --c-tint-positive: 22 61 43;
+  --c-tint-negative: 76 29 29;
+  --c-tint-active: 58 48 82;
+  --c-tint-progress: 32 56 82;
+
   /* Black on near-black says little, so the shadow leans on depth rather than
      darkness — the hairline and the card's top highlight carry the edge. */
   --shadow-soft: 0.5;
@@ -241,6 +279,59 @@ body {
   color: rgb(var(--c-selection-ink));
 }
 
+/**
+ * The parts of the page the app did not draw.
+ *
+ * The queue owns a tall scroll region, so the scrollbar is on screen for the
+ * whole working session — and until now it was the one surface in the dashboard
+ * still wearing the operating system's colours, which do not travel with the
+ * theme. A dark theme with a bright system scrollbar down its edge is the seam
+ * that gives away a themed page.
+ *
+ * `scrollbar-width: thin` covers Firefox and the modern standard; the WebKit
+ * block below covers Chromium and Safari, where `scrollbar-color` is honoured
+ * inconsistently. Both resolve through the palette variables, so the bar
+ * re-themes with everything else rather than being re-stated per theme.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-hairline-strong)) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* Inset by a transparent border rather than a narrower bar, so the thumb
+     keeps a full-width hit target while reading as a slim rule. */
+  background-color: rgb(var(--c-hairline-strong));
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--c-hairline-control));
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The caret is text, so it takes the ink the text takes. The browser default is
+   a fixed black that disappears on the dark theme's card surface. */
+input,
+textarea,
+[contenteditable] {
+  caret-color: rgb(var(--c-ink));
+}
+
 /* Native number-input spinners clash with the pill styling */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
@@ -264,10 +355,18 @@ input[type="number"] {
   /* {component.button-primary} / {component.button-outline} share a box: 44px
      on mobile and 40px from `sm` upward, with 20px of horizontal room and a
      pill. The outline's border eats into the same outer box. */
+  /* The press is acknowledged by the pill giving under the pointer, which is
+     the one piece of feedback a decision button in this app owed and did not
+     pay: `Select` and `Reject` are pressed hundreds of times in a session and
+     only ever changed colour. `transform` rather than a size change, so a row
+     of buttons never reflows mid-press, and `active:` rather than `:hover`, so
+     it is a response to the operator and not to the cursor passing over. */
   .btn {
     @apply inline-flex h-11 flex-none items-center justify-center gap-2
       whitespace-nowrap rounded-pill border px-5 text-button
-      transition-colors disabled:cursor-not-allowed sm:h-10;
+      transition-[color,background-color,border-color,transform]
+      duration-feedback ease-settle active:scale-[0.97]
+      disabled:cursor-not-allowed disabled:active:scale-100 sm:h-10;
   }
 
   .btn-primary {
@@ -334,9 +433,15 @@ input[type="number"] {
   }
 
   /* {component.feature-card} — white on the off-white canvas, held by a
-     hairline. `soft` is the system's single shadow tier. */
+     hairline. `soft` is the system's single shadow tier.
+
+     `border-color` joins the transition so queue selection *moves* between
+     rows instead of two borders swapping in the same frame. The cursor stepping
+     down a list is a continuous gesture, and the row it lands on is the only
+     thing on screen telling the operator where they are. */
   .card {
-    @apply rounded-xl border border-hairline bg-surface-card transition-shadow duration-200;
+    @apply rounded-xl border border-hairline bg-surface-card
+      transition-[box-shadow,border-color] duration-state ease-settle;
   }
 
   /* {component.badge-pill} */
@@ -407,9 +512,54 @@ input[type="number"] {
 /* {component.badge-pill} sits on {colors.surface-strong}, one rung above the
    card it lands on. That rung is wide enough to see on white and narrow on ink,
    so the chip gets its own rim there. An inset ring rather than a border: a
-   border would make the badge 2px wider in dark than in light. */
+   border would make the badge 2px wider in dark than in light.
+
+   A light rim rather than the grey hairline value, because the badge no longer
+   has one ground: a fixed stone rim reads as a grey outline drawn around a
+   green or violet status pill. White at 12% is the same rung above whatever the
+   pill is filled with — it lands within a shade of the old value on the neutral
+   surface, and stays the pill's own hue on a tinted one. */
 :root[data-theme="dark"] .badge {
-  box-shadow: inset 0 0 0 1px rgb(var(--c-hairline-strong));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+/**
+ * The queue arrives as a list, so it is drawn as one.
+ *
+ * Every row already carried an identical entrance, which at a hundred rows is
+ * not an entrance — it is the whole page flickering at once. A short stagger
+ * says "these are ordered, read from the top" instead.
+ *
+ * The delay is capped at the first eight rows for two reasons: a stagger that
+ * keeps counting makes row sixty arrive a second and a half after row one, and
+ * anything past the eighth row is below the fold on the shortest supported
+ * desktop viewport, so it would be a delay nobody sees paid by everybody. Rows
+ * after the eighth take the base entrance with no delay.
+ */
+.queue-row {
+  animation: rowIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.queue-row:nth-child(2) {
+  animation-delay: 25ms;
+}
+.queue-row:nth-child(3) {
+  animation-delay: 50ms;
+}
+.queue-row:nth-child(4) {
+  animation-delay: 75ms;
+}
+.queue-row:nth-child(5) {
+  animation-delay: 100ms;
+}
+.queue-row:nth-child(6) {
+  animation-delay: 125ms;
+}
+.queue-row:nth-child(7) {
+  animation-delay: 150ms;
+}
+.queue-row:nth-child(n + 8) {
+  animation-delay: 175ms;
 }
 
 .job-activity-dot {
@@ -558,6 +708,18 @@ input[type="number"] {
   }
 }
 
+/**
+ * Reduced motion removes the travel, not the meaning.
+ *
+ * Everything below is spatial: rows rising, a meter sweeping, a notice sliding,
+ * a pill giving under a press. Each is cancelled into its *finished* state
+ * rather than hidden — the meter in particular has to land at `scaleX(1)`, or a
+ * reader who asked for less movement would be shown every score as zero.
+ *
+ * What survives is the colour and state transitions on `.btn` and `.card`:
+ * those carry hover, selection, and disabled, and dropping them would cost
+ * information rather than movement.
+ */
 @media (prefers-reduced-motion: reduce) {
   .job-activity-dot,
   .logo-anim-svg,
@@ -565,7 +727,10 @@ input[type="number"] {
   .logo-anim-node-hollow,
   .logo-anim-link,
   .animate-pulse,
-  .animate-rowIn {
+  .animate-rowIn,
+  .animate-meterFill,
+  .animate-noticeIn,
+  .queue-row {
     animation: none;
   }
 
@@ -574,8 +739,16 @@ input[type="number"] {
   }
 
   .animate-pulse,
-  .animate-rowIn {
+  .animate-rowIn,
+  .animate-meterFill,
+  .animate-noticeIn,
+  .queue-row {
     opacity: 1;
+    transform: none;
+  }
+
+  /* The press keeps its colour change and loses its give. */
+  .btn:active {
     transform: none;
   }
 }

@@ -691,9 +691,30 @@ export default function App() {
         tabIndex={-1}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
       >
-        {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
-        <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
-        <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
+        {/* Atmospheric orbs — the system's only colour moment, carrying no content.
+
+            `-z-10` is load-bearing, not tidying. These are positioned and the
+            routed page under them is not, and a positioned element paints above
+            a static one whatever the source order says — so the decoration was
+            drawing *over* the content: a lavender haze across the top-right and
+            a mint wash over the cards. `pointer-events-none` is why it went
+            unnoticed for so long; the orbs were never in the way of a click,
+            only of the words.
+
+            A negative index, and deliberately no stacking context on the
+            parent. Negative-z children paint below in-flow block backgrounds,
+            which is exactly the rung these want. Giving <main> its own stacking
+            context would fix the orbs too and break something worse: every
+            modal renders inside <main> at `z-50` with no portal, and the rail
+            beside it is `z-30`, so bounding "above" to <main> would drop each
+            dialog underneath the navigation.
+
+            The sibling pages solve this the other way, by making their content
+            positioned (LoginPage's panel, every text row in an Evaluation metric
+            card). That option is not open here: the content is <Routes>, and
+            each page owns its own root. */}
+        <div className="pointer-events-none absolute -right-20 -top-32 -z-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
+        <div className="pointer-events-none absolute -bottom-36 left-56 -z-10 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
         <RouteErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>

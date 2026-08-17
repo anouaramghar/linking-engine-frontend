@@ -143,7 +143,14 @@ export default function SuggestionPreview({
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <div className="flex min-h-10 items-center justify-center gap-2 rounded-pill bg-surface-strong px-4 text-caption-upper uppercase text-ink">
+          {/* Both grounds are utilities, so the fallback is chosen here rather
+              than layered — stylesheet order, not attribute order, decides
+              which of two competing `bg-*` utilities wins. */}
+          <div
+            className={`flex min-h-10 items-center justify-center gap-2 rounded-pill px-4 text-caption-upper uppercase text-ink ${
+              STATUS_META[s.status].tint || "bg-surface-strong"
+            }`}
+          >
             <span className={`dot ${STATUS_META[s.status].dot}`} />
             {STATUS_META[s.status].label}
           </div>

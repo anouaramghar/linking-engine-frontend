@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { orbPlateClass, orbWashClass } from "../../lib/utils";
 import type { ArticleBrief } from "../../types/suggestion";
 
 interface Props {
@@ -43,7 +44,14 @@ export default function SuggestionGroup({
       aria-labelledby={headingId}
       className="overflow-hidden rounded-xxl border border-hairline bg-surface-card"
     >
-      <div className="flex flex-col items-stretch gap-3 border-b border-hairline bg-canvas-soft px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+      {/* The site's own hue, washed in from the edge the group starts at. In a
+          single-site queue it is a quiet constant; across a fleet it is the
+          fastest way to see that the run of groups you are reading all belong
+          to one site. The wash carries no meaning the text does not also
+          carry — the site is named on the line below the title. */}
+      <div
+        className={`flex flex-col items-stretch gap-3 border-b border-hairline bg-canvas-soft px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5 ${orbWashClass(siteId)}`}
+      >
         {/* A real heading, so the queue has structure a screen reader can jump
             through — the page's h1 is the PageHeader, each source article is an
             h2. The APG accordion shape: heading wraps the disclosure button. */}
@@ -56,9 +64,13 @@ export default function SuggestionGroup({
             onClick={onToggle}
             className="flex w-full min-w-0 items-center gap-3 text-left"
           >
+            {/* The disclosure marker doubles as the site's plate — the same
+                circular stop the Sites page gives this site, so a fleet reads
+                as one system across both pages. It stays a control first: the
+                +/- and the hairline are unchanged, and the hue is behind them. */}
             <span
               aria-hidden
-              className="flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong bg-surface-card text-body-sm font-medium text-ink"
+              className={`flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong text-body-sm font-medium text-ink ${orbPlateClass(siteId)}`}
             >
               {collapsed ? "+" : "−"}
             </span>
