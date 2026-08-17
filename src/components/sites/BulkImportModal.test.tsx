@@ -98,7 +98,7 @@ describe("BulkImportModal", () => {
     await waitFor(() => expect(screen.getByText("line 3")).toBeTruthy());
     expect(screen.getByText("1 imported")).toBeTruthy();
     expect(screen.getByText("1 already existed")).toBeTruthy();
-    expect(screen.getByText("1 invalid in file")).toBeTruthy();
+    expect(screen.getByText("1 invalid rows")).toBeTruthy();
     expect(screen.getByText("line 4")).toBeTruthy();
     expect(screen.getByText("base_url must start with http:// or https://")).toBeTruthy();
   });

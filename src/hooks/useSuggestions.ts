@@ -12,14 +12,19 @@ import {
   bulkReviewByFilter,
   countSuggestions,
   getPlacement,
+  getSuggestionEvents,
+  listAllSuggestionIds,
   listSuggestionPage,
+  markSuggestionsExposed,
   reviewSuggestion,
+  triggerArticleAnalysis,
+  undoFilteredBulkReview,
 } from "../api/suggestions";
 import type {
   SuggestionCursor,
   SuggestionQueueFilters,
 } from "../api/suggestions";
-import type { ReviewStatus } from "../types/suggestion";
+import type { RejectionReason, ReviewStatus } from "../types/suggestion";
 
 export const useSuggestions = (
   filters: SuggestionQueueFilters,
@@ -86,23 +91,68 @@ export const usePlacement = (suggestionId: number | null) =>
     retry: 1,
   });
 
+/** Lazy audit history for the one suggestion whose detail drawer is open. */
+export const useSuggestionEvents = (suggestionId: number | null) =>
+  useQuery({
+    queryKey: ["suggestion-events", suggestionId],
+    queryFn: () => getSuggestionEvents(suggestionId as number),
+    enabled: suggestionId !== null,
+  });
+
 const useInvalidateQueue = () => {
   const qc = useQueryClient();
   return () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["suggestions"] }),
+      qc.invalidateQueries({ queryKey: ["suggestion-events"] }),
+      qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
+    ]);
+};
+
+/**
+ * A single decision is already represented locally by ValidationPage. Mark the
+ * paginated rows stale without immediately downloading every loaded page again;
+ * refresh only the small counters and publication-inbox summary.
+ */
+const useInvalidateSingleReview = () => {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({
+        queryKey: ["suggestions", "queue"],
+        refetchType: "none",
+      }),
+      qc.invalidateQueries({ queryKey: ["suggestions", "counts"] }),
       qc.invalidateQueries({ queryKey: ["publish", "pending"] }),
     ]);
 };
 
 export const useReview = () => {
-  const invalidate = useInvalidateQueue();
+  const invalidate = useInvalidateSingleReview();
   return useMutation({
-    mutationFn: ({ id, status }: { id: number; status: ReviewStatus }) =>
-      reviewSuggestion(id, status),
+    mutationFn: ({
+      id,
+      status,
+      rejectionReason,
+    }: {
+      id: number;
+      status: ReviewStatus;
+      rejectionReason?: RejectionReason;
+    }) => reviewSuggestion(id, status, rejectionReason),
     onSuccess: invalidate,
   });
 };
+
+export const useMarkSuggestionsExposed = () =>
+  useMutation({
+    mutationFn: ({
+      ids,
+      surface,
+    }: {
+      ids: number[];
+      surface?: "queue" | "preview";
+    }) => markSuggestionsExposed(ids, surface),
+  });
 
 export const useBulkReview = () => {
   const invalidate = useInvalidateQueue();
@@ -119,5 +169,28 @@ export const useFilteredBulkReview = () => {
   return useMutation({
     mutationFn: bulkReviewByFilter,
     onSettled: invalidate,
+  });
+};
+
+export const useFilteredBulkUndo = () => {
+  const invalidate = useInvalidateQueue();
+  return useMutation({
+    mutationFn: undoFilteredBulkReview,
+    onSettled: invalidate,
+  });
+};
+
+export const useAllFilteredSuggestionIds = () =>
+  useMutation({ mutationFn: listAllSuggestionIds });
+
+/** Reuse the site analysis task with one source article as its explicit scope. */
+export const useTriggerArticleAnalysis = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (articleId: number) => triggerArticleAnalysis(articleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["suggestions"] });
+    },
   });
 };

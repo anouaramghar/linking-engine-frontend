@@ -1,7 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ContentPoolPage from "./ContentPoolPage";
+
+const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
 
 const mocks = vi.hoisted(() => ({
   sites: { data: [] as unknown[], isPending: false, isError: false, isFetching: false, refetch: vi.fn() },
@@ -102,15 +106,38 @@ describe("ContentPoolPage", () => {
     await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith(3));
   });
 
-  it("opens a creation form fixed to the content-pool connector", () => {
+  it("opens a pool source in a new tab instead of asking for a copy and paste", () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "Industry feed",
+        base_url: "https://news.example.com/feed",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_quarantined: false,
+      },
+    ];
     render(<ContentPoolPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "+ Connect pool source" }));
-    expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source");
-    expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).value).toBe(
+    const link = screen.getByRole("link", { name: "Open Industry feed in a new tab" });
+    expect(link.getAttribute("href")).toBe("https://news.example.com/feed");
+    // A new tab keeps the operator's place in the pool, and `noreferrer` keeps
+    // the dashboard's address out of a third party's logs.
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("opens a creation form fixed to the content-pool connector", async () => {
+    render(<ContentPoolPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect pool source" }));
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source"),
+    );
+    expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).value).toBe(
       "pool",
     );
-    expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).disabled).toBe(
+    expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).disabled).toBe(
       true,
     );
   });

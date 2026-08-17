@@ -12,6 +12,7 @@ interface Props {
   collapsed: boolean;
   onToggle: () => void;
   onShowMore: () => void;
+  itemLabel?: string;
   children: ReactNode;
 }
 
@@ -28,12 +29,14 @@ export default function SuggestionGroup({
   collapsed,
   onToggle,
   onShowMore,
+  itemLabel = "suggestion",
   children,
 }: Props) {
   const headingId = `source-group-${siteId}-${sourceArticle.id}`;
   const listId = `${headingId}-suggestions`;
   const path = articlePath(sourceArticle.url);
   const action = collapsed ? "Expand" : "Collapse";
+  const itemCountLabel = count === 1 ? itemLabel : `${itemLabel}s`;
 
   return (
     <section
@@ -49,7 +52,7 @@ export default function SuggestionGroup({
             type="button"
             aria-expanded={!collapsed}
             aria-controls={listId}
-            aria-label={`${action} suggestions for ${sourceArticle.title} (${path})`}
+            aria-label={`${action} ${itemCountLabel} for ${sourceArticle.title} (${path})`}
             onClick={onToggle}
             className="flex w-full min-w-0 items-center gap-3 text-left"
           >
@@ -57,7 +60,7 @@ export default function SuggestionGroup({
               aria-hidden
               className="flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong bg-surface-card text-body-sm font-medium text-ink"
             >
-              {collapsed ? "+" : "-"}
+              {collapsed ? "+" : "−"}
             </span>
             <span className="min-w-0">
               <span id={headingId} className="block truncate text-body-md font-medium text-ink">
@@ -70,7 +73,7 @@ export default function SuggestionGroup({
           </button>
         </h2>
         <span className="badge flex-none self-start">
-          {count} {count === 1 ? "suggestion" : "suggestions"}
+          {count} {itemCountLabel}
         </span>
       </div>
 

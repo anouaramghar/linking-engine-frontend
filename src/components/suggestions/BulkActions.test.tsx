@@ -20,12 +20,17 @@ const baseProps = () => ({
   onCancel: vi.fn(),
 });
 
+const openBulkReview = () => {
+  fireEvent.click(screen.getByText("Bulk review", { exact: true }));
+};
+
 describe("BulkActions", () => {
   it("renders the threshold and current target counts", () => {
     render(<BulkActions {...baseProps()} />);
+    openBulkReview();
 
     expect((screen.getByLabelText("Score threshold") as HTMLInputElement).value).toBe("80");
-    expect(screen.getByRole("button", { name: /Accept.*2/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Select.*2/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Reject.*1/ })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "GNN" })).toBeNull();
   });
@@ -33,8 +38,9 @@ describe("BulkActions", () => {
   it("reports bulk-action intents immediately", () => {
     const props = baseProps();
     render(<BulkActions {...props} />);
+    openBulkReview();
 
-    fireEvent.click(screen.getByRole("button", { name: /Accept/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Select/ }));
 
     expect(props.onRequest).toHaveBeenCalledWith("approve");
   });
@@ -47,6 +53,7 @@ describe("BulkActions", () => {
   it("commits the threshold once the typing settles, not per keystroke", async () => {
     const props = baseProps();
     render(<BulkActions {...props} />);
+    openBulkReview();
     const field = screen.getByLabelText("Score threshold");
 
     fireEvent.change(field, { target: { value: "7" } });
@@ -62,6 +69,7 @@ describe("BulkActions", () => {
   it("settles the threshold at once when the field is left", () => {
     const props = baseProps();
     render(<BulkActions {...props} />);
+    openBulkReview();
     const field = screen.getByLabelText("Score threshold");
 
     fireEvent.change(field, { target: { value: "75" } });
@@ -87,7 +95,7 @@ describe("BulkActions", () => {
     );
 
     expect(
-      (screen.getByRole("button", { name: /Accept/ }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: /Select/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
     const confirmation = screen.getByRole("region", { name: /3 pending suggestions/ });
     expect(confirmation.textContent).toContain("Example site");
@@ -112,5 +120,25 @@ describe("BulkActions", () => {
     expect(screen.getByRole("region", { name: /1001 pending suggestions/ }).textContent).toContain(
       "too large to undo in one step",
     );
+  });
+
+  it("keeps historical statuses behind one disclosure", () => {
+    const props = baseProps();
+    render(
+      <BulkActions
+        {...props}
+        chips={[
+          ...props.chips,
+          { key: "applied", label: "Published", count: 3 },
+        ]}
+      />,
+    );
+
+    const statuses = screen.getByRole("button", { name: /Published/ });
+    expect(statuses.closest("details")).not.toBeNull();
+    expect((statuses.closest("details") as HTMLDetailsElement).open).toBe(false);
+    fireEvent.click(screen.getByText("More statuses", { exact: true }));
+    expect((statuses.closest("details") as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByRole("button", { name: /Published.*3/ })).not.toBeNull();
   });
 });

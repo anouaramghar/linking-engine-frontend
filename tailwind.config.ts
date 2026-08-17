@@ -83,14 +83,27 @@ export default {
       "surface-dark-elevated": token("surface-dark-elevated"),
 
       // Atmospheric gradient stops. Decoration only — never a button fill, a
-      // text colour, or a component background. Unchanged across themes: at the
-      // 28–35% they are drawn with, the same pastels read as a wash on white
-      // and as a low glow on ink.
+      // text colour, or a component background. They are always drawn at 28–45%
+      // over their ground, which is why they have to travel with the theme:
+      // partial opacity *adds* the stop to what is behind it, so a pastel that
+      // reads as a wash on white blooms into visible grey fog on ink. Dark
+      // re-anchors the same five hues below its canvas to get the same whisper.
       "orb-mint": token("orb-mint"),
       "orb-peach": token("orb-peach"),
       "orb-lavender": token("orb-lavender"),
       "orb-sky": token("orb-sky"),
       "orb-rose": token("orb-rose"),
+
+      // Syntax. Derived, and the one place the system's monochrome rule is
+      // deliberately set aside: the exact-HTML review asks an operator to read
+      // markup, and markup is read in a coloured editor everywhere else they
+      // work. Held to the muted end of each hue and measured against
+      // {colors.surface-card} in both themes by `theme.contrast.test.ts`. Never
+      // used outside a code surface.
+      "code-tag": token("code-tag"),
+      "code-attr": token("code-attr"),
+      "code-value": token("code-value"),
+      "code-comment": token("code-comment"),
 
       // Semantic
       success: token("success"),

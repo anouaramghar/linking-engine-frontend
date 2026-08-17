@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Ref } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
-import { ingestSite, publishSite } from "../api/sites";
+import { ingestSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -12,13 +12,13 @@ import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
-import AddSiteModal from "../components/sites/AddSiteModal";
-import BulkImportModal from "../components/sites/BulkImportModal";
-import BatchPipelinePanel from "../components/sites/BatchPipelinePanel";
+import SelectionControl from "../components/SelectionControl";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
+import { usePageState } from "../hooks/usePageState";
 import {
+  useCancelPipelineBatch,
   useCreatePipelineBatch,
   usePipelineBatch,
   useRetryPipelineSite,
@@ -27,7 +27,6 @@ import { useDeleteSite, useSites } from "../hooks/useSites";
 
 import { errorDetail } from "../lib/errors";
 import {
-  RQ_SCHEDULING_COPY,
   formatCount,
   initials,
   orbPlateClass,
@@ -45,8 +44,8 @@ const GRID =
   "grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr_1fr_1fr_1.8fr] lg:items-center" +
   " xl:grid-cols-[2fr_1.2fr_.65fr_.75fr_.8fr_1fr_1.4fr]";
 
-const batchIdFromUrl = () => {
-  const value = Number(new URLSearchParams(window.location.search).get("batch"));
+const batchIdFromParams = (params: URLSearchParams) => {
+  const value = Number(params.get("batch"));
   return Number.isInteger(value) && value > 0 ? value : null;
 };
 
@@ -83,17 +82,31 @@ interface TrackedJob {
   jobId: string;
 }
 
+const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
+const ArticleImportModal = lazy(() => import("../components/sites/ArticleImportModal"));
+const BulkImportModal = lazy(() => import("../components/sites/BulkImportModal"));
+const BatchPipelinePanel = lazy(() => import("../components/sites/BatchPipelinePanel"));
+const EditorialRankingPolicyModal = lazy(
+  () => import("../components/sites/EditorialRankingPolicyModal"),
+);
+const ExternalLinkPolicyModal = lazy(
+  () => import("../components/sites/ExternalLinkPolicyModal"),
+);
+const SiteCredentialsModal = lazy(() => import("../components/sites/SiteCredentialsModal"));
+
+const activeJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
+
 function CurrentSiteStatus({
   site,
-  activeJobs,
-  trackedJobs,
+  activeJobsBySite,
+  trackedJobsBySite,
 }: {
   site: Site;
-  activeJobs: JobRun[];
-  trackedJobs: TrackedJob[];
+  activeJobsBySite: Map<number, JobRun>;
+  trackedJobsBySite: Map<number, TrackedJob>;
 }) {
   const siteId = site.id;
-  const active = activeJobs.find((job) => job.site_id === siteId);
+  const active = activeJobsBySite.get(siteId);
   if (active) {
     return (
       <JobStatusBadge
@@ -108,7 +121,7 @@ function CurrentSiteStatus({
     );
   }
 
-  const tracked = [...trackedJobs].reverse().find((job) => job.siteId === siteId);
+  const tracked = trackedJobsBySite.get(siteId);
   if (tracked) {
     return <JobStatusBadge jobId={tracked.jobId} kind={tracked.kind} />;
   }
@@ -117,8 +130,10 @@ function CurrentSiteStatus({
     <SiteStatusBadge
       status={site.last_ingestion_status}
       lastCrawlAt={site.last_crawl_at}
+      ingestionError={site.last_ingestion_error}
       analysisStatus={site.last_analysis_status}
       lastAnalysisAt={site.last_analysis_at}
+      analysisError={site.last_analysis_error}
     />
   );
 }
@@ -134,7 +149,7 @@ function SuggestionMethodBadge() {
   return (
     <span
       className="badge"
-      title="Generation method for new suggestions: hybrid candidate retrieval with BM25-512 ordering and up to three suggestions per source"
+      title="Combines semantic and keyword matching for new suggestions"
     >
       <span className="dot bg-primary" />
       Hybrid
@@ -142,66 +157,47 @@ function SuggestionMethodBadge() {
   );
 }
 
-function SelectionControl({
-  label,
-  checked,
-  indeterminate = false,
-  disabled = false,
-  inputRef,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  indeterminate?: boolean;
-  disabled?: boolean;
-  inputRef?: Ref<HTMLInputElement>;
-  onChange: () => void;
-}) {
-  const active = checked || indeterminate;
-
+/**
+ * Open the live site in a new tab.
+ *
+ * Sits outside the selection label on purpose: inside it, every click meant to
+ * open the site would tick the batch checkbox instead. `noreferrer` because a
+ * customer's site has no business learning where the operator came from.
+ */
+function OpenSiteLink({ site }: { site: Site }) {
   return (
-    <>
-      <input
-        ref={inputRef}
-        type="checkbox"
-        className="peer sr-only"
-        aria-label={label}
-        aria-checked={indeterminate ? "mixed" : checked}
-        checked={checked}
-        disabled={disabled}
-        onChange={onChange}
-      />
-      <span
+    <a
+      href={site.base_url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${site.name} in a new tab`}
+      title={`Open ${site.base_url} in a new tab`}
+      className="touch-target inline-flex h-8 w-8 flex-none items-center justify-center rounded-pill text-muted transition-colors hover:bg-surface-strong hover:text-ink"
+    >
+      <svg
         aria-hidden="true"
-        className={`pointer-events-none flex h-5 w-5 flex-none items-center justify-center rounded-md border transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-disabled:opacity-50 ${
-          active
-            ? "border-primary bg-primary text-on-primary"
-            : "border-hairline-control bg-surface-card"
-        }`}
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       >
-        {indeterminate ? (
-          <span className="h-0.5 w-2.5 rounded-pill bg-on-primary" />
-        ) : checked ? (
-          <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-            <path
-              d="m3 8 3 3 7-7"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : null}
-      </span>
-    </>
+        <path d="M15 3h6v6" />
+        <path d="M10 14 21 3" />
+        <path d="M20 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5" />
+      </svg>
+    </a>
   );
 }
 
-function SiteIdentity({ site, index }: { site: Site; index: number }) {
+function SiteIdentity({ site }: { site: Site }) {
   return (
     <>
       <span
-        className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(index)}`}
+        className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-caption-upper text-ink ${orbPlateClass(site.id)}`}
       >
         {initials(site.name)}
       </span>
@@ -216,7 +212,21 @@ function SiteIdentity({ site, index }: { site: Site; index: number }) {
 }
 
 export default function SitesPage() {
-  const sitesQuery = useSites();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get("q") ?? "";
+  const setSearch = (value: string) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value.trim() === "") next.delete("q");
+        else next.set("q", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+  const sitesQuery = useSites(search);
   const sites = useMemo(
     () => sitesQuery.data?.filter((site) => site.platform !== "pool"),
     [sitesQuery.data],
@@ -226,32 +236,65 @@ export default function SitesPage() {
       ? sites.reduce((total, site) => total + (site.article_count ?? 0), 0)
       : null;
   const activeJobsQuery = useActiveJobs();
-  const activeJobs = activeJobsQuery.data ?? [];
+  const activeJobs = useMemo(() => activeJobsQuery.data ?? [], [activeJobsQuery.data]);
   const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const activeJobsBySite = useMemo(() => {
+    const index = new Map<number, JobRun>();
+    for (const job of activeJobs) {
+      if (!index.has(job.site_id)) index.set(job.site_id, job);
+    }
+    return index;
+  }, [activeJobs]);
+  const activeJobsBySiteKind = useMemo(() => {
+    const index = new Map<string, JobRun>();
+    for (const job of activeJobs) {
+      const key = activeJobKey(job.site_id, job.kind);
+      if (!index.has(key)) index.set(key, job);
+    }
+    return index;
+  }, [activeJobs]);
   const hasActiveJob = (siteId: number, kind: JobKind) =>
-    activeJobs.some((job) => job.site_id === siteId && job.kind === kind);
+    activeJobsBySiteKind.has(activeJobKey(siteId, kind));
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [jobs, setJobs] = useState<TrackedJob[]>([]);
+  const [articleImportFor, setArticleImportFor] = useState<Site | null>(null);
+  // Crawls and pipeline runs outlive the visit that started them, so the list of
+  // the ones this operator started has to as well. Dropped on navigation, a job
+  // someone kicked off two minutes ago becomes indistinguishable from one a
+  // colleague started, and the only way back to its progress was to start
+  // another.
+  const [jobs, setJobs] = usePageState<TrackedJob[]>("sites.jobs", []);
+  const trackedJobsBySite = useMemo(() => {
+    const index = new Map<number, TrackedJob>();
+    // Assignment order preserves the previous reverse().find behavior: the
+    // newest tracked entry for a site wins.
+    for (const job of jobs) index.set(job.siteId, job);
+    return index;
+  }, [jobs]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
-  const [search, setSearch] = useState("");
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedSiteIds, setSelectedSiteIds] = useState<Set<number>>(new Set());
+  const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
+  const [policySite, setPolicySite] = useState<Site | null>(null);
+  const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
+  // A batch is assembled by hand across a long list. Leaving to check one site's
+  // credentials before running the rest is part of assembling it, and used to
+  // throw the whole selection away.
+  const [selectionMode, setSelectionMode] = usePageState("sites.selectionMode", false);
+  const [selectedSiteIds, setSelectedSiteIds] = usePageState<Set<number>>(
+    "sites.selectedIds",
+    () => new Set(),
+  );
   const selectVisibleRef = useRef<HTMLInputElement>(null);
   const selectVisibleMobileRef = useRef<HTMLInputElement>(null);
-  const [batchId, setBatchId] = useState<number | null>(batchIdFromUrl);
+  const batchId = batchIdFromParams(searchParams);
+  const [confirmCancelBatch, setConfirmCancelBatch] = useState(false);
   const createBatch = useCreatePipelineBatch();
   const batchQuery = usePipelineBatch(batchId);
   const retryPipelineSite = useRetryPipelineSite();
+  const cancelBatch = useCancelPipelineBatch();
 
-  useEffect(() => {
-    const syncBatchFromUrl = () => setBatchId(batchIdFromUrl());
-    window.addEventListener("popstate", syncBatchFromUrl);
-    return () => window.removeEventListener("popstate", syncBatchFromUrl);
-  }, []);
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return sites;
@@ -263,9 +306,14 @@ export default function SitesPage() {
   }, [search, sites]);
   const {
     visible: visibleSites,
-    hasMore: hasMoreSites,
-    showMore: showMoreSites,
+    hasMore: hasMoreLoadedSites,
+    showMore: showMoreLoadedSites,
   } = useIncrementalList(filteredSites ?? [], search, 50, 250);
+  const hasMoreSites = hasMoreLoadedSites || Boolean(sitesQuery.hasNextPage);
+  const showMoreSites = () => {
+    if (hasMoreLoadedSites) showMoreLoadedSites();
+    else void sitesQuery.fetchNextPage();
+  };
 
   const busyKey = (siteId: number, label: string) => `${siteId}:${label}`;
   const visibleSiteIds = useMemo(() => visibleSites?.map((site) => site.id) ?? [], [visibleSites]);
@@ -324,10 +372,11 @@ export default function SitesPage() {
   };
 
   const showBatch = (nextBatchId: number) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("batch", String(nextBatchId));
-    window.history.pushState({}, "", url);
-    setBatchId(nextBatchId);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("batch", String(nextBatchId));
+      return next;
+    });
   };
 
   const launchBatch = async () => {
@@ -429,38 +478,58 @@ export default function SitesPage() {
     );
   };
 
+  const cancelActiveBatch = async () => {
+    if (batchId === null || cancelBatch.isPending) return;
+    setNotice(null);
+    try {
+      await cancelBatch.mutateAsync(batchId);
+      setConfirmCancelBatch(false);
+      setNotice({ message: `Batch #${batchId} cancelled safely.`, tone: "info" });
+    } catch (error) {
+      setNotice({
+        message: errorDetail(error, "The batch could not be cancelled."),
+        tone: "error",
+      });
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="Sites"
         sub={`${sites?.length ?? 0} connected ${
-          (sites?.length ?? 0) === 1 ? "source" : "sources"
+          (sites?.length ?? 0) === 1 ? "site" : "sites"
         } · ${
           totalArticles === null ? "Article count unavailable" : formatCount(totalArticles)
-        } active articles normalized via ContentConnector`}
+        } active articles`}
+        actions={
+          <>
+            <button type="button" onClick={() => setShowImport(true)} className="btn btn-primary">
+              Import CSV
+            </button>
+            <button type="button" onClick={() => setShowAdd(true)} className="btn btn-outline">
+              Connect site
+            </button>
+            <button
+              type="button"
+              onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
+              aria-pressed={selectionMode}
+              className="btn btn-outline"
+            >
+              {selectionMode ? "Cancel selection" : "Select sites"}
+            </button>
+          </>
+        }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button onClick={() => setShowImport(true)} className="btn btn-primary">
-            Import CSV
-          </button>
-          <button onClick={() => setShowAdd(true)} className="btn btn-outline">
-            + Connect source
-          </button>
-          <button
-            type="button"
-            onClick={() => (selectionMode ? cancelSelection() : setSelectionMode(true))}
-            aria-pressed={selectionMode}
-            className="btn btn-outline"
-          >
-            {selectionMode ? "Cancel selection" : "Select sites"}
-          </button>
           <label className="min-w-52 flex-1 sm:max-w-sm">
             <span className="sr-only">Search sources</span>
             <input
               type="search"
+              name="q"
               className="field"
-              placeholder="Search name, URL or connector"
+              placeholder="Search name, URL or connector…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -515,14 +584,18 @@ export default function SitesPage() {
         {notice && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
 
         {batchQuery.data && (
-          <BatchPipelinePanel
-            batch={batchQuery.data}
-            sites={sites ?? []}
-            retryingSiteId={
-              retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
-            }
-            onRetry={(siteId) => void retryBatchSite(siteId)}
-          />
+          <Suspense fallback={null}>
+            <BatchPipelinePanel
+              batch={batchQuery.data}
+              sites={sites ?? []}
+              retryingSiteId={
+                retryPipelineSite.isPending ? (retryPipelineSite.variables?.siteId ?? null) : null
+              }
+              onRetry={(siteId) => void retryBatchSite(siteId)}
+              cancelling={cancelBatch.isPending}
+              onCancel={() => setConfirmCancelBatch(true)}
+            />
+          </Suspense>
         )}
 
         {batchId !== null && batchQuery.isError && (
@@ -555,10 +628,10 @@ export default function SitesPage() {
             )}
             <span>Site</span>
           </div>
-          <div>Connector</div>
+          <div>Platform</div>
           <div className="xl:hidden">Details</div>
           <div className="hidden xl:block">Articles</div>
-          <div className="hidden xl:block">Int. links</div>
+          <div className="hidden xl:block">Internal links</div>
           <div className="hidden xl:block">Last crawl</div>
           <div>Status</div>
           <div />
@@ -583,7 +656,7 @@ export default function SitesPage() {
         )}
 
         <div className="flex flex-col gap-2.5">
-          {visibleSites?.map((site, index) => (
+          {visibleSites?.map((site) => (
             <div
               key={site.id}
               className={`${GRID} card px-4 py-4 text-body-sm transition-shadow hover:shadow-soft sm:px-5 ${
@@ -603,14 +676,15 @@ export default function SitesPage() {
                       disabled={!selectedSiteIds.has(site.id) && batchLimitReached}
                       onChange={() => toggleSelectedSite(site.id)}
                     />
-                    <SiteIdentity site={site} index={index} />
+                    <SiteIdentity site={site} />
                   </label>
                 ) : (
-                  <SiteIdentity site={site} index={index} />
+                  <SiteIdentity site={site} />
                 )}
+                <OpenSiteLink site={site} />
               </div>
               <div className="text-caption text-muted lg:text-body">
-                <span className="lg:hidden">Connector: </span>
+                <span className="lg:hidden">Platform: </span>
                 <span className="font-medium text-ink lg:font-normal lg:text-body">
                   {sitePlatformLabel(site.platform)}
                 </span>
@@ -623,7 +697,7 @@ export default function SitesPage() {
                   }
                 />
                 <SiteDetail
-                  label="Int. links"
+                  label="Internal links"
                   value={
                     site.internal_link_count === undefined
                       ? "Not available"
@@ -647,7 +721,7 @@ export default function SitesPage() {
               </div>
               <div className="hidden xl:block">
                 <SiteDetail
-                  label="Int. links"
+                  label="Internal links"
                   value={
                     site.internal_link_count === undefined
                       ? "Not available"
@@ -666,8 +740,8 @@ export default function SitesPage() {
               <div className="flex flex-wrap items-center gap-1.5">
                 <CurrentSiteStatus
                   site={site}
-                  activeJobs={activeJobs}
-                  trackedJobs={jobs}
+                  activeJobsBySite={activeJobsBySite}
+                  trackedJobsBySite={trackedJobsBySite}
                 />
                 {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
@@ -715,22 +789,41 @@ export default function SitesPage() {
                                 "Generate suggestions",
                                 "analysis",
                                 triggerAnalysis,
-                                "Hybrid suggestion generation queued.",
+                                "Suggestion generation queued.",
                               ),
                           },
                           {
-                            label: "Publish approved",
-                            disabled:
-                              busy[busyKey(site.id, "Publish approved")] ||
-                              jobStatusUnavailable ||
-                              hasActiveJob(site.id, "publication"),
+                            label: "External link policy",
+                            onSelect: () => setPolicySite(site),
+                          },
+                          {
+                            label: "Editorial ranking policy",
+                            onSelect: () => setRankingPolicySite(site),
+                          },
+                          {
+                            // Was "Publish approved", and it published every
+                            // selected suggestion for the site with nobody
+                            // having seen the resulting edit. Publication is now
+                            // reachable only through the review that shows the
+                            // exact HTML and takes an explicit approval.
+                            label: "Review publication changes",
+                            disabled: false,
                             onSelect: () =>
-                              void run(
-                                site.id,
-                                "Publish approved",
-                                "publication",
-                                publishSite,
-                              ),
+                              navigate(`/queue?site=${site.id}&status=approved`),
+                          },
+                          {
+                            // The label carries the state, so the menu says
+                            // whether this site can publish at all without the
+                            // row needing another badge.
+                            label: site.has_wordpress_credentials
+                              ? "Replace WordPress account"
+                              : "Add WordPress account",
+                            disabled: false,
+                            onSelect: () => setCredentialsFor(site),
+                          },
+                          {
+                            label: "Import article CSV",
+                            onSelect: () => setArticleImportFor(site),
                           },
                         ]),
                     {
@@ -748,8 +841,13 @@ export default function SitesPage() {
 
         {hasMoreSites && (
           <div className="flex flex-col items-center gap-2 py-4">
-            <button type="button" onClick={showMoreSites} className="btn btn-outline">
-              Show more sources
+            <button
+              type="button"
+              onClick={showMoreSites}
+              disabled={sitesQuery.isFetchingNextPage}
+              className="btn btn-outline"
+            >
+              {sitesQuery.isFetchingNextPage ? "Loading…" : "Show more sites"}
             </button>
             <span className="text-caption text-muted" aria-live="polite">
               Showing {visibleSites.length} of {filteredSites?.length ?? 0}
@@ -761,16 +859,8 @@ export default function SitesPage() {
           !sitesQuery.isError &&
           sites?.length !== 0 &&
           visibleSites?.length === 0 && (
-            <EmptyPanel>No connected source matches “{search}”.</EmptyPanel>
+            <EmptyPanel>No connected site matches “{search}”.</EmptyPanel>
           )}
-
-        <div className="mt-5 text-caption leading-relaxed text-muted">
-          Connectors normalize every platform into the same{" "}
-          <span className="rounded-pill bg-surface-strong px-2.5 py-0.5 text-caption text-ink">
-            Article
-          </span>{" "}
-          object before suggestion analysis. {RQ_SCHEDULING_COPY}
-        </div>
 
         {selectionMode && selectedSiteIds.size > 0 && (
           <div
@@ -812,8 +902,37 @@ export default function SitesPage() {
           </div>
         )}
       </div>
-      {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
-      {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+      <Suspense fallback={null}>
+        {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
+        {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+        {articleImportFor && (
+          <ArticleImportModal
+            site={articleImportFor}
+            onClose={() => setArticleImportFor(null)}
+          />
+        )}
+        {credentialsFor && (
+          <SiteCredentialsModal
+            site={credentialsFor}
+            onClose={() => setCredentialsFor(null)}
+            onDone={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+        {policySite && (
+          <ExternalLinkPolicyModal
+            site={policySite}
+            onClose={() => setPolicySite(null)}
+            onSaved={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+        {rankingPolicySite && (
+          <EditorialRankingPolicyModal
+            site={rankingPolicySite}
+            onClose={() => setRankingPolicySite(null)}
+            onSaved={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+      </Suspense>
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete ${pendingDelete.name}?`}
@@ -824,6 +943,17 @@ export default function SitesPage() {
           pending={deleteSite.isPending}
           onConfirm={remove}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+      {confirmCancelBatch && batchId !== null && (
+        <ConfirmDialog
+          title={`Cancel batch #${batchId}?`}
+          description="Queued work will be removed and running stages will be stopped. Completed sites stay completed; unfinished sites are marked cancelled."
+          confirmLabel="Cancel batch"
+          danger
+          pending={cancelBatch.isPending}
+          onConfirm={() => void cancelActiveBatch()}
+          onCancel={() => setConfirmCancelBatch(false)}
         />
       )}
     </>

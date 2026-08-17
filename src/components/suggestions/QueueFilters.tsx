@@ -18,6 +18,7 @@ interface Props {
   /** True when anything is narrowing the queue, so clearing is worth offering. */
   isFiltered: boolean;
   onClear: () => void;
+  ariaLabel?: string;
 }
 
 export default function QueueFilters({
@@ -26,6 +27,7 @@ export default function QueueFilters({
   sites,
   isFiltered,
   onClear,
+  ariaLabel = "Queue filters",
 }: Props) {
   const search = useDebouncedField<string>({
     value: filters.q,
@@ -37,20 +39,21 @@ export default function QueueFilters({
 
   return (
     <div
-      aria-label="Queue filters"
+      aria-label={ariaLabel}
       role="search"
-      className="card flex flex-col gap-3 p-3 sm:p-4"
+      className="flex flex-col gap-2"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <label className="flex min-w-0 flex-1 items-center sm:min-w-[16rem]">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <label className="col-span-2 flex min-w-0 flex-1 items-center sm:col-auto sm:min-w-[16rem]">
           <span className="sr-only">Search article titles</span>
           <input
             type="search"
+            name="q"
             value={search.draft}
             onChange={(event) => search.change(event.target.value)}
             onBlur={search.flush}
             maxLength={MAX_SEARCH_TERM}
-            placeholder="Search titles..."
+            placeholder="Search titles…"
             className={`${control} w-full`}
           />
         </label>
@@ -59,7 +62,7 @@ export default function QueueFilters({
           aria-label="Site filter"
           value={filters.siteId}
           onChange={(event) => onChange({ siteId: Number(event.target.value) })}
-          className={`${control} w-full cursor-pointer sm:w-auto`}
+          className={`${control} min-w-0 w-full cursor-pointer sm:w-auto`}
         >
           <option value={0}>All sites</option>
           {sites?.map((site) => (
@@ -77,13 +80,14 @@ export default function QueueFilters({
               targetOrigin: event.target.value as SuggestionTargetOrigin | "",
             })
           }
-          className={`${control} w-full cursor-pointer sm:w-auto`}
+          className={`${control} min-w-0 w-full cursor-pointer sm:w-auto`}
         >
           {/* The same words the card's badge uses, so the filter and the row it
               selects describe a target the same way. */}
           <option value="">Any target</option>
           <option value="internal">{TARGET_ORIGIN_LABEL.internal}</option>
           <option value="content_pool">{TARGET_ORIGIN_LABEL.content_pool}</option>
+          <option value="web_search">{TARGET_ORIGIN_LABEL.web_search}</option>
         </select>
 
         {isFiltered && (
@@ -93,7 +97,7 @@ export default function QueueFilters({
               search.cancel();
               onClear();
             }}
-            className="btn btn-text btn-sm"
+            className="btn btn-text btn-sm col-span-2 justify-self-start sm:col-auto"
           >
             Clear filters
           </button>

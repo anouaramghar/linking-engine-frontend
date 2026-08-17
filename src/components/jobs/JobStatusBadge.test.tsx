@@ -38,7 +38,11 @@ describe("JobStatusBadge", () => {
       />,
     );
 
-    expect(screen.getByRole("status", { name: "Analysis failed" })).not.toBeNull();
+    // The reason rides in the accessible name as well as the tooltip: a
+    // failure only a mouse can read is one half the operators never see.
+    expect(
+      screen.getByRole("status", { name: "Analysis failed. worker stopped" }),
+    ).not.toBeNull();
     expect(container.querySelector(".dot.bg-error")).not.toBeNull();
     expect(container.querySelectorAll(".logo-loading-anim")).toHaveLength(0);
   });

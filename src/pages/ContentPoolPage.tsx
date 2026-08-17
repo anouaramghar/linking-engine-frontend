@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { ingestSite } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
@@ -9,8 +10,6 @@ import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
-import AddSiteModal from "../components/sites/AddSiteModal";
-import PoolAuditModal from "../components/sites/PoolAuditModal";
 import {
   useApprovePoolSource,
   useDeleteSite,
@@ -20,9 +19,13 @@ import {
 } from "../hooks/useSites";
 import { useActiveJobs } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
+import { usePageState } from "../hooks/usePageState";
 import { errorDetail } from "../lib/errors";
 import { formatCount, timeAgo } from "../lib/utils";
 import type { Site } from "../types/site";
+
+const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
+const PoolAuditModal = lazy(() => import("../components/sites/PoolAuditModal"));
 
 type PoolFilter = "all" | "approved" | "not_approved" | "quarantined";
 
@@ -51,10 +54,28 @@ export default function ContentPoolPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [auditSite, setAuditSite] = useState<Site | null>(null);
   const [deleteSite, setDeleteSite] = useState<Site | null>(null);
-  const [filter, setFilter] = useState<PoolFilter>("all");
-  const [search, setSearch] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filter, setFilter] = usePageState<PoolFilter>("contentPool.filter", "all");
+  const search = searchParams.get("q") ?? "";
+  const setSearch = (value: string) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value.trim() === "") next.delete("q");
+        else next.set("q", value);
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const [crawlingId, setCrawlingId] = useState<number | null>(null);
-  const [crawlJobs, setCrawlJobs] = useState<Record<number, string>>({});
+  // The job ids this visit started. They are how a crawl the operator kicked off
+  // stays attributable to them after they leave the page and come back — the
+  // active-jobs query knows a crawl is running, but not that it is theirs.
+  const [crawlJobs, setCrawlJobs] = usePageState<Record<number, string>>(
+    "contentPool.crawlJobs",
+    {},
+  );
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const activeJobsQuery = useActiveJobs();
   const activeJobs = activeJobsQuery.data ?? [];
@@ -138,18 +159,21 @@ export default function ContentPoolPage() {
       <PageHeader
         title="Content Pool"
         sub={`${poolSources.length} external ${poolSources.length === 1 ? "source" : "sources"} available as read-only suggestion targets`}
+        actions={
+          <button type="button" className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            Connect pool source
+          </button>
+        }
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            + Connect pool source
-          </button>
           <label className="min-w-48 flex-1 sm:max-w-sm">
             <span className="sr-only">Search pool sources</span>
             <input
               className="field"
               type="search"
-              placeholder="Search name or URL"
+              name="q"
+              placeholder="Search name or URL…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -202,10 +226,10 @@ export default function ContentPoolPage() {
           />
         )}
         {!sitesQuery.isPending && !sitesQuery.isError && poolSources.length === 0 && (
-          <EmptyPanel>Connect the first trusted RSS, Atom, or Wikipedia source.</EmptyPanel>
+          <EmptyPanel>Connect a trusted RSS, Atom, or Wikipedia source to get started.</EmptyPanel>
         )}
         {!sitesQuery.isPending && poolSources.length > 0 && filtered.length === 0 && (
-          <EmptyPanel>No content-pool source matches these filters.</EmptyPanel>
+          <EmptyPanel>No sources match these filters.</EmptyPanel>
         )}
 
         <div className="flex flex-col gap-2.5">
@@ -252,7 +276,18 @@ export default function ContentPoolPage() {
                       <JobStatusBadge jobId={trackedJobId} kind="ingestion" />
                     ) : null}
                   </div>
-                  <div className="mt-1 break-all text-caption text-muted">{site.base_url}</div>
+                  {/* A source you cannot open is a source you cannot check.
+                      Same reason as the icon on the Sites page: nobody should
+                      have to copy a URL out of a table by hand. */}
+                  <a
+                    href={site.base_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${site.name} in a new tab`}
+                    className="mt-1 block break-all text-caption text-muted underline underline-offset-2 hover:text-ink"
+                  >
+                    {site.base_url}
+                  </a>
                   {site.pool_source_quarantine_reason && (
                     <div className="mt-2 text-caption text-error-ink">
                       {site.pool_source_quarantine_reason}
@@ -375,15 +410,17 @@ export default function ContentPoolPage() {
         )}
       </div>
 
-      {showAdd && (
-        <AddSiteModal
-          title="Connect a pool source"
-          initialPlatform="pool"
-          lockPlatform
-          onClose={() => setShowAdd(false)}
-        />
-      )}
-      {auditSite && <PoolAuditModal site={auditSite} onClose={() => setAuditSite(null)} />}
+      <Suspense fallback={null}>
+        {showAdd && (
+          <AddSiteModal
+            title="Connect a pool source"
+            initialPlatform="pool"
+            lockPlatform
+            onClose={() => setShowAdd(false)}
+          />
+        )}
+        {auditSite && <PoolAuditModal site={auditSite} onClose={() => setAuditSite(null)} />}
+      </Suspense>
       {deleteSite && (
         <ConfirmDialog
           title={`Delete ${deleteSite.name}?`}

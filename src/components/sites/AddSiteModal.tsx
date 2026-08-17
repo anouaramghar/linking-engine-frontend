@@ -32,6 +32,7 @@ export default function AddSiteModal({
   const nameId = useId();
   const urlId = useId();
   const platformId = useId();
+  const domainRegisteredId = useId();
   const usernameId = useId();
   const passwordId = useId();
   const credentialsHintId = useId();
@@ -115,7 +116,7 @@ export default function AddSiteModal({
           </div>
           <div>
             <label htmlFor={platformId} className="mb-1.5 block text-caption font-medium text-ink">
-              Connector
+              Platform
             </label>
             <select
               id={platformId}
@@ -130,6 +131,7 @@ export default function AddSiteModal({
                   ...(platform === "wordpress"
                     ? {}
                     : { wp_username: undefined, wp_app_password: undefined }),
+                  ...(platform === "pool" ? {} : { domain_registered_at: undefined }),
                 });
               }}
             >
@@ -138,10 +140,32 @@ export default function AddSiteModal({
               <option value="pool">Content pool (RSS or Wikipedia)</option>
             </select>
             {form.platform === "pool" && (
-              <p className="mt-1.5 text-caption leading-relaxed text-muted">
-                Use an RSS/Atom feed URL or a Wikipedia article URL. Pool content is a read-only
-                suggestion target and refreshes daily.
-              </p>
+              <>
+                <p className="mt-1.5 text-caption leading-relaxed text-muted">
+                  Use an RSS/Atom feed URL or a Wikipedia article URL. Pool content is a read-only
+                  suggestion target and refreshes daily.
+                </p>
+                <label
+                  htmlFor={domainRegisteredId}
+                  className="mt-3 block text-caption font-medium text-ink"
+                >
+                  Domain registration date{" "}
+                  <span className="font-normal text-muted">(optional)</span>
+                  <input
+                    id={domainRegisteredId}
+                    className="field mt-1.5"
+                    type="date"
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={form.domain_registered_at ?? ""}
+                    onChange={(event) =>
+                      set({ domain_registered_at: event.target.value || undefined })
+                    }
+                  />
+                  <span className="mt-1 block text-caption-sm font-normal text-muted">
+                    Used by the trust score. Leave empty when the real date is unknown.
+                  </span>
+                </label>
+              </>
             )}
           </div>
           {form.platform === "wordpress" && (

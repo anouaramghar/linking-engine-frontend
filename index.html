@@ -7,28 +7,11 @@
          Which one is in force is decided by `color-scheme` on :root in index.css,
          keyed off the data-theme attribute the script below sets. -->
     <meta name="color-scheme" content="light dark" />
-    <!-- Resolve the theme before the first paint.
-
-         This has to be inline and synchronous: the stylesheet and the React
-         bundle both arrive later, so anything that waits for them paints the
-         light palette first and then corrects itself — a white flash on exactly
-         the setup that asked not to see white. Kept deliberately tiny, and
-         duplicated in `useTheme.ts`, which owns the same key and values from
-         React's side. -->
-    <script>
-      (function () {
-        try {
-          var stored = localStorage.getItem("linkmesh.theme");
-          var dark =
-            stored === "dark" ||
-            ((stored === "system" || !stored) &&
-              matchMedia("(prefers-color-scheme: dark)").matches);
-          document.documentElement.dataset.theme = dark ? "dark" : "light";
-        } catch (e) {
-          document.documentElement.dataset.theme = "light";
-        }
-      })();
-    </script>
+    <!-- Resolve the theme before the first paint. Its own file, not an inline
+         block: the deployed dashboard sends `script-src 'self'`, which browsers
+         enforce by refusing inline script outright. Synchronous and without
+         `defer` on purpose — see the file for why. -->
+    <script src="/theme-boot.js"></script>
     <!-- The Brand mark, inline so it costs no request and cannot 404.
 
          The marks paint in `currentColor` so the embedded media query can move

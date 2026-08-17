@@ -4,7 +4,13 @@ export interface ArticleBrief {
   url: string;
 }
 
-export type SuggestionTargetOrigin = "internal" | "content_pool";
+export interface SuggestionTargetBrief {
+  id: number | null;
+  title: string;
+  url: string;
+}
+
+export type SuggestionTargetOrigin = "internal" | "content_pool" | "web_search";
 
 export type SuggestionStatus =
   | "pending"
@@ -18,6 +24,14 @@ export type SuggestionStatus =
   | "failed";
 /** Statuses an editor can set directly. 'pending' undoes an earlier decision. */
 export type ReviewStatus = "approved" | "rejected" | "pending";
+export type RejectionReason =
+  | "not_relevant"
+  | "wrong_target"
+  | "bad_anchor"
+  | "bad_placement"
+  | "already_covered"
+  | "duplicate"
+  | "other";
 
 /**
  * How a non-cosine ranker chose a row. Only `hybrid_bm25` writes this today; the
@@ -39,6 +53,40 @@ export interface SuggestionScoreComponents {
   dense_rank?: number | null;
   lexical_rank?: number | null;
   semantic?: number;
+  external_trust?: {
+    domain: string;
+    score: number;
+    eligible: boolean;
+    reasons: string[];
+    checks: Record<string, boolean | number | string | null>;
+  };
+  external_safety?: {
+    domain: string;
+    eligible: boolean;
+    reasons: string[];
+    checks: Record<string, boolean>;
+  };
+  graph?: {
+    algorithm_version?: string;
+    snapshot_id?: number;
+    graph_version?: string;
+    source_out_degree?: number | null;
+    source_hub?: boolean;
+    source_saturated?: boolean;
+    target_in_degree?: number | null;
+    target_orphan?: boolean;
+    target_underlinked?: boolean;
+    target_hub?: boolean;
+    target_saturated?: boolean;
+    target_hub_score?: number | null;
+    target_saturation_score?: number | null;
+    opportunity?: number;
+    adjustment?: number;
+    baseline_rank?: number;
+    final_rank?: number;
+    applied?: boolean;
+    mode?: "off" | "shadow" | "active" | string;
+  };
 }
 
 /**
@@ -64,19 +112,43 @@ export interface Placement {
 
 export interface Suggestion {
   id: number;
+  /** Stable correlation key returned by trace-aware engine versions. */
+  trace_id?: string;
   site_id: number;
   source_article: ArticleBrief;
-  target_article: ArticleBrief;
+  target_article: SuggestionTargetBrief;
   target_origin: SuggestionTargetOrigin;
   target_site_name: string;
   method: string;
   /** Cosine semantic similarity, whichever method selected the row. */
   score: number;
   score_components?: SuggestionScoreComponents | null;
+  provider?: string | null;
+  provider_request_id?: string | null;
+  provider_score?: number | null;
+  search_query?: string | null;
+  external_snippet?: string | null;
   status: SuggestionStatus;
   anchor_text: string | null;
   publish_outcome?: "inserted" | "block" | "already_present" | null;
   publish_attempts?: number;
   publish_error?: string | null;
+  shown_at?: string | null;
+  last_shown_at?: string | null;
+  exposure_count?: number;
+  reviewer_id?: string | null;
+  rejection_reason?: RejectionReason | null;
+  retrieval_version?: string | null;
+  ranking_version?: string | null;
+  final_rank?: number | null;
+  created_at: string;
+}
+
+export interface SuggestionEvent {
+  id: number;
+  suggestion_id: number;
+  event_type: string;
+  actor: string;
+  details: Record<string, unknown>;
   created_at: string;
 }

@@ -46,13 +46,25 @@ const LABEL: Record<ThemePreference, string> = {
  * hook instances would be two independent copies of a preference that is
  * global, both writing `<html data-theme>`, so App owns the hook and this stays
  * presentational.
+ *
+ * Both props are required, and that is the fix for a real defect rather than
+ * pedantry: they used to fall back to a `ThemeContext` that no provider ever
+ * mounted, so a propless instance rendered a control that always claimed
+ * "Match system" and whose `onChange` went nowhere. `PageHeader` shipped one of
+ * those on every page. A control that cannot be wrong by omission is the only
+ * guard against that returning.
+ *
+ * `orientation` exists for the collapsed rail: at 64px there is no room for a
+ * three-pill row, and the alternative — hiding the only theme control in the
+ * app — is worse than turning it on its side.
  */
 interface Props {
   preference: ThemePreference;
   onChange: (next: ThemePreference, origin?: ThemeSwitchOrigin) => void;
+  orientation?: "horizontal" | "vertical";
 }
 
-export default function ThemeToggle({ preference, onChange }: Props) {
+export default function ThemeToggle({ preference, onChange, orientation = "horizontal" }: Props) {
   const name = useId();
   // Keyed by theme rather than a single ref: the origin has to come from
   // whichever pill was actually activated, including by arrow key, not from
@@ -69,7 +81,11 @@ export default function ThemeToggle({ preference, onChange }: Props) {
   return (
     <fieldset className="min-w-0">
       <legend className="sr-only">Colour theme</legend>
-      <div className="inline-flex rounded-pill border border-hairline bg-surface-card p-0.5">
+      <div
+        className={`inline-flex rounded-pill border border-hairline bg-surface-card p-0.5 ${
+          orientation === "vertical" ? "flex-col" : ""
+        }`}
+      >
         {THEMES.map((theme) => (
           <label key={theme} className="cursor-pointer">
             <input

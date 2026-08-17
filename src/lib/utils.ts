@@ -8,7 +8,24 @@ export const scorePercent = (score: number) => Math.round(score * 100);
 
 export const pct = (n: number) => `${scorePercent(n)}%`;
 
-export const formatCount = (count: number) => new Intl.NumberFormat("en-US").format(count);
+const numberFormatter = new Intl.NumberFormat();
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+export const formatCount = (count: number) => numberFormatter.format(count);
+
+export const downloadBlob = (blob: Blob, filename: string) => {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  // Let the browser start the download before releasing the object URL. Some
+  // browsers cancel the download when the URL is revoked in the same tick.
+  window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+};
 
 export const sitePlatformLabel = (platform: "wordpress" | "html" | "pool") => {
   if (platform === "wordpress") return "WP REST API";
@@ -26,20 +43,27 @@ export const initials = (name: string) =>
 
 export const timeAgo = (iso: string | null) => {
   if (!iso) return "never";
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
+  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!Number.isFinite(seconds)) return "unknown";
+  const absoluteSeconds = Math.abs(seconds);
+  if (absoluteSeconds < 60) return relativeTimeFormatter.format(Math.round(-seconds), "second");
+  if (absoluteSeconds < 3600)
+    return relativeTimeFormatter.format(Math.round(-seconds / 60), "minute");
+  if (absoluteSeconds < 86400)
+    return relativeTimeFormatter.format(Math.round(-seconds / 3600), "hour");
+  return relativeTimeFormatter.format(Math.round(-seconds / 86400), "day");
 };
 
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
   hybrid_bm25: "hybrid BM25",
+  external_search: "Web search",
 };
 
 export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
   internal: "Internal link",
   content_pool: "External link · Content pool",
+  web_search: "External link · Web search",
 };
 
 /**
@@ -51,10 +75,12 @@ export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
  */
 export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string }> = {
   pending: { label: "Pending review", dot: "bg-muted-soft" },
-  approved: { label: "Queued for publish", dot: "bg-primary" },
+  // The wire value stays `approved`, but the editor still has to approve the
+  // exact publication edit before anything is queued or written to the site.
+  approved: { label: "Selected for review", dot: "bg-primary" },
   rejected: { label: "Rejected", dot: "bg-error" },
   applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
-  applied: { label: "Published live", dot: "bg-success" },
+  applied: { label: "Published", dot: "bg-success" },
   expired: { label: "Expired", dot: "bg-muted-soft" },
   failed: { label: "Publishing failed", dot: "bg-error" },
 };
@@ -68,13 +94,11 @@ export const isReversible = (status: SuggestionStatus) =>
   status === "approved" || status === "rejected" || status === "failed";
 
 export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string>> = {
-  approved: "Queued for the next publish batch. Not live yet.",
+  approved: "Selected for review. Not scheduled and not live until its exact edit is approved.",
   applying: "Publishing is in progress.",
   applied: "Published to the live article.",
   failed: "Publishing failed repeatedly and stopped retrying. Undo to try again.",
 };
-
-export const RQ_SCHEDULING_COPY = "Scheduled re-crawls run through RQ.";
 
 /**
  * The system's five atmospheric gradient stops — mint, peach, lavender, sky,

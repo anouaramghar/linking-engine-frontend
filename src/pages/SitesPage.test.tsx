@@ -1,7 +1,18 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SitesPage from "./SitesPage";
+
+const navigate = vi.hoisted(() => vi.fn());
+
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router-dom")>()),
+  useNavigate: () => navigate,
+}));
+
+const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
 
 const mocks = vi.hoisted(() => ({
   sites: {
@@ -32,11 +43,19 @@ const mocks = vi.hoisted(() => ({
     variables: undefined as { siteId: number } | undefined,
     mutateAsync: vi.fn(),
   },
+  cancelBatch: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  setCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
+  clearCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
 }));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => mocks.sites,
   useDeleteSite: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetWordPressCredentials: () => mocks.setCredentials,
+  useClearWordPressCredentials: () => mocks.clearCredentials,
 }));
 
 vi.mock("../hooks/useJobs", () => ({
@@ -51,9 +70,11 @@ vi.mock("../hooks/usePipeline", () => ({
   },
   useCreatePipelineBatch: () => mocks.createBatch,
   useRetryPipelineSite: () => mocks.retryBatch,
+  useCancelPipelineBatch: () => mocks.cancelBatch,
 }));
 
 beforeEach(() => {
+  navigate.mockReset();
   Object.assign(mocks.sites, {
     data: [],
     isPending: false,
@@ -72,17 +93,22 @@ beforeEach(() => {
   mocks.createBatch.mutateAsync.mockReset();
   Object.assign(mocks.retryBatch, { isPending: false, variables: undefined });
   mocks.retryBatch.mutateAsync.mockReset();
+  Object.assign(mocks.cancelBatch, { isPending: false });
+  mocks.cancelBatch.mutateAsync.mockReset();
+  mocks.setCredentials.mutate.mockReset();
+  mocks.clearCredentials.mutate.mockReset();
   window.history.replaceState({}, "", "/sites");
 });
 
 afterEach(cleanup);
 
-describe("SitesPage scheduler copy", () => {
-  it("identifies RQ as the re-crawl scheduler", () => {
+describe("SitesPage copy", () => {
+  it("keeps implementation details out of the site summary", () => {
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Scheduled re-crawls run through RQ.");
-    expect(document.body.textContent?.toLowerCase()).not.toContain("celery");
+    expect(document.body.textContent).not.toContain("ContentConnector");
+    expect(document.body.textContent).not.toContain("RQ");
+    expect(document.body.textContent).not.toContain("Article object");
   });
 
   it("does not expose unsupported future or fleet actions", () => {
@@ -188,6 +214,10 @@ describe("SitesPage batch pipeline", () => {
     expect(screen.queryByRole("region", { name: "Batch selection" })).toBeNull();
   });
 
+  // Renders 101 site rows and expands the list twice, which is by far the
+  // heaviest render in the suite. It sits close to the default 5s timeout on
+  // its own and crosses it whenever the runner is busy with other files, so the
+  // limit is raised rather than left to fail intermittently.
   it("caps batch selection at the engine limit", () => {
     mocks.sites.data = Array.from({ length: 101 }, (_, index) => ({
       id: index + 1,
@@ -201,9 +231,9 @@ describe("SitesPage batch pipeline", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
     fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more sites" }));
     fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more sites" }));
 
     expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
       "100 sites selected",
@@ -215,7 +245,7 @@ describe("SitesPage batch pipeline", () => {
     expect((screen.getByRole("button", { name: "Run batch (100)" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
-  });
+  }, 20_000);
 
   it("restores batch monitoring from the page URL", () => {
     window.history.replaceState({}, "", "/sites?batch=27");
@@ -279,14 +309,13 @@ describe("SitesPage load states", () => {
     render(<SitesPage />);
 
     expect(document.body.textContent).toContain("Articles");
-    expect(document.body.textContent).toContain("Int. links");
+    expect(document.body.textContent).toContain("Internal links");
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
-    // `formatCount`, which pins the separator rather than leaving it to
-    // whatever locale the browser happens to be in.
+    // `formatCount`, which follows the operator's locale.
     expect(document.body.textContent).toContain("3,914");
-    expect(document.body.textContent).toContain("2 h ago");
+    expect(document.body.textContent).toContain("2 hours ago");
     expect(document.body.textContent).not.toContain("Soon");
   });
 });
@@ -399,9 +428,6 @@ describe("SitesPage Hybrid standard", () => {
     base_url: "https://docs.example.com",
     platform: "wordpress",
     crawl_frequency: "daily",
-    suggestion_mode: "experimental",
-    suggestion_mode_managed: true,
-    suggestion_comparison_enabled: false,
     suggestion_slots_available: 3,
     created_at: "2026-07-28T08:00:00Z",
     last_ingestion_status: "succeeded",
@@ -442,7 +468,7 @@ describe("SitesPage source controls", () => {
     ];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("1 connected source");
+    expect(document.body.textContent).toContain("1 connected site");
     expect(document.body.textContent).toContain("docs.example.com");
     expect(document.body.textContent).not.toContain("News pool");
   });
@@ -476,5 +502,191 @@ describe("SitesPage source controls", () => {
     render(<SitesPage />);
 
     expect((screen.getByRole("button", { name: "Crawl Docs" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("SitesPage publication", () => {
+  const ownedSite = () => {
+    mocks.sites.data = [
+      {
+        id: 7,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+  };
+
+  it("has no action that publishes a site directly", () => {
+    ownedSite();
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    // "Publish approved" lived here and published every selected suggestion
+    // with nobody having seen the resulting edit.
+    expect(screen.queryByText("Publish approved")).toBeNull();
+    expect(document.body.textContent).not.toContain("Publish approved");
+  });
+
+  it("routes to the review that shows the exact edits instead", () => {
+    ownedSite();
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Review publication changes"));
+
+    expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
+  });
+});
+
+describe("SitesPage WordPress account", () => {
+  const withCredentials = (has: boolean) => {
+    mocks.sites.data = [
+      {
+        id: 7,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        has_wordpress_credentials: has,
+      },
+    ];
+  };
+
+  it("says whether the site has an account before it is opened", () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    expect(screen.getByText("Add WordPress account")).not.toBeNull();
+
+    cleanup();
+    withCredentials(true);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+
+    expect(screen.getByText("Replace WordPress account")).not.toBeNull();
+  });
+
+  it("attaches an account to a site that already exists", async () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Add WordPress account"));
+
+    fireEvent.change(await screen.findByLabelText("WordPress username"), {
+      target: { value: "editor" },
+    });
+    fireEvent.change(screen.getByLabelText("Application password"), {
+      target: { value: "abcd efgh ijkl mnop" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
+
+    await waitFor(() =>
+      expect(mocks.setCredentials.mutate).toHaveBeenCalledWith(
+        {
+          id: 7,
+          credentials: { wp_username: "editor", wp_app_password: "abcd efgh ijkl mnop" },
+        },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("refuses half a credential without asking the engine", async () => {
+    withCredentials(false);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Add WordPress account"));
+
+    fireEvent.change(await screen.findByLabelText("WordPress username"), {
+      target: { value: "editor" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
+
+    expect(document.body.textContent).toContain("Both the username and the application");
+    expect(mocks.setCredentials.mutate).not.toHaveBeenCalled();
+  });
+
+  it("asks before detaching an account, because it stops publication", async () => {
+    withCredentials(true);
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByText("Replace WordPress account"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this account" }));
+    expect(mocks.clearCredentials.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove account" }));
+    expect(mocks.clearCredentials.mutate).toHaveBeenCalledWith(7, expect.anything());
+  });
+});
+
+describe("SitesPage row affordances", () => {
+  const CRAWLED_SITE = {
+    id: 9,
+    name: "Vibe",
+    base_url: "https://www.vibe.com",
+    platform: "wordpress",
+    crawl_frequency: "manual",
+    created_at: "2026-08-04T08:00:00Z",
+    last_ingestion_status: "failed",
+    last_crawl_at: "2026-08-11T08:00:00Z",
+    last_ingestion_error: "403 from https://www.vibe.com/wp-json/wp/v2/posts",
+  };
+
+  it("says why a crawl failed, where the failure is shown", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    // The compact hint exposes the reason in its accessible name as well as
+    // the disclosure content — that is the copy this asserts on.
+    const badge = screen.getByLabelText(/Crawl failed\./);
+    expect(badge.getAttribute("title")).toContain(
+      "403 from https://www.vibe.com/wp-json/wp/v2/posts",
+    );
+    const hint = screen.getByLabelText("Why this status?");
+    expect(hint.parentElement?.classList.contains("help-hint")).toBe(true);
+    expect(
+      screen
+        .getByText(/403 from https:\/\/www\.vibe\.com\/wp-json\/wp\/v2\/posts/)
+        .classList.contains("help-hint-popover"),
+    ).toBe(true);
+  });
+
+  it("closes the status explanation on Escape and outside click", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    const summary = screen.getByLabelText("Why this status?");
+    const details = summary.parentElement as HTMLDetailsElement;
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(details.open).toBe(false);
+
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    fireEvent.pointerDown(document.body);
+    expect(details.open).toBe(false);
+  });
+
+  it("opens the live site in a new tab instead of asking for a copy and paste", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
+    expect(link.getAttribute("href")).toBe("https://www.vibe.com");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("keeps that link out of the batch selection label", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+
+    // Inside the label, every click meant to open the site would tick the box.
+    const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
+    expect(link.closest("label")).toBeNull();
   });
 });

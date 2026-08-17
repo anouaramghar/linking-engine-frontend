@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 
 import { useMediaQuery } from "./useMediaQuery";
@@ -34,8 +34,8 @@ const isPreference = (value: unknown): value is ThemePreference =>
 /**
  * The stored preference, or "system" when there is nothing to read.
  *
- * Shared with the pre-paint script in `index.html`, which does the same read in
- * plain JS before React mounts. The two must agree on the key and the values or
+ * Shared with the pre-paint script in `public/theme-boot.js`, which does the
+ * same read in plain JS before React mounts. The two must agree on the key and the values or
  * the page repaints on hydration — that duplication is the price of having no
  * flash, and it is why both sides are one `localStorage.getItem` and nothing
  * more.
@@ -135,3 +135,20 @@ export const useTheme = () => {
 
   return { preference, resolved, setTheme };
 };
+
+export interface ThemeContextValue {
+  preference: ThemePreference;
+  resolved: ResolvedTheme;
+  setTheme: (next: ThemePreference, origin?: ThemeSwitchOrigin) => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const value = useTheme();
+  return createElement(ThemeContext.Provider, { value }, children);
+}
+
+export function useThemeContext() {
+  return useContext(ThemeContext);
+}

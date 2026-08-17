@@ -16,11 +16,17 @@ const TEMPLATE = [
 
 /**
  * Import outcomes read as {component.badge-pill}s. Each count already names
- * itself ("3 imported", "1 rejected by API"), so only the failure chip takes
+ * itself ("3 imported", "1 could not be imported"), so only the failure chip takes
  * {colors.semantic-error} — the rest stay neutral rather than inventing a
  * success and a warning hue the system does not have.
  */
 const CHIP_ERROR = "border border-error/30 bg-error/5 text-error-ink";
+
+const PLATFORM_LABELS: Record<string, string> = {
+  wordpress: "WordPress",
+  html: "Static HTML",
+  pool: "Content pool",
+};
 
 export default function BulkImportModal({ onClose }: { onClose: () => void }) {
   const bulk = useBulkCreateSites();
@@ -73,21 +79,29 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
     : [];
 
   return (
-    <Modal title="Import sites from CSV" onClose={onClose} panelClassName="max-w-3xl">
-      <p className="-mt-3 mb-5 flex-none text-caption text-muted">
-        Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
-        <code>platform</code> (<code>wordpress</code>, <code>html</code>, or <code>pool</code>),{" "}
-        <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
-        {formatCount(MAX_BULK_SITES)} sites per file.{" "}
-        <a
-          href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
-          download="linkmesh-sites.csv"
-          className="underline underline-offset-2 hover:text-ink"
-        >
-          Download a template
-        </a>
-      </p>
-
+    <Modal
+      title="Import sites from CSV"
+      onClose={onClose}
+      panelClassName="max-w-3xl"
+      // In the header, not the body: the body scrolls, and this used to be
+      // pulled up under the heading by a negative margin, so the first line of
+      // the column list sat behind the title.
+      description={
+        <>
+          Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
+          <code>platform</code> (<code>wordpress</code>, <code>html</code>, or{" "}
+          <code>pool</code>), <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
+          {formatCount(MAX_BULK_SITES)} sites per file.{" "}
+          <a
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
+            download="linkmesh-sites.csv"
+            className="underline underline-offset-2 hover:text-ink"
+          >
+            Download a template
+          </a>
+        </>
+      }
+    >
       {!result && (
         // `sr-only`, never `hidden`: display:none takes the input out of the
         // tab order and out of the accessibility tree entirely, which left the
@@ -105,7 +119,6 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           ) : (
             <span className="text-body">Choose a CSV file</span>
           )}
-          <span className="ml-2 text-muted">— click or press Enter to browse</span>
         </label>
       )}
 
@@ -143,8 +156,8 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
               role="alert"
               className="mb-3 flex-none rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
             >
-              {formatCount(ready.length)} rows exceeds the {formatCount(MAX_BULK_SITES)}-site
-              limit — split the file.
+              {formatCount(ready.length)} {ready.length === 1 ? "row exceeds" : "rows exceed"} the{" "}
+              {formatCount(MAX_BULK_SITES)}-site limit — split the file.
             </div>
           )}
 
@@ -168,7 +181,9 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                       <>
                         <td className="px-3 py-2 text-ink">{row.site.name}</td>
                         <td className="px-3 py-2 text-body">{row.site.base_url}</td>
-                        <td className="px-3 py-2 text-body">{row.site.platform}</td>
+                        <td className="px-3 py-2 text-body">
+                          {PLATFORM_LABELS[row.site.platform] ?? row.site.platform}
+                        </td>
                       </>
                     ) : (
                       <td colSpan={3} className="px-3 py-2 text-error-ink">
@@ -194,11 +209,11 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
               <span className="badge">{formatCount(result.skipped.length)} already existed</span>
             )}
             {broken.length > 0 && (
-              <span className="badge">{formatCount(broken.length)} invalid in file</span>
+              <span className="badge">{formatCount(broken.length)} invalid rows</span>
             )}
             {result.rejected.length > 0 && (
               <span className={`badge ${CHIP_ERROR}`}>
-                {formatCount(result.rejected.length)} rejected by API
+                {formatCount(result.rejected.length)} could not be imported
               </span>
             )}
           </div>

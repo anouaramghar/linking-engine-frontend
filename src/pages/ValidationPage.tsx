@@ -1,41 +1,40 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { BulkReviewChunkError } from "../api/suggestions";
-import { ENGINE_PAGE_LIMIT } from "../api/engineLimits";
 import type {
   SuggestionCounts,
   SuggestionQueueFilters,
 } from "../api/suggestions";
 import BulkActions from "../components/suggestions/BulkActions";
 import type { BulkConfirmation } from "../components/suggestions/BulkActions";
+import BulkRecoveryPanel from "../components/suggestions/BulkRecoveryPanel";
+import type { BulkRecovery } from "../components/suggestions/BulkRecoveryPanel";
 import QueueFilters from "../components/suggestions/QueueFilters";
-import { useQueueFilters } from "../hooks/useQueueFilters";
+import { useQueueFilters, type QueueFilterState } from "../hooks/useQueueFilters";
+import { useQueueShortcuts } from "../hooks/useQueueShortcuts";
+import { useQueueWorkspace } from "../hooks/useQueueWorkspace";
 import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
-import PublishBanner from "../components/suggestions/PublishBanner";
-import PublicationPreviewModal from "../components/suggestions/PublicationPreviewModal";
+import RejectionReasonDialog from "../components/suggestions/RejectionReasonDialog";
+import SelectionTray from "../components/suggestions/SelectionTray";
+import FlowSteps from "../components/publish/FlowSteps";
 import { useIncrementalList } from "../hooks/useIncrementalList";
-import {
-  usePendingPublication,
-  usePublicationDryRun,
-  usePublishSites,
-} from "../hooks/usePublish";
-import {
-  SHORTCUT_HINT,
-  useQueueShortcuts,
-  useShortcutsEnabled,
-} from "../hooks/useQueueShortcuts";
+import { usePendingPublication } from "../hooks/usePublish";
 import {
   useBulkReview,
   useFilteredBulkReview,
+  useFilteredBulkUndo,
   usePlacement,
+  useMarkSuggestionsExposed,
   useReview,
   useSuggestionCounts,
+  useSuggestionEvents,
   useSuggestions,
 } from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
@@ -44,7 +43,7 @@ import {
   groupSuggestionsBySource,
   suggestionGroupKey,
 } from "../lib/suggestionGroups";
-import { formatCount, isReversible, scorePercent } from "../lib/utils";
+import { formatCount, scorePercent } from "../lib/utils";
 import {
   clampThreshold,
   filterSuggestions,
@@ -57,6 +56,7 @@ import type {
   StatusOverrides,
 } from "../lib/suggestionReview";
 import type {
+  RejectionReason,
   ReviewStatus,
   Suggestion,
   SuggestionStatus,
@@ -64,9 +64,9 @@ import type {
 
 const CHIP_DEFS: { key: SuggestionStatus; label: string }[] = [
   { key: "pending", label: "Pending review" },
-  { key: "approved", label: "Queued for publish" },
+  { key: "approved", label: "Selected for review" },
   { key: "applying", label: "Publishing" },
-  { key: "applied", label: "Published live" },
+  { key: "applied", label: "Published" },
   { key: "failed", label: "Publishing failed" },
   { key: "rejected", label: "Rejected" },
   { key: "expired", label: "Expired" },
@@ -78,11 +78,39 @@ interface BatchFailure {
 }
 
 const plural = (count: number) => (count === 1 ? "suggestion" : "suggestions");
+
+const readSelectedSuggestion = (raw: string | null) => {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+/**
+ * Why a review or an undo left rows alone.
+ *
+ * The engine refuses a row that is publishing, already published or expired —
+ * and, separately, one already bound to an approved publication plan. That last
+ * case is the one this message used to get wrong: such a row is not in flight
+ * and has not expired, it is part of an exact edit a person has approved, and
+ * telling an editor it "entered publishing" sends them looking for a publication
+ * run that does not exist. Both reasons are named so the count is explainable
+ * without reading the queue row by row.
+ */
+const skippedByEngine = (count: number) =>
+  `${count} ${plural(count)} could not be changed: ${count === 1 ? "it is" : "they are"} publishing, already published, expired, or part of an approved publication plan.`;
+
+/**
+ * Why a filtered undo left rows alone.
+ *
+ * A different rule from `skippedByEngine`: the undo restores exactly the rows
+ * its own operation changed, and skips any whose status has moved on since. An
+ * approved plan is not a reason here, so it is not claimed as one.
+ */
+const skippedByChange = (count: number) =>
+  `${count} ${plural(count)} ${count === 1 ? "was" : "were"} left untouched because ${count === 1 ? "it has" : "they have"} changed since the bulk rule ran — decided again, published, or expired.`;
 const STATUS_OVERRIDE_LIMIT = 5_000;
 const SOURCE_GROUP_PAGE_SIZE = 20;
 const SOURCE_GROUP_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_PAGE_SIZE = 20;
-const SOURCE_SUGGESTION_AUTO_LOAD_LIMIT = 100;
 const SOURCE_SUGGESTION_HARD_LIMIT = 1_000;
 
 const EMPTY_COUNTS: SuggestionCounts = {
@@ -125,27 +153,51 @@ const resolveCounts = (
 
 export default function ValidationPage() {
   const { filters, setFilters, reset: clearFilters, isFiltered } = useQueueFilters();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    collapsedSources,
+    setCollapsedSources,
+    groupLimits,
+    setGroupLimits,
+    loadedGroupKey,
+    loadedGroupCount,
+    rememberLoadedGroups,
+    scrollKey,
+    scrollTop,
+    rememberScrollTop,
+  } = useQueueWorkspace();
   const {
     status: statusFilter,
     siteId: siteFilter,
     threshold,
   } = filters;
   const [statusOverrides, setStatusOverrides] = useState<StatusOverrides>({});
-  const [collapsedSources, setCollapsedSources] = useState<Set<string>>(
-    () => new Set(),
+  /** The open preview is navigation state, so returning to the queue can restore it. */
+  const [selectedId, setSelectedIdState] = useState<number | null>(() =>
+    readSelectedSuggestion(searchParams.get("suggestion")),
   );
-  const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const setSelectedId = useCallback(
+    (id: number | null) => {
+      setSelectedIdState(id);
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (id === null) next.delete("suggestion");
+          else next.set("suggestion", String(id));
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [confirmation, setConfirmation] = useState<BulkConfirmation | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const [previewSiteId, setPreviewSiteId] = useState<number | null>(null);
-  const cursorRef = useRef<HTMLLIElement>(null);
-  const lastIndex = useRef(0);
+  const [pendingRejectionId, setPendingRejectionId] = useState<number | null>(null);
+  const [bulkRecovery, setBulkRecovery] = useState<BulkRecovery | null>(null);
   const overrideOrder = useRef<number[]>([]);
-  const pendingNavigationAfterId = useRef<number | null>(null);
   const focusAfterReview = useRef<number | "main" | null>(null);
-
-  const { enabled: shortcutsEnabled, toggle: toggleShortcuts } = useShortcutsEnabled();
+  const queueRegion = useRef<HTMLDivElement>(null);
 
   const sitesQuery = useSites();
   // Every site, because this list is also what resolves a suggestion's site
@@ -204,26 +256,37 @@ export default function ValidationPage() {
     }),
     [scope, scoreWindow, effectiveStatus],
   );
-  const suggestionsQuery = useSuggestions(queueFilters, hasSites);
+  // These endpoints are tenant-scoped and return empty results for an empty
+  // fleet. Start them alongside the sites request so the site list cannot
+  // become a serial dependency for the queue.
+  const suggestionsQuery = useSuggestions(queueFilters);
   const sourceSuggestions = suggestionsQuery.items;
   const refreshingQueueData = Boolean(suggestionsQuery.isPlaceholderData);
-  const fleetCountsQuery = useSuggestionCounts({}, hasSites);
+  const fleetCountsQuery = useSuggestionCounts({});
   // The chips label the list, so they count inside the same window it shows —
   // otherwise "Pending review · 805" sits above a filtered queue of nine.
   const scopedFilters = useMemo(
     () => ({ ...scope, ...scoreWindow }),
     [scope, scoreWindow],
   );
-  const scopedCountsQuery = useSuggestionCounts(scopedFilters, hasSites);
+  const scopedCountsQuery = useSuggestionCounts(scopedFilters);
+  // The two threshold counts label the bulk buttons, and a bulk rule only ever
+  // matches pending rows — so on any other status chip they label a control
+  // that is already disabled. Two aggregate queries per threshold and per site
+  // filter is a lot of database work to do for a number nobody can act on.
+  const bulkCountsWanted =
+    hasSites && (statusFilter === "all" || statusFilter === "pending");
   const acceptCountsQuery = useSuggestionCounts(
     { ...scope, minPercent: threshold },
-    hasSites,
+    bulkCountsWanted,
   );
   const rejectCountsQuery = useSuggestionCounts(
     { ...scope, maxPercent: threshold },
-    hasSites,
+    bulkCountsWanted,
   );
-  const pendingPublicationQuery = usePendingPublication(hasSites);
+  // Read-only here. The queue owns the exact-edit review surface; this query
+  // only tells it which selected site's work is ready to open.
+  const pendingPublicationQuery = usePendingPublication();
   // Only a *stale* answer pauses review: `isPlaceholderData` means these counts
   // still describe the previous filter, so acting on them would act on the
   // wrong rows. A background refetch is not that — reviewing a row invalidates
@@ -236,14 +299,14 @@ export default function ValidationPage() {
     rejectCountsQuery,
   ].some((query) => query.isPlaceholderData);
   const queueUpdating = refreshingQueueData || refreshingCounts;
-  const publicationPreview = usePublicationDryRun(previewSiteId);
   const review = useReview();
+  const { mutate: markExposed } = useMarkSuggestionsExposed();
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
-  const publish = usePublishSites();
+  const filteredUndo = useFilteredBulkUndo();
 
-  // The suggestions query stays disabled until sites arrive, so it reports
-  // "pending" before it has any work to do — gate it on the sites we have.
+  // The queue queries run independently of the sites label query, so an empty
+  // or failed sites response must not hide their own loading/error state.
   const queueQueries = [
     suggestionsQuery,
     fleetCountsQuery,
@@ -254,7 +317,7 @@ export default function ValidationPage() {
   ];
   const loading =
     sitesQuery.isPending ||
-    (hasSites && suggestionsQuery.isPending);
+    suggestionsQuery.isPending;
   const failed = sitesQuery.isError || suggestionsQuery.isError;
   const bulkCountQueryFailed = [
     fleetCountsQuery,
@@ -265,14 +328,21 @@ export default function ValidationPage() {
   const supportQueryFailed =
     bulkCountQueryFailed || pendingPublicationQuery.isError;
   const actionMutationPending = Boolean(
-    review.isPending || bulkReview.isPending || filteredReview.isPending,
+    review.isPending || bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending,
   );
   const bulkControlsBlocked =
     failed || queueUpdating || bulkCountQueryFailed || actionMutationPending;
   const fetching = queueQueries.some((query) => query.isFetching);
   const retry = () => {
     void sitesQuery.refetch();
-    if (hasSites) queueQueries.forEach((query) => void query.refetch());
+    void suggestionsQuery.refetch();
+    void fleetCountsQuery.refetch();
+    void scopedCountsQuery.refetch();
+    void pendingPublicationQuery.refetch();
+    if (bulkCountsWanted) {
+      void acceptCountsQuery.refetch();
+      void rejectCountsQuery.refetch();
+    }
   };
 
   // Overrides bridge the short refetch after a review. Resolution ignores any
@@ -297,6 +367,9 @@ export default function ValidationPage() {
     [suggestions],
   );
 
+  const groupListKey = JSON.stringify([effectiveStatus, queueFilters]);
+  const initialGroupCount = loadedGroupKey === groupListKey ? loadedGroupCount : undefined;
+
   const {
     visible: visibleGroups,
     hasMore: hasMoreLoaded,
@@ -304,14 +377,20 @@ export default function ValidationPage() {
     sentinel,
     autoLoadPaused,
     renderLimitReached,
+    renderCount,
   } = useIncrementalList(
     suggestionGroups,
     // Every filter belongs in this key: a narrowed queue that kept the previous
     // window would open already scrolled past rows the editor has not seen.
-    JSON.stringify([effectiveStatus, queueFilters]),
+    groupListKey,
     SOURCE_GROUP_PAGE_SIZE,
     SOURCE_GROUP_AUTO_LOAD_LIMIT,
+    initialGroupCount,
   );
+  useEffect(() => {
+    if (renderCount <= SOURCE_GROUP_PAGE_SIZE) return;
+    rememberLoadedGroups(groupListKey, renderCount);
+  }, [groupListKey, rememberLoadedGroups, renderCount]);
   const renderedGroups = useMemo(
     () =>
       visibleGroups.map((group) => ({
@@ -334,10 +413,23 @@ export default function ValidationPage() {
     () => renderedGroups.flatMap((group) => group.visibleSuggestions),
     [renderedGroups],
   );
-  const visibleSuggestionIds = useMemo(
-    () => new Set(visibleSuggestions.map((suggestion) => suggestion.id)),
+  const visibleExposureIds = useMemo(
+    () => visibleSuggestions.map((suggestion) => suggestion.id),
     [visibleSuggestions],
   );
+  const exposedIds = useRef(new Set<number>());
+  useEffect(() => {
+    if (loading || failed || visibleExposureIds.length === 0) return;
+    const ids = visibleExposureIds.filter((id) => !exposedIds.current.has(id));
+    if (ids.length === 0) return;
+    ids.forEach((id) => exposedIds.current.add(id));
+    markExposed(
+      { ids, surface: "queue" },
+      {
+        onError: () => ids.forEach((id) => exposedIds.current.delete(id)),
+      },
+    );
+  }, [failed, loading, markExposed, visibleExposureIds]);
   const shown = visibleSuggestions.length;
 
   const hasMore =
@@ -356,6 +448,28 @@ export default function ValidationPage() {
       void suggestionsQuery.fetchNextPage();
     }
   };
+
+  const changeFilters = useCallback(
+    (patch: Partial<QueueFilterState>) => {
+      setFilters(patch);
+      setConfirmation(null);
+    },
+    [setFilters],
+  );
+  const clearQueueFilters = useCallback(() => {
+    clearFilters();
+    setConfirmation(null);
+  }, [clearFilters]);
+  const onQueueScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) =>
+      rememberScrollTop(groupListKey, event.currentTarget.scrollTop),
+    [groupListKey, rememberScrollTop],
+  );
+  useEffect(() => {
+    const node = queueRegion.current;
+    if (!node || loading) return;
+    node.scrollTop = scrollKey === groupListKey ? scrollTop : 0;
+  }, [groupListKey, loading, scrollKey, scrollTop]);
 
   // Names are looked up per rendered row, so the linear scan is hoisted into a
   // map rather than repeated for every suggestion in the queue.
@@ -468,14 +582,13 @@ export default function ValidationPage() {
     describe: (count: number) => string,
     failure?: BatchFailure,
     reviewedCount = reviewed.length,
+    undoOperationId?: string | null,
   ) => {
     const applied = reviewed;
     const confirmedCount = Math.max(reviewedCount, applied.length);
     const unknownIdCount = confirmedCount - applied.length;
     const skippedCount = Array.isArray(skipped) ? skipped.length : skipped;
-    const aside = skippedCount
-      ? `${skippedCount} ${plural(skippedCount)} ${skippedCount === 1 ? "was" : "were"} already picked up for publishing or had expired, so ${skippedCount === 1 ? "it" : "they"} could not be changed.`
-      : "";
+    const aside = skippedCount ? skippedByEngine(skippedCount) : "";
     const failureMessage = failure
       ? [
           `${confirmedCount} ${confirmedCount === 1 ? "decision was" : "decisions were"} saved before the bulk review failed.`,
@@ -519,11 +632,6 @@ export default function ValidationPage() {
               .slice(0, selectedIndex)
               .reverse()
               .find((suggestion) => !removed.has(suggestion.id));
-          // Resume at the true vacated position after every reviewed row above
-          // the cursor has also left the filtered list.
-          lastIndex.current = navigableSuggestions
-            .slice(0, selectedIndex)
-            .filter((suggestion) => !removed.has(suggestion.id)).length;
           focusAfterReview.current = next?.id ?? "main";
         }
       }
@@ -537,6 +645,8 @@ export default function ValidationPage() {
       tone: skippedCount || failure ? "error" : "info",
       // Undoing an undo is just a re-review; only decisions offer it.
       undoIds: status === "pending" || unknownIdCount ? undefined : applied,
+      undoOperationId:
+        status === "pending" || unknownIdCount ? undefined : undoOperationId ?? undefined,
     });
   };
 
@@ -546,6 +656,11 @@ export default function ValidationPage() {
     describe: (count: number) => string,
   ) => {
     if (!(error instanceof BulkReviewChunkError)) return false;
+    setBulkRecovery({
+      status,
+      failedIds: error.failedIds,
+      notAttemptedIds: error.notAttemptedIds,
+    });
     applyBatch(
       error.completed.reviewed,
       status,
@@ -558,6 +673,68 @@ export default function ValidationPage() {
       error.completed.reviewedCount,
     );
     return true;
+  };
+
+  const runRecovery = (ids: number[], preserve: BulkRecovery) => {
+    if (!ids.length) return;
+    setNotice(null);
+    bulkReview.mutate(
+      { ids, status: preserve.status },
+      {
+        onSuccess: ({ reviewed, reviewedCount, skipped }) => {
+          const next = {
+            ...preserve,
+            failedIds: preserve.failedIds.filter((id) => !ids.includes(id)),
+            notAttemptedIds: preserve.notAttemptedIds.filter((id) => !ids.includes(id)),
+          };
+          setBulkRecovery(next.failedIds.length || next.notAttemptedIds.length ? next : null);
+          applyBatch(
+            reviewed,
+            preserve.status,
+            skipped,
+            (count) => `${count} retried ${plural(count)} saved.`,
+            undefined,
+            reviewedCount,
+          );
+        },
+        onError: (error) => {
+          if (!(error instanceof BulkReviewChunkError)) {
+            setNotice({
+              message: "The recovery request failed. The exact IDs remain below.",
+              tone: "error",
+            });
+            return;
+          }
+          const untouchedFailed = preserve.failedIds.filter((id) => !ids.includes(id));
+          const untouchedLater = preserve.notAttemptedIds.filter((id) => !ids.includes(id));
+          const next = {
+            status: preserve.status,
+            failedIds: [...untouchedFailed, ...error.failedIds],
+            notAttemptedIds: [...untouchedLater, ...error.notAttemptedIds],
+          } satisfies BulkRecovery;
+          setBulkRecovery(next);
+          applyBatch(
+            error.completed.reviewed,
+            preserve.status,
+            error.completed.skipped,
+            (count) => `${count} retried ${plural(count)} saved.`,
+            {
+              failed: error.failedIds.length,
+              notAttempted: error.notAttemptedIds.length,
+            },
+            error.completed.reviewedCount,
+          );
+        },
+      },
+    );
+  };
+
+  const retryFailedOnly = () => {
+    if (bulkRecovery) runRecovery(bulkRecovery.failedIds, bulkRecovery);
+  };
+
+  const continueNotAttempted = () => {
+    if (bulkRecovery) runRecovery(bulkRecovery.notAttemptedIds, bulkRecovery);
   };
 
   /**
@@ -574,19 +751,35 @@ export default function ValidationPage() {
     )?.id ?? null;
   };
 
-  const decide = (id: number, status: ReviewStatus) => {
+  const decide = (
+    id: number,
+    status: ReviewStatus,
+    rejectionReason?: RejectionReason,
+  ) => {
     if (queueUpdating || confirmation || actionMutationPending) return;
-    const message =
-      status === "approved" ? "1 suggestion queued for publish." : "1 suggestion rejected.";
+    const successMessage =
+      status !== "approved"
+        ? "1 suggestion rejected."
+        : "1 suggestion selected for exact-edit review.";
     // Deliberate tri-state: undefined leaves a non-cursor selection alone;
     // null clears a cursor whose removed row has no successor.
     const successor = successorOf(id);
-    setNotice(null);
+    setNotice({
+      message:
+        status === "approved"
+          ? "Saving selection…"
+          : "Saving rejection…",
+      tone: "info",
+    });
     review.mutate(
-      { id, status },
+      rejectionReason ? { id, status, rejectionReason } : { id, status },
       {
         onSuccess: () => {
-          applyStatuses([id], status, { message, tone: "info", undoIds: [id] });
+          applyStatuses([id], status, {
+            message: successMessage,
+            tone: "info",
+            undoIds: [id],
+          });
           focusAfterReview.current = successor ?? "main";
           if (id === selectedId) {
             setSelectedId(successor);
@@ -601,6 +794,11 @@ export default function ValidationPage() {
           }),
       },
     );
+  };
+
+  const requestRejection = (id: number) => {
+    if (queueUpdating || confirmation || actionMutationPending) return;
+    setPendingRejectionId(id);
   };
 
   const undo = (ids: number[]) => {
@@ -637,23 +835,47 @@ export default function ValidationPage() {
     );
   };
 
+  const undoFiltered = (operationId: string) => {
+    setNotice(null);
+    filteredUndo.mutate(operationId, {
+      onSuccess: ({ restored, skipped }) => {
+        setSelectedId(null);
+        setNotice({
+          message: [
+            `${restored} ${plural(restored)} restored to pending review.`,
+            skipped ? skippedByChange(skipped) : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          tone: skipped ? "error" : "info",
+        });
+      },
+      onError: () =>
+        setNotice({
+          message: "That filtered bulk undo could not be saved. Please try again.",
+          tone: "error",
+          undoOperationId: operationId,
+        }),
+    });
+  };
+
   /**
    * Row handlers that never change identity.
    *
    * `decide` and `undo` close over the cursor and the filtered list, so they
    * are rebuilt on every render — handed to a memoised card that defeats the
-   * memo entirely. Latching them in a ref (the same trick `useQueueShortcuts`
-   * and `Notice` already use for their timers) gives every row one stable
-   * callback for the life of the page, so a cursor move re-renders the two
-   * rows whose selection actually changed instead of all of them.
+   * memo entirely. Latching them in a ref (the same trick `Notice` already uses
+   * for its timers) gives every row one stable callback for the life of the
+   * page, so opening a row re-renders the two rows whose selection actually
+   * changed instead of all of them.
    */
-  const rowActions = useRef({ decide, undo });
+  const rowActions = useRef({ decide, requestRejection, undo });
   useEffect(() => {
-    rowActions.current = { decide, undo };
+    rowActions.current = { decide, requestRejection, undo };
   });
-  const openRow = useCallback((id: number) => setSelectedId(id), []);
+  const openRow = useCallback((id: number) => setSelectedId(id), [setSelectedId]);
   const acceptRow = useCallback((id: number) => rowActions.current.decide(id, "approved"), []);
-  const rejectRow = useCallback((id: number) => rowActions.current.decide(id, "rejected"), []);
+  const rejectRow = useCallback((id: number) => rowActions.current.requestRejection(id), []);
   const undoRow = useCallback((id: number) => rowActions.current.undo([id]), []);
 
   const requestBulk = (action: BulkReviewAction) => {
@@ -665,7 +887,7 @@ export default function ValidationPage() {
       count,
       threshold,
       siteLabel: siteFilter === 0 ? "All sites" : siteName(siteFilter),
-      undoAvailable: count <= ENGINE_PAGE_LIMIT,
+      undoAvailable: true,
     });
   };
 
@@ -675,7 +897,7 @@ export default function ValidationPage() {
     const status = approving ? "approved" : "rejected";
     const describe = (count: number) =>
       approving
-        ? `${count} ${plural(count)} queued for publish.`
+        ? `${count} ${plural(count)} selected for exact-edit review.`
         : `${count} ${plural(count)} rejected.`;
     setNotice(null);
     focusAfterReview.current = "main";
@@ -691,23 +913,37 @@ export default function ValidationPage() {
         thresholdPercent: confirmation.threshold,
       },
       {
-        onSuccess: ({ reviewed, skipped, reviewed_ids: reviewedIds }) => {
+        onSuccess: ({
+          reviewed,
+          skipped,
+          reviewed_ids: reviewedIds,
+          undo_operation_id: undoOperationId,
+        }) => {
           if (reviewedIds !== null) {
-            applyBatch(reviewedIds, status, skipped, describe);
+            applyBatch(
+              reviewedIds,
+              status,
+              skipped,
+              describe,
+              undefined,
+              reviewed,
+              undoOperationId,
+            );
             return;
           }
           setSelectedId(null);
           setNotice({
             message: [
               describe(reviewed),
-              skipped
-                ? `${skipped} ${plural(skipped)} could not be changed because publishing had already claimed them or they had expired.`
-                : "",
-              "This change was too large to undo in one step. The queue has been refreshed.",
+              skipped ? skippedByEngine(skipped) : "",
+              undoOperationId
+                ? "The exact server-side cohort can be undone from this message."
+                : "The queue has been refreshed.",
             ]
               .filter(Boolean)
               .join(" "),
             tone: skipped ? "error" : "info",
+            undoOperationId: undoOperationId ?? undefined,
           });
         },
         onError: () =>
@@ -724,163 +960,42 @@ export default function ValidationPage() {
   // yet" and "the answer failed" hide the publish controls.
   const publicationUnavailable =
     pendingPublicationQuery.isPending || pendingPublicationQuery.isError;
-  const pendingPublication = publicationUnavailable
-    ? []
-    : (pendingPublicationQuery.data ?? []).filter(
-        (entry) => siteFilter === 0 || entry.site_id === siteFilter,
-      );
-  const awaitingPublish = pendingPublication.map((entry) => entry.site_id);
-  const approvedCount = pendingPublication.reduce(
-    (total, entry) => total + entry.awaiting_publication,
-    0,
-  );
-
-  const startPublish = () => {
-    if (publicationUnavailable || publish.isPending || awaitingPublish.length === 0) return;
-    setNotice(null);
-    publish.mutate(awaitingPublish, {
-      onSuccess: ({ queued, alreadyRunning, failed }) =>
-        setNotice({
-          message: [
-            queued > 0 && `Publish queued for ${queued} ${queued === 1 ? "site" : "sites"}.`,
-            alreadyRunning > 0 && `${alreadyRunning} already publishing.`,
-            failed > 0 && `${failed} could not be queued.`,
-          ]
-            .filter(Boolean)
-            .join(" "),
-          tone: failed > 0 ? "error" : "info",
-        }),
-      onError: () =>
-        setNotice({ message: "Publishing could not be started.", tone: "error" }),
-    });
-  };
-
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
+
+  const step = (delta: number) => {
+    if (queueUpdating || navigableSuggestions.length === 0) return;
+    const current = navigableSuggestions.findIndex((item) => item.id === selectedId);
+    const target = current === -1 ? 0 : current + delta;
+    if (target >= navigableSuggestions.length) {
+      if (hasMore) showMore();
+      return;
+    }
+    setSelectedId(navigableSuggestions[Math.max(0, target)].id);
+  };
+
+  useQueueShortcuts({
+    onNext: () => step(1),
+    onPrevious: () => step(-1),
+    onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
+    onReject: () => selected?.status === "pending" && requestRejection(selected.id),
+    onUndo: () => {
+      if (selected?.status === "approved" || selected?.status === "rejected") {
+        undo([selected.id]);
+      } else if (notice?.undoIds?.length) {
+        undo(notice.undoIds);
+      }
+    },
+    onEscape: () => {
+      if (confirmation) setConfirmation(null);
+      else setSelectedId(null);
+    },
+  });
 
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.
   const placementQuery = usePlacement(selected?.id ?? null);
-
-  // The position the cursor last held. Tracked in an effect rather than during
-  // render so a discarded concurrent render cannot record a place the editor
-  // never saw.
-  useEffect(() => {
-    const index = navigableSuggestions.findIndex(
-      (item) => item.id === selectedId,
-    );
-    if (index !== -1) lastIndex.current = index;
-  }, [navigableSuggestions, selectedId]);
-
-  // Move the cursor within the visible list, seeding it at the top on first use.
-  const step = (delta: number) => {
-    if (queueUpdating || !navigableSuggestions.length) return;
-    const current = navigableSuggestions.findIndex(
-      (item) => item.id === selectedId,
-    );
-    const currentGroup = renderedGroups.find((group) =>
-      group.visibleSuggestions.some((item) => item.id === selectedId),
-    );
-    const currentGroupLimit = currentGroup
-      ? groupLimits[currentGroup.key] ?? SOURCE_SUGGESTION_PAGE_SIZE
-      : 0;
-    const groupHasMore = Boolean(
-      currentGroup &&
-        currentGroup.visibleSuggestions.length < currentGroup.suggestions.length &&
-        currentGroupLimit < SOURCE_SUGGESTION_AUTO_LOAD_LIMIT,
-    );
-    if (
-      delta > 0 &&
-      current === navigableSuggestions.length - 1 &&
-      (groupHasMore || suggestionsQuery.hasNextPage)
-    ) {
-      if (!groupHasMore && autoLoadPaused) {
-        setNotice({
-          message: "More suggestions are available. Use Show more to keep loading.",
-          tone: "info",
-        });
-        return;
-      }
-      if (
-        suggestionsQuery.isFetchingNextPage ||
-        pendingNavigationAfterId.current !== null
-      ) {
-        return;
-      }
-      pendingNavigationAfterId.current = navigableSuggestions[current].id;
-      if (groupHasMore && currentGroup) {
-        setGroupLimits((current) => ({
-          ...current,
-          [currentGroup.key]:
-            (current[currentGroup.key] ?? SOURCE_SUGGESTION_PAGE_SIZE) +
-            SOURCE_SUGGESTION_PAGE_SIZE,
-        }));
-      } else {
-        showMoreLoaded();
-        void suggestionsQuery.fetchNextPage().catch(() => {
-          pendingNavigationAfterId.current = null;
-          setNotice({
-            message: "The next queue page could not be loaded. Please try again.",
-            tone: "error",
-          });
-        });
-      }
-      return;
-    }
-    // A bulk review can pull the cursor row out from under the selection. The
-    // row that slid into its index is the one to resume on — snapping back to
-    // the top of the queue would lose the editor's place entirely.
-    const target = current === -1 ? lastIndex.current : current + delta;
-    const next = Math.min(
-      navigableSuggestions.length - 1,
-      Math.max(0, target),
-    );
-    // Keep the cursor inside what is mounted, so paging never strands it on a
-    // row that has no card to scroll to.
-    const nextSuggestion = navigableSuggestions[next];
-    if (!visibleSuggestionIds.has(nextSuggestion.id)) showMore();
-    setSelectedId(nextSuggestion.id);
-  };
-
-  useEffect(() => {
-    const afterId = pendingNavigationAfterId.current;
-    if (afterId === null || suggestionsQuery.isFetchingNextPage) return;
-    const index = navigableSuggestions.findIndex((item) => item.id === afterId);
-    const next = index === -1 ? undefined : navigableSuggestions[index + 1];
-    if (next) {
-      pendingNavigationAfterId.current = null;
-      setSelectedId(next.id);
-    } else if (!suggestionsQuery.hasNextPage) {
-      pendingNavigationAfterId.current = null;
-    }
-  }, [
-    navigableSuggestions,
-    suggestionsQuery.hasNextPage,
-    suggestionsQuery.isFetchingNextPage,
-  ]);
-
-  useQueueShortcuts(
-    {
-      onNext: () => step(1),
-      onPrevious: () => step(-1),
-      onAccept: () => selected?.status === "pending" && decide(selected.id, "approved"),
-      onReject: () => selected?.status === "pending" && decide(selected.id, "rejected"),
-      onUndo: () => {
-        if (selected && isReversible(selected.status)) undo([selected.id]);
-        else if (notice?.undoIds?.length) undo(notice.undoIds);
-      },
-      onEscape: () => {
-        if (confirmation) setConfirmation(null);
-        else setSelectedId(null);
-      },
-    },
-    shortcutsEnabled,
-  );
-
-  useEffect(() => {
-    // Optional-called: not every environment implements scrollIntoView.
-    cursorRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedId]);
+  const traceQuery = useSuggestionEvents(selected?.id ?? null);
 
   useEffect(() => {
     const target = focusAfterReview.current;
@@ -925,38 +1040,45 @@ export default function ValidationPage() {
         title="Link suggestions"
         sub={`${pendingTotal === null ? "Pending count unavailable" : `${formatCount(pendingTotal)} pending`} across ${ownedSiteCount} ${
           ownedSiteCount === 1 ? "site" : "sites"
-        } · queued links are not live until published`}
-        badge="Hybrid"
+        } · selected links go live only after their exact edits are approved`}
       />
       <div className="relative flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div
+            ref={queueRegion}
+            onScroll={onQueueScroll}
+            role="region"
+            aria-label="Suggestion queue"
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6"
+          >
+          {/* Said before the decision rather than after it. Step 1 is the only
+              step this page owns, and an operator has to know that before they
+              start clicking Select. */}
+          <div className="mb-4">
+            <FlowSteps current={1} />
+          </div>
+
           {/* Any filter change invalidates a confirmation in flight: the rule it
               describes was defined over the previous set of rows. */}
-          <div className="mb-5 flex flex-col gap-4">
+          <div className="card mb-4 flex flex-col gap-3 p-3 sm:p-4">
             <QueueFilters
               filters={filters}
-              onChange={(patch) => {
-                setFilters(patch);
-                setConfirmation(null);
-              }}
+              onChange={changeFilters}
               sites={sites}
               isFiltered={isFiltered}
               onClear={() => {
-                clearFilters();
-                setConfirmation(null);
+                clearQueueFilters();
               }}
             />
             <BulkActions
               chips={chips}
               active={statusFilter}
               onSelect={(status) => {
-                setFilters({ status: status as StatusFilter });
-                setConfirmation(null);
+                changeFilters({ status: status as StatusFilter });
               }}
               threshold={threshold}
               onThresholdChange={(value) => {
-                setFilters({ threshold: clampThreshold(value) });
-                setConfirmation(null);
+                changeFilters({ threshold: clampThreshold(value) });
               }}
               acceptCount={acceptCount}
               rejectCount={rejectCount}
@@ -972,52 +1094,32 @@ export default function ValidationPage() {
             />
           </div>
 
-          {/* The queue's fast path, said out loud. It was reachable but written
-              down nowhere, and a single unmodified key that files a review is
-              also one an editor has to be able to switch off. */}
-          <details className="mb-4 text-caption text-muted">
-            <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-strong">
-              <span aria-hidden="true">⌨</span>
-              <span className="font-medium text-ink">Keyboard shortcuts</span>
-              <span>({shortcutsEnabled ? "on" : "off"})</span>
-            </summary>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-3">
-              {shortcutsEnabled ? (
-                <span>
-                  <span className="font-medium text-ink">{SHORTCUT_HINT}</span>
-                </span>
-              ) : (
-                <span>Keyboard shortcuts are off.</span>
-              )}
-              <button
-                type="button"
-                onClick={toggleShortcuts}
-                aria-pressed={shortcutsEnabled}
-                className="font-medium text-ink underline underline-offset-2 hover:text-primary"
-              >
-                {shortcutsEnabled ? "Turn off" : "Turn on"}
-              </button>
-            </div>
-          </details>
-
-          <PublishBanner
-            approved={approvedCount}
-            siteCount={awaitingPublish.length}
-            publishing={publish.isPending}
-            onPublish={startPublish}
-            onPreview={
-              awaitingPublish.length === 1
-                ? () => setPreviewSiteId(awaitingPublish[0])
-                : undefined
-            }
-          />
-
           {notice && (
             <Notice
               notice={notice}
               onDismiss={() => setNotice(null)}
-              onUndo={notice.undoIds ? () => undo(notice.undoIds!) : undefined}
-              undoPending={bulkReview.isPending || filteredReview.isPending}
+              onUndo={
+                notice.undoOperationId
+                  ? () => undoFiltered(notice.undoOperationId!)
+                  : notice.undoIds
+                    ? () => undo(notice.undoIds!)
+                    : undefined
+              }
+              undoPending={
+                bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending
+              }
+              onRetry={bulkRecovery?.failedIds.length ? retryFailedOnly : undefined}
+              retryPending={bulkReview.isPending}
+            />
+          )}
+
+          {bulkRecovery && (
+            <BulkRecoveryPanel
+              recovery={bulkRecovery}
+              busy={bulkReview.isPending}
+              onRetryFailed={retryFailedOnly}
+              onContinue={continueNotAttempted}
+              onDismiss={() => setBulkRecovery(null)}
             />
           )}
 
@@ -1057,7 +1159,8 @@ export default function ValidationPage() {
               aria-live="polite"
               className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
             >
-              Loading publication status. Publishing is paused until it arrives.
+              Loading what is already selected. The link to the exact-edit review appears once it
+              arrives.
             </div>
           )}
 
@@ -1109,9 +1212,6 @@ export default function ValidationPage() {
                           selected={suggestion.id === selectedId}
                           actionsDisabled={queueUpdating || actionMutationPending}
                           showSource={false}
-                          containerRef={
-                            suggestion.id === selectedId ? cursorRef : undefined
-                          }
                           onOpen={openRow}
                           onAccept={acceptRow}
                           onReject={rejectRow}
@@ -1132,7 +1232,7 @@ export default function ValidationPage() {
                       {renderLimitReached
                         ? "Render limit reached"
                         : suggestionsQuery.isFetchingNextPage
-                          ? "Loading more..."
+                          ? "Loading more…"
                           : "Show more"}
                     </button>
                     {/* Paging and filtering both change this line and nothing
@@ -1162,7 +1262,7 @@ export default function ValidationPage() {
                         No suggestions match these filters.{" "}
                         <button
                           type="button"
-                          onClick={clearFilters}
+                          onClick={clearQueueFilters}
                           className="font-medium text-ink underline underline-offset-2 hover:text-primary"
                         >
                           Clear filters
@@ -1177,60 +1277,69 @@ export default function ValidationPage() {
               </>
             )}
           </div>
+
+          </div>
+
+          {!loading && !failed && !publicationUnavailable && (
+            <SelectionTray
+              siteId={siteFilter || undefined}
+              selected={
+                pendingPublicationQuery.totalSelectedSuggestions ??
+                (pendingPublicationQuery.data ?? []).reduce(
+                  (total, site) => total + site.selected_suggestions,
+                  0,
+                )
+              }
+              siteCount={
+                pendingPublicationQuery.totalSites ??
+                (pendingPublicationQuery.data ?? []).filter(
+                  (site) => site.selected_suggestions > 0,
+                ).length
+              }
+            />
+          )}
         </div>
 
         {selected && (
           <SuggestionPreview
             suggestion={selected}
             siteName={siteName(selected.site_id)}
-            placement={{
+              placement={{
               data: placementQuery.data,
               // `isFetching` too, so a retry replaces the error with progress
               // instead of leaving the old message under a dead button.
               isLoading: placementQuery.isPending || placementQuery.isFetching,
               error: placementQuery.error,
-              onRetry: () => void placementQuery.refetch(),
-            }}
+                onRetry: () => void placementQuery.refetch(),
+              }}
+              trace={{
+                data: traceQuery.data,
+                isLoading: traceQuery.isPending || traceQuery.isFetching,
+                error: traceQuery.error,
+                onRetry: () => void traceQuery.refetch(),
+              }}
             actionsDisabled={queueUpdating || actionMutationPending}
             onClose={() => setSelectedId(null)}
             onAccept={() => decide(selected.id, "approved")}
-            onReject={() => decide(selected.id, "rejected")}
+            onReject={() => requestRejection(selected.id)}
             onUndo={() => undo([selected.id])}
           />
         )}
-
-        {previewSiteId !== null && (
-          <PublicationPreviewModal
-            siteName={siteName(previewSiteId)}
-            data={publicationPreview.data}
-            loading={publicationPreview.isPending || publicationPreview.isFetching}
-            error={publicationPreview.isError}
-            publishing={publish.isPending}
-            onRetry={() => void publicationPreview.refetch()}
-            onClose={() => setPreviewSiteId(null)}
-            onPublish={() => {
-              setNotice(null);
-              publish.mutate([previewSiteId], {
-                onSuccess: ({ queued, alreadyRunning, failed }) => {
-                  setPreviewSiteId(null);
-                  setNotice({
-                    message: [
-                      queued > 0 && "Publish queued for 1 site.",
-                      alreadyRunning > 0 && "This site is already publishing.",
-                      failed > 0 && "Publishing could not be queued.",
-                    ]
-                      .filter(Boolean)
-                      .join(" "),
-                    tone: failed > 0 ? "error" : "info",
-                  });
-                },
-                onError: () =>
-                  setNotice({ message: "Publishing could not be started.", tone: "error" }),
-              });
-            }}
-          />
-        )}
       </div>
+
+      {pendingRejectionId !== null && (
+        <RejectionReasonDialog
+          targetTitle={
+            resolvedSuggestions.find((suggestion) => suggestion.id === pendingRejectionId)
+              ?.target_article.title ?? "this suggestion"
+          }
+          onCancel={() => setPendingRejectionId(null)}
+          onChoose={(reason) => {
+            setPendingRejectionId(null);
+            decide(pendingRejectionId, "rejected", reason);
+          }}
+        />
+      )}
     </>
   );
 }

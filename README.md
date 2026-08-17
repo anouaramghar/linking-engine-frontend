@@ -20,11 +20,23 @@ Mitigations in this repo:
 - nginx accepts only allowlisted `Host` values (`localhost`, `127.0.0.1`, plus
   optional `LINKMESH_SERVER_NAMES`). Unknown hosts are dropped.
 - Browser security headers (`X-Frame-Options`, `nosniff`, `Referrer-Policy`, …).
+- A restrictive Content Security Policy limits scripts, connections, images, fonts, and
+  framing to the dashboard's expected same-origin resources.
+- Telegram identifies each operator. First contact creates a pending request; an operator
+  in the **access-admin group** must approve it before Telegram issues a one-time login
+  code. An ordinary approved operator cannot approve or revoke anyone; the backend
+  answers 403, and the hidden buttons are only the courtesy on top of that.
+- nginx verifies the resulting session before it injects the shared backend key.
 
-This is **not** end-user login. Multi-operator or multi-tenant deployments still
-need an authenticating edge (SSO, VPN, or per-tenant backend keys). Put a TLS
-terminator in front of the container before any non-loopback exposure; WordPress
-application passwords travel through this path.
+Telegram login is a second layer, not permission to expose the service publicly. Keep the
+deployment behind its IP-restricted firewall and put a TLS terminator in front of the
+container before any non-loopback exposure; WordPress application passwords travel
+through this path.
+
+Admission is the only privilege that is split. The access-admin group governs who may
+join and who may be removed — nothing else. It is not a data or site role: every approved
+operator still sees every site, every queue and every suggestion, and there are no
+per-person site scopes. See `docs/design/dashboard-authentication.md` in the engine repo.
 
 ## Requirements
 

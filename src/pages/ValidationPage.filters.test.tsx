@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Suggestion } from "../types/suggestion";
+import { QueueWorkspaceProvider } from "../hooks/useQueueWorkspace";
 import ValidationPage from "./ValidationPage";
 
 const SITE = {
@@ -62,6 +63,13 @@ vi.mock("../hooks/useSuggestions", () => ({
     error: null,
     refetch: vi.fn(),
   }),
+  useSuggestionEvents: () => ({
+    data: [],
+    isPending: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
   useSuggestionCounts: () => ({
     data: {
       pending: 1,
@@ -69,6 +77,7 @@ vi.mock("../hooks/useSuggestions", () => ({
       rejected: 0,
       applying: 0,
       applied: 0,
+      failed: 0,
       expired: 0,
       total: 1,
     },
@@ -78,11 +87,14 @@ vi.mock("../hooks/useSuggestions", () => ({
     refetch: vi.fn(),
   }),
   useReview: () => ({ mutate: vi.fn() }),
+  useMarkSuggestionsExposed: () => ({ mutate: vi.fn() }),
   useBulkReview: () => ({ mutate: vi.fn(), isPending: false }),
   useFilteredBulkReview: () => ({
     mutate: mocks.filteredBulkMutate,
     isPending: false,
   }),
+  useFilteredBulkUndo: () => ({ mutate: vi.fn(), isPending: false }),
+  useAllFilteredSuggestionIds: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -96,13 +108,14 @@ vi.mock("../hooks/useSites", () => ({
 }));
 
 vi.mock("../hooks/usePublish", () => ({
-  usePublishSites: () => ({ mutate: vi.fn(), isPending: false }),
-  usePublicationDryRun: () => ({
+  useApprovePlans: () => ({ mutate: vi.fn(), isPending: false }),
+  useQueueApprovedPlans: () => ({ mutate: vi.fn(), isPending: false }),
+  usePreparePublicationPlans: () => ({
     data: undefined,
     isPending: false,
     isError: false,
-    isFetching: false,
-    refetch: vi.fn(),
+    mutate: vi.fn(),
+    reset: vi.fn(),
   }),
   usePendingPublication: () => ({
     data: [],
@@ -128,8 +141,10 @@ const TrackLocation = () => {
 const renderQueue = (initialEntry = "/") =>
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <ValidationPage />
-      <TrackLocation />
+      <QueueWorkspaceProvider>
+        <ValidationPage />
+        <TrackLocation />
+      </QueueWorkspaceProvider>
     </MemoryRouter>,
   );
 
@@ -159,6 +174,16 @@ describe("queue filters", () => {
     await user.selectOptions(screen.getByLabelText("Target filter"), "content_pool");
 
     await waitFor(() => expect(currentSearch).toContain("origin=content_pool"));
+  });
+
+  it("supports a shareable Tavily-only queue", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.selectOptions(screen.getByLabelText("Target filter"), "web_search");
+
+    await waitFor(() => expect(currentSearch).toContain("origin=web_search"));
+    expect(mocks.queueFilters?.targetOrigin).toBe("web_search");
   });
 
   it("restores a queue from a shared link", () => {
@@ -224,7 +249,7 @@ describe("bulk rule preview", () => {
     // editor asks to accept by it.
     expect(mocks.queueFilters?.minPercent).toBe(10);
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
 
     await waitFor(() => expect(mocks.queueFilters?.minPercent).toBe(80));
     expect(mocks.queueFilters?.status).toBe("pending");
@@ -244,7 +269,7 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue("/?min=10");
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
     await waitFor(() => expect(mocks.queueFilters?.minPercent).toBe(80));
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -256,8 +281,8 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue("/?q=hooks&origin=content_pool&unique=1");
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
-    await user.click(screen.getByRole("button", { name: "Confirm accept" }));
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    await user.click(screen.getByRole("button", { name: "Confirm selection" }));
 
     expect(mocks.filteredBulkMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -275,13 +300,13 @@ describe("bulk rule preview", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /^Accept ≥/ }));
-    expect(screen.queryByRole("button", { name: "Confirm accept" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: /^Select ≥/ }));
+    expect(screen.queryByRole("button", { name: "Confirm selection" })).not.toBeNull();
 
     await user.selectOptions(screen.getByLabelText("Target filter"), "content_pool");
 
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Confirm accept" })).toBeNull(),
+      expect(screen.queryByRole("button", { name: "Confirm selection" })).toBeNull(),
     );
   });
 

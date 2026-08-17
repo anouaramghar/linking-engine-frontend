@@ -10,6 +10,10 @@ interface ApiErrorShape {
 export const isConflict = (error: unknown) =>
   (error as ApiErrorShape | null)?.response?.status === 409;
 
+/** A resource may disappear because the user just completed its last action. */
+export const isNotFound = (error: unknown) =>
+  (error as ApiErrorShape | null)?.response?.status === 404;
+
 /**
  * Pull a human-readable reason out of an API failure. FastAPI returns a string
  * `detail` for handled errors but an array of objects for schema violations, so

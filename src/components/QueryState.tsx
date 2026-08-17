@@ -32,27 +32,19 @@ export function ErrorPanel({
     </div>
   );
 }
-
 export function EmptyPanel({ children }: { children: React.ReactNode }) {
   return <div className={`${PANEL} text-body-sm text-muted`}>{children}</div>;
 }
 
-/** Dedicated brand loading panel with animated LinkMesh logo. */
-export function LogoLoadingPanel({ label = "Loading data..." }: { label?: string }) {
-  return (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label={label}
-      className={`${PANEL} flex flex-col items-center justify-center gap-3`}
-    >
-      <LogoLoadingAnimation size="lg" className="text-primary" label={label} />
-      <span className="text-body-sm text-muted">{label}</span>
-    </div>
-  );
-}
-
-/** Placeholder rows shaped like the list they stand in for, featuring the brand loading logo. */
+/**
+ * Placeholder rows shaped like the list they stand in for, featuring the brand
+ * loading logo.
+ *
+ * This is the only loading panel, because it is the better of the two this file
+ * used to offer: a generic centred spinner panel says "wait", while rows the
+ * width of the rows that follow also say what is coming and stop the page
+ * jumping when it arrives. Nothing ever imported the generic one.
+ */
 export function SkeletonRows({ count = 4, label }: { count?: number; label: string }) {
   return (
     <div
@@ -79,4 +71,3 @@ export function SkeletonRows({ count = 4, label }: { count?: number; label: stri
     </div>
   );
 }
-
