@@ -18,6 +18,7 @@ interface Props {
   /** True when anything is narrowing the queue, so clearing is worth offering. */
   isFiltered: boolean;
   onClear: () => void;
+  ariaLabel?: string;
 }
 
 export default function QueueFilters({
@@ -26,6 +27,7 @@ export default function QueueFilters({
   sites,
   isFiltered,
   onClear,
+  ariaLabel = "Queue filters",
 }: Props) {
   const search = useDebouncedField<string>({
     value: filters.q,
@@ -37,20 +39,21 @@ export default function QueueFilters({
 
   return (
     <div
-      aria-label="Queue filters"
+      aria-label={ariaLabel}
       role="search"
       className="flex flex-col gap-2"
     >
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-        <label className="col-span-2 flex min-w-0 flex-1 items-center sm:col-auto sm:min-w-[16rem]">
+        <label className="col-span-2 flex min-w-0 flex-1 items-center sm:col-auto sm:min-w-filter">
           <span className="sr-only">Search article titles</span>
           <input
             type="search"
+            name="q"
             value={search.draft}
             onChange={(event) => search.change(event.target.value)}
             onBlur={search.flush}
             maxLength={MAX_SEARCH_TERM}
-            placeholder="Search titles..."
+            placeholder="Search titles…"
             className={`${control} w-full`}
           />
         </label>

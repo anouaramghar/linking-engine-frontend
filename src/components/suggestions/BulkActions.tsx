@@ -60,21 +60,46 @@ export default function BulkActions({
 }: Props) {
   const confirmationTitleId = useId();
   const confirmationDescriptionId = useId();
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   // Opening the confirmation disables the button that opened it, so focus has
   // to be handed on deliberately or it falls to the body and a keyboard user
-  // loses the destructive prompt they just raised. Confirm takes focus on
-  // open; Cancel hands it back to its own trigger. Confirming does not restore
-  // it — the queue moves on, and the page places focus itself.
+  // loses the destructive prompt they just raised. Cancel takes focus on open;
+  // it is the safe default, and cancelling hands it back to its own trigger.
+  // Confirming does not restore it — the queue moves on, and the page places
+  // focus itself.
   const acceptButton = useRef<HTMLButtonElement>(null);
   const rejectButton = useRef<HTMLButtonElement>(null);
   const restoreFocusTo = useRef<BulkReviewAction | null>(null);
+  const secondaryMenu = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     const action = restoreFocusTo.current;
     if (confirmation || !action) return;
     restoreFocusTo.current = null;
     (action === "approve" ? acceptButton : rejectButton).current?.focus();
   }, [confirmation]);
+
+  useEffect(() => {
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const menu = secondaryMenu.current;
+      if (!menu?.open || menu.contains(event.target as Node)) return;
+      menu.open = false;
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      const menu = secondaryMenu.current;
+      if (event.key !== "Escape" || !menu?.open) return;
+      event.preventDefault();
+      menu.open = false;
+      menu.querySelector<HTMLElement>("summary")?.focus();
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
 
   const cancel = () => {
     restoreFocusTo.current = confirmation?.action ?? null;
@@ -127,12 +152,19 @@ export default function BulkActions({
   const verb = confirmation?.action === "approve" ? "Select" : "Reject";
   const acceptLabel = acceptCount === null ? "—" : String(acceptCount);
   const rejectLabel = rejectCount === null ? "—" : String(rejectCount);
+  const primaryChips = chips.filter((chip) =>
+    ["pending", "approved", "all"].includes(chip.key),
+  );
+  const secondaryChips = chips.filter(
+    (chip) => !["pending", "approved", "all"].includes(chip.key),
+  );
+  const activeSecondary = secondaryChips.find((chip) => chip.key === active);
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div aria-label="Suggestion status" className="min-w-0 overflow-x-auto">
-        <div className="flex min-w-max items-center gap-1">
-          {chips.map((chip) => (
+      <div role="region" aria-label="Suggestion status filters" className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1">
+          {primaryChips.map((chip) => (
             <button
               key={chip.key}
               type="button"
@@ -150,25 +182,80 @@ export default function BulkActions({
               {chip.label} <span className="opacity-75">{chip.count}</span>
             </button>
           ))}
+          {secondaryChips.length > 0 && (
+            <details ref={secondaryMenu} className="relative">
+              <summary
+                aria-label={
+                  activeSecondary
+                    ? "More statuses. " + activeSecondary.label + " selected"
+                    : "More statuses"
+                }
+                className={
+                  "disclosure-summary touch-target flex min-h-11 items-center rounded-md px-3 text-caption font-medium transition-colors sm:min-h-10 " +
+                  (activeSecondary
+                    ? "bg-primary text-on-primary"
+                    : "text-muted hover:bg-surface-strong hover:text-ink")
+                }
+              >
+                {activeSecondary ? (
+                  <>
+                    {activeSecondary.label}{" "}
+                    <span className="ml-1 opacity-75">{activeSecondary.count}</span>
+                  </>
+                ) : (
+                  "More statuses"
+                )}
+              </summary>
+              <div className="absolute left-0 top-full z-20 mt-1 flex min-w-48 flex-col rounded-lg border border-hairline bg-surface-card p-1 shadow-lift">
+                {secondaryChips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => {
+                      onSelect(chip.key);
+                      if (secondaryMenu.current) secondaryMenu.current.open = false;
+                    }}
+                    aria-pressed={active === chip.key}
+                    className={
+                      "touch-target flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left text-caption font-medium sm:min-h-10 " +
+                      (active === chip.key
+                        ? "bg-primary text-on-primary"
+                        : "text-ink hover:bg-surface-strong")
+                    }
+                  >
+                    {chip.label} <span className="opacity-75">{chip.count}</span>
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       </div>
 
-      <div
-        aria-label="Bulk review controls"
-        className="flex flex-col gap-3 border-t border-hairline pt-3"
+      <details
+        open={bulkOpen || Boolean(confirmation)}
+        onToggle={(event) => setBulkOpen(event.currentTarget.open)}
+        className="border-t border-hairline pt-3"
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-body-sm font-medium text-ink">Bulk review</div>
-            <p className="mt-0.5 text-caption text-muted">Apply decisions by match score.</p>
-            {!actionable && (
-              <p className="mt-1 text-caption text-muted">
-                Switch to Pending review or All to use bulk review.
-              </p>
-            )}
-          </div>
+        <summary className="disclosure-summary flex min-h-11 items-center justify-between gap-3 rounded-md px-1 py-1 text-body-sm font-medium text-ink hover:bg-surface-strong sm:min-h-10">
+          <span>Bulk review</span>
+          <span className="text-caption text-muted">Apply decisions by match score</span>
+        </summary>
+        <div
+          role="region"
+          aria-label="Bulk review controls"
+          className="flex flex-col gap-3 pt-3"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              {!actionable && (
+                <p className="mt-1 text-caption text-muted">
+                  Switch to Pending review or All to use bulk review.
+                </p>
+              )}
+            </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
             <label className="flex flex-none items-center gap-2 text-caption text-muted">
               Decision threshold
               {/* The ring lives on the field so the inner input can stay borderless. */}
@@ -219,9 +306,10 @@ export default function BulkActions({
               Reject {rejectLabel} matches
               <span className="text-caption text-muted">&lt; {threshold}%</span>
             </button>
+            </div>
           </div>
         </div>
-      </div>
+      </details>
 
       {confirmation && (
         <div
@@ -249,15 +337,13 @@ export default function BulkActions({
               {confirmation.undoAvailable
                 ? "The decision can be undone."
                 : "This change is too large to undo in one step."} {" "}
-              Selected links are not live and not scheduled; the exact edits still
-              have to be reviewed and approved.
+              Selected links stay offline and unscheduled until the exact edits are approved.
             </div>
           </div>
-          <button type="button" onClick={cancel} className="btn btn-outline btn-sm">
+          <button type="button" onClick={cancel} autoFocus className="btn btn-outline btn-sm">
             Cancel
           </button>
           <button
-            autoFocus
             type="button"
             onClick={onConfirm}
             disabled={confirmationBlocked}

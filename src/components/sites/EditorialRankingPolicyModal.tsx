@@ -59,7 +59,7 @@ export default function EditorialRankingPolicyModal({
             <input type="checkbox" checked={form.enabled} onChange={(event) => set({ enabled: event.target.checked })} />
             <span>
               <span className="block text-body-sm font-medium text-ink">Use editorial feedback in ranking</span>
-              <span className="mt-1 block text-caption text-muted">Accepted and rejected suggestions adjust candidate order after enough decisions exist.</span>
+              <span className="mt-1 block text-caption text-muted">Once enough decisions exist, they adjust suggestion order.</span>
             </span>
           </label>
           <label className="text-caption text-muted">
@@ -70,10 +70,10 @@ export default function EditorialRankingPolicyModal({
           <label className="text-caption text-muted">
             Feedback weight (%)
             <input className="field mt-1" type="number" min={0} max={100} value={form.weight} onChange={(event) => set({ weight: event.target.value })} />
-            <span className="mt-1 block text-caption-sm">How strongly historical editor acceptance can change the original Hybrid order.</span>
+            <span className="mt-1 block text-caption-sm">How strongly historical editor decisions can change the original suggestion order.</span>
           </label>
           <label className="text-caption text-muted">
-            Minimum decisions before learning
+            Minimum decisions before feedback affects ranking
             <input className="field mt-1" type="number" min={1} max={10000} value={form.minSamples} onChange={(event) => set({ minSamples: event.target.value })} />
           </label>
           {error && <p role="alert" className="text-caption text-error-ink">{error}</p>}

@@ -1,7 +1,9 @@
+import axios from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   approvePublicationPlans,
+  exportPublicationCsv,
   getPendingPublicationSite,
   getPublicationPlanHtml,
   listPendingPublication,
@@ -85,8 +87,37 @@ describe("preparePublicationPlans", () => {
 
     await expect(preparePublicationPlans(3, 7)).resolves.toEqual(accepted);
     expect(api.post).toHaveBeenCalledWith("/publish/3/plans/prepare-async", undefined, {
-      params: { max_articles: 7 },
+      params: { max_articles: 7, suggestion_ids: undefined },
+      paramsSerializer: { indexes: null },
     });
+  });
+
+  /**
+   * The wire format, not the call shape, because this is where it can silently
+   * go wrong. Axios writes an array as `suggestion_ids[]=7` by default and
+   * FastAPI binds nothing from that: the engine would prepare the whole site
+   * while the operator believed they had asked about one link.
+   */
+  it("sends a named link as repeated bare keys", async () => {
+    api.post.mockResolvedValue({ data: { job_id: "prepare-3" } });
+
+    await preparePublicationPlans(3, 10, [7, 9]);
+
+    const [url, , config] = api.post.mock.calls[0] as [string, undefined, object];
+    expect(axios.getUri({ url, ...config })).toBe(
+      "/publish/3/plans/prepare-async?max_articles=10&suggestion_ids=7&suggestion_ids=9",
+    );
+  });
+
+  it("asks for the whole site when no link is named", async () => {
+    api.post.mockResolvedValue({ data: { job_id: "prepare-3" } });
+
+    await preparePublicationPlans(3, 10, []);
+
+    const [url, , config] = api.post.mock.calls[0] as [string, undefined, object];
+    expect(axios.getUri({ url, ...config })).toBe(
+      "/publish/3/plans/prepare-async?max_articles=10",
+    );
   });
 });
 
@@ -132,6 +163,18 @@ describe("queueApprovedPlans", () => {
     await queueApprovedPlans(3, [55, 56]);
 
     expect(api.post).toHaveBeenCalledWith("/publish/3", { plan_ids: [55, 56] });
+  });
+});
+
+describe("exportPublicationCsv", () => {
+  it("downloads the server-verified non-WordPress artifact", async () => {
+    const blob = new Blob(["plan_id,plan_hash\n55,abc"]);
+    api.get.mockResolvedValue({ data: blob });
+
+    await expect(exportPublicationCsv(3)).resolves.toBe(blob);
+    expect(api.get).toHaveBeenCalledWith("/publish/3/export.csv", {
+      responseType: "blob",
+    });
   });
 });
 

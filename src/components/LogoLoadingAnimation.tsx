@@ -69,7 +69,13 @@ export default function LogoLoadingAnimation({
 }
 
 /**
- * A combined badge / indicator with the animated logo and a text description.
+ * The animated mark beside the words, for a wait that happens inside a card
+ * section rather than in place of a whole region — that shape is the dashed
+ * `SkeletonRows` panel in QueryState.
+ *
+ * The mark is the live region and carries the name; the words beside it are the
+ * same sentence drawn for the eye, so they are hidden from assistive tech. Both
+ * announcing would read the wait twice.
  */
 export function LogoLoadingIndicator({
   text,
@@ -83,7 +89,7 @@ export function LogoLoadingIndicator({
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <LogoLoadingAnimation size={size} className="text-primary flex-none" label={text} />
-      <span>{text}</span>
+      <span aria-hidden="true">{text}</span>
     </span>
   );
 }

@@ -1,9 +1,16 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BulkReviewChunkError } from "../api/suggestions";
+import { QueueWorkspaceProvider } from "../hooks/useQueueWorkspace";
 import type { Suggestion } from "../types/suggestion";
 import ValidationPage from "./ValidationPage";
 
@@ -11,6 +18,11 @@ import ValidationPage from "./ValidationPage";
 function PublishStub() {
   const { siteId } = useParams();
   return <div>Legacy approval link for site {siteId}</div>;
+}
+
+function QueueLocationProbe() {
+  const [searchParams] = useSearchParams();
+  return <span data-testid="queue-location">{searchParams.toString()}</span>;
 }
 
 /**
@@ -21,30 +33,44 @@ function PublishStub() {
  * Legacy approval routes remain mounted as stubs so old-link behavior stays
  * observable, even though the current flow never navigates to them.
  */
-const renderQueue = (initialEntry = "/") =>
-  render(
+const renderQueue = (initialEntry = "/") => {
+  const result = render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/" element={<ValidationPage />} />
+        <Route
+          path="/"
+          element={
+            <>
+              <QueueLocationProbe />
+              <QueueWorkspaceProvider>
+                <ValidationPage />
+              </QueueWorkspaceProvider>
+            </>
+          }
+        />
         <Route path="/publish" element={<div>Approval site list</div>} />
         <Route path="/publish/:siteId" element={<PublishStub />} />
       </Routes>
     </MemoryRouter>,
   );
+  fireEvent.click(screen.getByText("Bulk review", { exact: true }));
+  return result;
+};
 
-const realMatchMedia = window.matchMedia;
+const WorkspaceHarness = ({ mounted }: { mounted: boolean }) => (
+  <QueueWorkspaceProvider>
+    {mounted ? <ValidationPage /> : <div>Another page</div>}
+  </QueueWorkspaceProvider>
+);
 
-const setNarrowViewport = () => {
-  window.matchMedia = vi.fn().mockImplementation((media: string) => ({
-    matches: true,
-    media,
-    onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })) as unknown as typeof window.matchMedia;
+const renderPersistentQueue = () => {
+  const result = render(
+    <MemoryRouter initialEntries={["/"]}>
+      <WorkspaceHarness mounted />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByText("Bulk review", { exact: true }));
+  return result;
 };
 
 const SITE = {
@@ -60,6 +86,7 @@ const SITE = {
 const mocks = vi.hoisted(() => ({
   suggestions: [] as Suggestion[],
   reviewMutate: vi.fn(),
+  exposureMutate: vi.fn(),
   bulkMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
   filteredUndoMutate: vi.fn(),
@@ -80,6 +107,11 @@ const mocks = vi.hoisted(() => ({
     selected_suggestions: number;
     approved_plans: number;
     can_publish?: boolean;
+  }[],
+  /** Every count query the page asked for, and whether it was allowed to run. */
+  countsQueries: [] as {
+    filters: { siteId?: number; minPercent?: number; maxPercent?: number };
+    enabled: boolean;
   }[],
   countsOverride: null as {
     pending: number;
@@ -123,11 +155,25 @@ vi.mock("../hooks/useSuggestions", () => ({
     error: null,
     refetch: vi.fn(),
   }),
-  useSuggestionCounts: (filters: {
-    siteId?: number;
-    minPercent?: number;
-    maxPercent?: number;
-  }) => {
+  useSuggestionCounts: (
+    filters: {
+      siteId?: number;
+      minPercent?: number;
+      maxPercent?: number;
+    },
+    enabled = true,
+  ) => {
+    mocks.countsQueries.push({ filters, enabled });
+    if (!enabled) {
+      // What the real hook reports for a query it never ran.
+      return {
+        data: undefined,
+        isPending: true,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      };
+    }
     if (mocks.countsOverride) {
       return {
         data: mocks.countsOverride,
@@ -164,6 +210,7 @@ vi.mock("../hooks/useSuggestions", () => ({
     };
   },
   useReview: () => ({ mutate: mocks.reviewMutate }),
+  useMarkSuggestionsExposed: () => ({ mutate: mocks.exposureMutate }),
   useBulkReview: () => ({ mutate: mocks.bulkMutate, isPending: false }),
   useFilteredBulkReview: () => ({
     mutate: mocks.filteredBulkMutate,
@@ -228,6 +275,7 @@ beforeEach(() => {
     suggestion(3, { score: 0.9, status: "applied" }),
   );
   mocks.reviewMutate.mockReset();
+  mocks.exposureMutate.mockReset();
   mocks.bulkMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
   mocks.filteredUndoMutate.mockReset();
@@ -243,8 +291,10 @@ beforeEach(() => {
   mocks.filteredBulkError = null;
   mocks.pendingPublication = [];
   mocks.countsOverride = null;
+  mocks.countsQueries = [];
   mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
+  mocks.exposureMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
   mocks.bulkMutate.mockImplementation(
@@ -308,7 +358,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  window.matchMedia = realMatchMedia;
 });
 
 describe("ValidationPage live review state", () => {
@@ -497,6 +546,47 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByText("Source 1")).not.toBeNull();
   });
 
+  it("captures an optional rejection reason before saving an individual decision", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Reject suggestion from Example site: Source 1 to Target 1",
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Why reject this suggestion?" })).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Wrong target" }));
+
+    expect(mocks.reviewMutate).toHaveBeenCalledWith(
+      { id: 1, status: "rejected", rejectionReason: "wrong_target" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it("records the visible queue rows as exposed once", async () => {
+    renderQueue();
+
+    await waitFor(() =>
+      expect(mocks.exposureMutate).toHaveBeenCalledWith(
+        { ids: [1, 2], surface: "queue" },
+        expect.objectContaining({ onError: expect.any(Function) }),
+      ),
+    );
+    expect(mocks.exposureMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry the same exposure batch when recording it fails", async () => {
+    mocks.exposureMutate.mockImplementation((_variables, options) =>
+      options?.onError?.(new Error("exposure endpoint unavailable")),
+    );
+
+    renderQueue();
+
+    await waitFor(() => expect(mocks.exposureMutate).toHaveBeenCalledTimes(1));
+  });
+
   it("cancels a bulk action without sending or changing decisions", async () => {
     const user = userEvent.setup();
     renderQueue();
@@ -508,6 +598,30 @@ describe("ValidationPage live review state", () => {
     expect(screen.getByText("Source 1")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Selected.*0/ })).not.toBeNull();
     expect(mocks.filteredBulkMutate).not.toHaveBeenCalled();
+  });
+
+  // A bulk rule only ever matches pending rows, so on any other chip its two
+  // counts label a control that is already disabled. They are aggregates over
+  // the whole fleet, and they change with the threshold and with the site
+  // filter, so asking for them there is real database work for a number nobody
+  // can act on.
+  it("stops counting the bulk rule once a non-pending chip is shown", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    const rule = () =>
+      mocks.countsQueries.filter(
+        ({ filters }) =>
+          filters.minPercent !== undefined || filters.maxPercent !== undefined,
+      );
+    expect(rule().every(({ enabled }) => enabled)).toBe(true);
+
+    await user.click(screen.getByText("More statuses", { exact: true }));
+    mocks.countsQueries = [];
+    await user.click(screen.getByRole("button", { name: /Rejected/ }));
+
+    expect(rule()).not.toHaveLength(0);
+    expect(rule().some(({ enabled }) => enabled)).toBe(false);
   });
 
   it("walks a bulk decision back through the undo action", async () => {
@@ -541,7 +655,7 @@ describe("ValidationPage live review state", () => {
     const notice = screen.getByRole("alert");
     expect(notice.textContent).toContain("1 suggestion selected for exact-edit review");
     expect(notice.textContent).toContain(
-      "1 suggestion was already picked up for publishing or had expired",
+      "1 suggestion could not be changed: it is publishing, already published, expired, or part of an approved publication plan.",
     );
     // Only the row that actually moved leaves the pending list.
     expect(screen.getByRole("button", { name: /Pending review.*2/ })).not.toBeNull();
@@ -646,7 +760,8 @@ describe("ValidationPage live review state", () => {
     const user = userEvent.setup();
     renderQueue();
 
-    await user.click(screen.getByRole("button", { name: /Published live.*1/ }));
+    await user.click(screen.getByText("More statuses", { exact: true }));
+    await user.click(screen.getByRole("button", { name: /Published.*1/ }));
 
     expect(
       (screen.getByRole("button", { name: /^Reject </ }) as HTMLButtonElement).disabled,
@@ -668,7 +783,7 @@ describe("ValidationPage live review state", () => {
 });
 
 describe("ValidationPage hand-over to approval", () => {
-  const tray = () => screen.queryByRole("link", { name: "Review selected links" });
+  const tray = () => screen.queryByRole("link", { name: "Open selected links" });
 
   it("stays quiet while nothing is selected or approved", () => {
     renderQueue();
@@ -699,7 +814,7 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue();
 
     expect(document.body.textContent).toContain("24 links selected on 1 site");
-    expect(tray()?.getAttribute("href")).toBe("/publish");
+    expect(tray()?.getAttribute("href")).toBe("/selected");
   });
 
   it("points at the site list when more than one site is waiting", () => {
@@ -710,9 +825,9 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue();
 
     expect(document.body.textContent).toContain("13 links selected on 2 sites");
-    const reviewLinks = screen.getAllByRole("link", { name: "Review selected links" });
+    const reviewLinks = screen.getAllByRole("link", { name: "Open selected links" });
     expect(reviewLinks).toHaveLength(1);
-    expect(reviewLinks[0].getAttribute("href")).toBe("/publish");
+    expect(reviewLinks[0].getAttribute("href")).toBe("/selected");
   });
 
   it("opens the filtered site's exact edits directly", () => {
@@ -722,7 +837,7 @@ describe("ValidationPage hand-over to approval", () => {
     ];
     renderQueue("/?site=1&status=approved");
 
-    expect(tray()?.getAttribute("href")).toBe("/publish/1");
+    expect(tray()?.getAttribute("href")).toBe("/selected?site=1");
   });
 
   it("keeps the review action visible outside the long scrolling queue", () => {
@@ -732,7 +847,7 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue();
 
     const queueScroller = screen.getByRole("region", { name: "Suggestion queue" });
-    const reviewLink = screen.getByRole("link", { name: "Review selected links" });
+    const reviewLink = screen.getByRole("link", { name: "Open selected links" });
 
     expect(queueScroller.contains(reviewLink)).toBe(false);
   });
@@ -743,7 +858,7 @@ describe("ValidationPage hand-over to approval", () => {
     ];
     renderQueue();
 
-    expect(tray()?.getAttribute("href")).toBe("/publish");
+    expect(tray()?.getAttribute("href")).toBe("/selected");
   });
 
   it("shows progress while a selection is being saved", async () => {
@@ -797,7 +912,7 @@ describe("ValidationPage hand-over to approval", () => {
     renderQueue("/?status=approved");
 
     expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
-    expect(tray()?.getAttribute("href")).toBe("/publish");
+    expect(tray()?.getAttribute("href")).toBe("/selected");
   });
 
   it("ignores legacy review query parameters", () => {
@@ -819,17 +934,110 @@ describe("ValidationPage hand-over to approval", () => {
 });
 
 describe("ValidationPage detail panel", () => {
-  it("reserves the desktop detail rail before a suggestion is selected", () => {
+  it("keeps suggestion detail closed until a row is selected", () => {
     renderQueue();
 
-    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
-    expect(within(preview).getByText("Select a suggestion")).not.toBeNull();
-    expect(within(preview).getByText(/placement context, target article/i)).not.toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand suggestion detail" })).toBeNull();
   });
 
-  it("uses the overlay layout below the desktop rail breakpoint", () => {
-    setNarrowViewport();
+  it("restores an open suggestion detail from navigation state", () => {
+    renderQueue("/?suggestion=1");
+
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(preview).getByText("Source 1")).not.toBeNull();
+  });
+
+  it("keeps queue presentation state when the route is remounted", () => {
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      ...Array.from({ length: 21 }, (_, index) =>
+        suggestion(index + 1, {
+          source_article: { id: 10, title: "Shared source", url: "/shared-source" },
+        }),
+      ),
+    );
+    const result = renderPersistentQueue();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more suggestions" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Collapse suggestions for Shared source/ }),
+    );
+    const scroller = screen.getByRole("region", { name: "Suggestion queue" });
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      value: 240,
+      writable: true,
+    });
+    fireEvent.scroll(scroller);
+
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted={false} />
+      </MemoryRouter>,
+    );
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Expand suggestions for Shared source/ }),
+    ).not.toBeNull();
+    expect(
+      (screen.getByRole("region", { name: "Suggestion queue" }) as HTMLElement).scrollTop,
+    ).toBe(240);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Expand suggestions for Shared source/ }),
+    );
+    expect(screen.getAllByRole("button", { name: /^Open suggestion:/ })).toHaveLength(21);
+  });
+
+  it("restores the loaded source-group page after navigation", () => {
+    mocks.suggestions.splice(
+      0,
+      mocks.suggestions.length,
+      ...Array.from({ length: 21 }, (_, index) =>
+        suggestion(index + 1, {
+          source_article: {
+            id: (index + 1) * 10,
+            title: `Source ${index + 1}`,
+            url: `/source-${index + 1}`,
+          },
+        }),
+      ),
+    );
+    const result = renderPersistentQueue();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(21);
+
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted={false} />
+      </MemoryRouter>,
+    );
+    result.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <WorkspaceHarness mounted />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(21);
+  });
+
+  it("opens after a row click and closes from the preview", async () => {
+    const user = userEvent.setup();
     renderQueue();
+
+    await user.click(screen.getAllByRole("button", { name: /^Open suggestion:/ })[0]);
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(within(preview).getByText("Source 1")).not.toBeNull();
+
+    await user.click(within(preview).getByRole("button", { name: "Close preview" }));
 
     expect(screen.queryByRole("complementary", { name: "Suggestion detail" })).toBeNull();
   });
@@ -899,6 +1107,7 @@ describe("ValidationPage detail panel", () => {
 
     expect(screen.getByRole("complementary", { name: "Suggestion detail" })).not.toBeNull();
   });
+
 });
 
 describe("ValidationPage load states", () => {
@@ -918,6 +1127,18 @@ describe("ValidationPage load states", () => {
       "The review queue could not be loaded",
     );
     expect(document.body.textContent).not.toContain("No suggestions match these filters");
+  });
+
+  it("retries queue data even when the sites query has no data", async () => {
+    const user = userEvent.setup();
+    mocks.sitesQuery = query({ data: [] });
+    mocks.suggestionsQuery = query({ isError: true });
+    renderQueue();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(mocks.sitesQuery.refetch).toHaveBeenCalled();
+    expect(mocks.suggestionsQuery.refetch).toHaveBeenCalled();
   });
 
   it("points a brand-new account at the Sites page", () => {

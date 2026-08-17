@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { orbPlateClass, orbWashClass } from "../../lib/utils";
 import type { ArticleBrief } from "../../types/suggestion";
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
   collapsed: boolean;
   onToggle: () => void;
   onShowMore: () => void;
+  itemLabel?: string;
   children: ReactNode;
 }
 
@@ -28,19 +30,28 @@ export default function SuggestionGroup({
   collapsed,
   onToggle,
   onShowMore,
+  itemLabel = "suggestion",
   children,
 }: Props) {
   const headingId = `source-group-${siteId}-${sourceArticle.id}`;
   const listId = `${headingId}-suggestions`;
   const path = articlePath(sourceArticle.url);
   const action = collapsed ? "Expand" : "Collapse";
+  const itemCountLabel = count === 1 ? itemLabel : `${itemLabel}s`;
 
   return (
     <section
       aria-labelledby={headingId}
       className="overflow-hidden rounded-xxl border border-hairline bg-surface-card"
     >
-      <div className="flex flex-col items-stretch gap-3 border-b border-hairline bg-canvas-soft px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
+      {/* The site's own hue, washed in from the edge the group starts at. In a
+          single-site queue it is a quiet constant; across a fleet it is the
+          fastest way to see that the run of groups you are reading all belong
+          to one site. The wash carries no meaning the text does not also
+          carry — the site is named on the line below the title. */}
+      <div
+        className={`flex flex-col items-stretch gap-3 border-b border-hairline bg-canvas-soft px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5 ${orbWashClass(siteId)}`}
+      >
         {/* A real heading, so the queue has structure a screen reader can jump
             through — the page's h1 is the PageHeader, each source article is an
             h2. The APG accordion shape: heading wraps the disclosure button. */}
@@ -49,15 +60,19 @@ export default function SuggestionGroup({
             type="button"
             aria-expanded={!collapsed}
             aria-controls={listId}
-            aria-label={`${action} suggestions for ${sourceArticle.title} (${path})`}
+            aria-label={`${action} ${itemCountLabel} for ${sourceArticle.title} (${path})`}
             onClick={onToggle}
             className="flex w-full min-w-0 items-center gap-3 text-left"
           >
+            {/* The disclosure marker doubles as the site's plate — the same
+                circular stop the Sites page gives this site, so a fleet reads
+                as one system across both pages. It stays a control first: the
+                +/- and the hairline are unchanged, and the hue is behind them. */}
             <span
               aria-hidden
-              className="flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong bg-surface-card text-body-sm font-medium text-ink"
+              className={`flex h-7 w-7 flex-none items-center justify-center rounded-pill border border-hairline-strong text-body-sm font-medium text-ink ${orbPlateClass(siteId)}`}
             >
-              {collapsed ? "+" : "-"}
+              {collapsed ? "+" : "−"}
             </span>
             <span className="min-w-0">
               <span id={headingId} className="block truncate text-body-md font-medium text-ink">
@@ -70,7 +85,7 @@ export default function SuggestionGroup({
           </button>
         </h2>
         <span className="badge flex-none self-start">
-          {count} {count === 1 ? "suggestion" : "suggestions"}
+          {count} {itemCountLabel}
         </span>
       </div>
 

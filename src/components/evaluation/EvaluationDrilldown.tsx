@@ -3,7 +3,8 @@ import { useRef } from "react";
 import type { EvaluationFilters, EvaluationMetric } from "../../api/evaluation";
 import { useEvaluationSuggestions } from "../../hooks/useEvaluation";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
-import { formatCount, pct } from "../../lib/utils";
+import { formatCount, pct, STATUS_META } from "../../lib/utils";
+import { EmptyPanel, ErrorPanel, SkeletonRows } from "../QueryState";
 
 const METRIC_LABEL: Record<EvaluationMetric, string> = {
   decided: "Reviewed suggestions",
@@ -15,6 +16,19 @@ const METRIC_LABEL: Record<EvaluationMetric, string> = {
   publish_failed: "Publishing failures",
   orphan_helped: "Orphans helped",
 };
+
+const METHOD_LABELS: Record<string, string> = {
+  hybrid_bm25: "Hybrid BM25",
+  baseline_cosine: "Cosine baseline",
+  external_search: "Web search",
+};
+
+const methodLabel = (method: string) =>
+  METHOD_LABELS[method] ?? method.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
+
+const statusLabel = (status: string) =>
+  STATUS_META[status as keyof typeof STATUS_META]?.label ??
+  status.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
 
 export default function EvaluationDrilldown({
   metric,
@@ -62,22 +76,22 @@ export default function EvaluationDrilldown({
           </button>
         </div>
 
-        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6">
-          {query.isPending && <p className="py-8 text-center text-body-sm text-muted">Loading suggestions...</p>}
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
+          {/* The same three panels the rest of the app uses for the same three
+              states. This surface used to hand-roll all three, which is how a
+              failure here ended up quieter than a failure anywhere else: it was
+              reported in `text-muted`, with no `role="alert"` to announce it. */}
+          {query.isPending && <SkeletonRows count={4} label="Loading suggestions" />}
           {query.isError && (
-            <div className="py-8 text-center text-body-sm text-muted">
-              <p>Suggestion details could not be loaded.</p>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm mt-3"
-                onClick={() => void query.refetch()}
-              >
-                Try again
-              </button>
-            </div>
+            <ErrorPanel
+              title="Suggestion details could not be loaded"
+              description="The suggestions behind this metric could not be loaded."
+              onRetry={() => void query.refetch()}
+              retrying={query.isFetching}
+            />
           )}
           {query.data?.items.length === 0 && (
-            <p className="py-8 text-center text-body-sm text-muted">No matching suggestions.</p>
+            <EmptyPanel>No suggestion matches this metric and these filters.</EmptyPanel>
           )}
           {query.data && query.data.items.length > 0 && (
             <ul className="flex flex-col gap-2">
@@ -93,8 +107,8 @@ export default function EvaluationDrilldown({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-caption-sm text-muted">
                     <span>{suggestion.site_name}</span>
-                    <span>{suggestion.method.replaceAll("_", " ")}</span>
-                    <span>{suggestion.status}</span>
+                    <span>{methodLabel(suggestion.method)}</span>
+                    <span>{statusLabel(suggestion.status)}</span>
                     <time dateTime={suggestion.occurred_at}>
                       {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(suggestion.occurred_at))}
                     </time>

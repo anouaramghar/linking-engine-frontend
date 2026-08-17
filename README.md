@@ -22,15 +22,21 @@ Mitigations in this repo:
 - Browser security headers (`X-Frame-Options`, `nosniff`, `Referrer-Policy`, …).
 - A restrictive Content Security Policy limits scripts, connections, images, fonts, and
   framing to the dashboard's expected same-origin resources.
-- Telegram identifies each operator. First contact creates a pending request; another
-  approved operator must approve it before Telegram issues a one-time login code.
+- Telegram identifies each operator. First contact creates a pending request; an operator
+  in the **access-admin group** must approve it before Telegram issues a one-time login
+  code. An ordinary approved operator cannot approve or revoke anyone; the backend
+  answers 403, and the hidden buttons are only the courtesy on top of that.
 - nginx verifies the resulting session before it injects the shared backend key.
 
 Telegram login is a second layer, not permission to expose the service publicly. Keep the
 deployment behind its IP-restricted firewall and put a TLS terminator in front of the
 container before any non-loopback exposure; WordPress application passwords travel
-through this path. Approved dashboard operators intentionally have full internal access;
-there are no per-person roles or site scopes.
+through this path.
+
+Admission is the only privilege that is split. The access-admin group governs who may
+join and who may be removed — nothing else. It is not a data or site role: every approved
+operator still sees every site, every queue and every suggestion, and there are no
+per-person site scopes. See `docs/design/dashboard-authentication.md` in the engine repo.
 
 ## Requirements
 
@@ -71,6 +77,22 @@ npm.cmd run lint
 npm.cmd run test
 npm.cmd run build
 ```
+
+The browser E2E suite uses Playwright with a deterministic mocked API boundary.
+Install Chromium once, then run the suite:
+
+```powershell
+npx.cmd playwright install chromium
+npm.cmd run test:e2e
+```
+
+Playwright starts the Vite server itself on `127.0.0.1:4173`. The suite covers
+the anonymous Telegram challenge and invalid-code recovery; site connection,
+crawl and analysis queueing; Content Pool connection, approval and crawl;
+suggestion selection; exact-edit approval; publication queueing; the required
+unsafe-request marker; and SPA navigation. It does not contact Telegram, Tavily,
+WordPress, or the runtime database; real connector validation belongs in the
+staging pilot.
 
 The production build is written to `dist/`. Inter and EB Garamond are bundled by
 Fontsource, so the deployed dashboard does not contact Google Fonts.

@@ -13,11 +13,20 @@ export interface Site {
    * credentialled rather than showing every site as broken.
    */
   has_wordpress_credentials?: boolean;
+  /** Static HTML sites can export approved plans, but cannot be written by the engine. */
+  can_export?: boolean;
   created_at: string;
   last_ingestion_status: string | null;
+  /**
+   * Why the last crawl failed, in the crawler's own words. Present only for a
+   * failed run, and optional so an engine that predates the field simply shows
+   * the badge without a reason.
+   */
+  last_ingestion_error?: string | null;
   // Last finished analysis job — "Indexed" and "Analyzed" are different states.
   last_analysis_status?: string | null;
   last_analysis_at?: string | null;
+  last_analysis_error?: string | null;
   article_count?: number;
   internal_link_count?: number;
   last_crawl_at?: string | null;
@@ -133,4 +142,39 @@ export interface BulkImportResult {
   created: BulkCreated[];
   skipped: BulkFailure[];
   rejected: BulkFailure[];
+}
+
+export interface ArticleImportRow {
+  url: string;
+  title?: string;
+  content_text?: string;
+  content_html?: string;
+  canonical_url?: string;
+  status_code?: number;
+  indexability?: string;
+  discovered_from?: string;
+  discovery_depth?: number;
+}
+
+export interface ArticleImportFailure {
+  row: number;
+  url: string | null;
+  reason: string;
+}
+
+export interface ArticleImportResult {
+  ingestion_run_id: number;
+  imported: number;
+  updated: number;
+  links_found: number;
+  skipped: ArticleImportFailure[];
+  rejected: ArticleImportFailure[];
+  diagnostic_summary: Record<string, number>;
+}
+
+export interface PoolSourceValidationResult {
+  base_url: string | null;
+  valid: boolean;
+  source_type: "wikipedia" | "rss_atom" | null;
+  reason: string | null;
 }

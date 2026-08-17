@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   PREPARE_MAX_ARTICLES,
@@ -7,17 +7,33 @@ import {
   type PublicationPlan,
   type PublicationPreparation,
 } from "../../api/publish";
+import type { GraphSimulation } from "../../types/graph";
 import Highlighted from "../Highlighted";
 import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import SelectionControl from "../SelectionControl";
+
+const HtmlDiff = lazy(() => import("./HtmlDiff"));
 
 interface Props {
   siteId: number;
   siteName: string;
   data: PublicationPreparation | undefined;
+  /**
+   * Set when the address names one link, so `data` carries only that link's
+   * source article. The counts here are about the rest of the prepared batch,
+   * which is still on the server and one button away.
+   */
+  focus?: {
+    suggestionId: number;
+    onShowAll: () => void;
+  } | null;
+  /** The named link is not in this batch, so every prepared article is shown. */
+  focusMissing?: boolean;
   loading: boolean;
   progress?: Record<string, unknown> | null;
   error: boolean;
+  /** Static HTML sites can approve exact edits, but queue them as an export. */
+  readOnlyExport?: boolean;
   /** True while approval or queueing is in flight. */
   busy: boolean;
   /**
@@ -41,6 +57,10 @@ interface Props {
   /** Exactly the plans whose boxes are ticked — never the whole batch. */
   onApproveAndQueue: (plans: PublicationPlan[]) => void;
   onQueueOnly: () => void;
+  simulation?: GraphSimulation;
+  simulationLoading: boolean;
+  simulationError: boolean;
+  onSimulate: (suggestionIds: number[]) => void;
 }
 
 const outcomeLabel = {
@@ -48,9 +68,6 @@ const outcomeLabel = {
   block: "Read also block",
   already_present: "Already present",
 } as const;
-
-/** How many articles open with their change shown. */
-const AUTO_EXPANDED = 3;
 
 const plural = (count: number, word: string) =>
   `${count} ${count === 1 ? word : `${word}s`}`;
@@ -61,13 +78,13 @@ const plural = (count: number, word: string) =>
  */
 const isWrite = (link: PlanLink) => link.outcome !== "already_present";
 
-/** Words for a change whose passage could not be located in the stored HTML. */
+/** Words for a change whose prepared passage cannot be shown. */
 const fallbackCopy = (link: PlanLink) => {
   if (link.outcome === "already_present") {
     return "The article already links here, so nothing is written for this one.";
   }
   if (link.outcome === "block") {
-    return `${link.target_url} is added to the read-also block at the end of the article.`;
+    return "An in-text placement was not available, so this link is added to the Read also block at the end of the article.";
   }
   return `A link to ${link.target_url} is added${
     link.anchor_text ? ` on "${link.anchor_text}"` : ""
@@ -99,16 +116,16 @@ function Stat({
 }
 
 /**
- * One link, and — once the article is open — the sentence it lands in.
+ * One link and the evidence for where it is written.
  *
- * The passage comes out of the stored `updated_html`, so what is read here is
- * the artifact the approval names, not a second rendering that could disagree
- * with it. For an in-text link the words do not change at all; only the markup
- * does, which is why this marks the anchor rather than showing two versions of
- * one identical sentence.
+ * `placement_context` is prepared evidence for in-text links. The exact HTML
+ * diff, loaded separately below, is authoritative for the final artifact. For
+ * an in-text link the words do not change at all; only the markup does, which
+ * is why this marks the anchor rather than showing two versions of one
+ * identical sentence. A Read also block has no in-text passage to highlight.
  *
  * The link is printed once. It used to appear in a summary list and again in
- * the change panel below it, so an open article said everything twice.
+ * the change panel below it, so an article said everything twice.
  */
 function LinkRow({
   plan,
@@ -126,7 +143,7 @@ function LinkRow({
   onRemove: () => void;
 }) {
   const passage = useMemo(() => {
-    if (link.outcome === "already_present" || !link.placement_context || !link.anchor_text) {
+    if (link.outcome !== "inserted" || !link.placement_context || !link.anchor_text) {
       return null;
     }
     return link.placement_context.includes(link.anchor_text)
@@ -147,8 +164,11 @@ function LinkRow({
             <span className="badge">{outcomeLabel[link.outcome]}</span>
             <span className="min-w-0 break-all text-caption text-body">{link.target_url}</span>
           </div>
-          {!open && writes && link.anchor_text && (
+          {!open && link.outcome === "inserted" && link.anchor_text && (
             <p className="mt-1.5 text-caption text-muted">on “{link.anchor_text}”</p>
+          )}
+          {!open && link.outcome === "block" && (
+            <p className="mt-1.5 text-caption text-muted">at end of article</p>
           )}
         </div>
         {/* One wrong link out of four used to cost a trip back to the queue and
@@ -165,21 +185,18 @@ function LinkRow({
         </button>
       </div>
 
-      {open &&
-        (passage ? (
-          <>
-            <blockquote className="mt-3 border-l-2 border-hairline-strong pl-3 text-body-sm leading-normal text-body">
-              <Highlighted context={passage.text} anchor={passage.anchor} />
-            </blockquote>
-            <p className="mt-2 text-caption-sm leading-normal text-muted">
-              {link.outcome === "block"
-                ? "This entry is added at the end of the article."
-                : "The marked words become the link. The wording of the article does not change."}
-            </p>
-          </>
-        ) : (
-          <p className="mt-3 text-caption leading-normal text-body">{fallbackCopy(link)}</p>
-        ))}
+      {open && passage ? (
+        <>
+          <blockquote className="mt-3 border-l-2 border-hairline-strong pl-3 text-body-sm leading-normal text-body">
+            <Highlighted context={passage.text} anchor={passage.anchor} />
+          </blockquote>
+          <p className="mt-2 text-caption-sm leading-normal text-muted">
+            The marked words become the link. The wording of the article does not change.
+          </p>
+        </>
+      ) : open ? (
+        <p className="mt-3 text-caption leading-normal text-body">{fallbackCopy(link)}</p>
+      ) : null}
     </li>
   );
 }
@@ -204,8 +221,25 @@ function ExactHtml({ siteId, planId }: { siteId: number; planId: number }) {
       className="mt-3 sm:pl-8"
       onToggle={(event) => event.currentTarget.open && load()}
     >
-      <summary className="touch-target inline-flex cursor-pointer items-center text-caption font-medium text-ink underline underline-offset-2">
-        View exact HTML (advanced)
+      <summary
+        aria-label="View exact HTML (advanced)"
+        title="View exact HTML (advanced)"
+        className="touch-target ml-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-hairline-control bg-surface-card text-ink shadow-soft transition-colors hover:border-ink hover:bg-surface-strong sm:h-10 sm:w-10"
+      >
+        <svg
+          aria-hidden="true"
+          className="h-5 w-5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="m8 8-4 4 4 4" />
+          <path d="m16 8 4 4-4 4" />
+          <path d="m14 5-4 14" />
+        </svg>
       </summary>
       {loading && (
         <div role="status" className="mt-3 text-caption text-muted">
@@ -218,19 +252,15 @@ function ExactHtml({ siteId, planId }: { siteId: number; planId: number }) {
         </div>
       )}
       {html && (
-        <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-2">
-          {[
-            ["Before approval", html.original_html],
-            ["After approval", html.updated_html],
-          ].map(([label, value]) => (
-            <div key={label} className="min-w-0">
-              <div className="mb-1 text-caption font-medium text-ink">{label}</div>
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-hairline bg-canvas-soft p-3 text-caption leading-normal text-body">
-                {value}
-              </pre>
+        <Suspense
+          fallback={
+            <div role="status" className="mt-3 text-caption text-muted">
+              Rendering exact HTML…
             </div>
-          ))}
-        </div>
+          }
+        >
+          <HtmlDiff original={html.original_html} updated={html.updated_html} />
+        </Suspense>
       )}
     </details>
   );
@@ -249,9 +279,12 @@ export default function PublicationReview({
   siteId,
   siteName,
   data,
+  focus = null,
+  focusMissing = false,
   loading,
   progress,
   error,
+  readOnlyExport = false,
   busy,
   approvedNotQueued,
   selectedIds,
@@ -262,6 +295,10 @@ export default function PublicationReview({
   onRetry,
   onApproveAndQueue,
   onQueueOnly,
+  simulation,
+  simulationLoading,
+  simulationError,
+  onSimulate,
 }: Props) {
   const plans = data?.plans ?? [];
   const planIds = plans.map((plan) => plan.id);
@@ -275,6 +312,28 @@ export default function PublicationReview({
   const presentCount = selectedLinks.length - writeCount;
   const excludedCount = plans.length - selectedPlans.length;
 
+  /**
+   * Links that ride along with a one-link review.
+   *
+   * A plan's hash covers the whole article, so approving the article approves
+   * every prepared link in it. The operator asked about one link and must be
+   * told, in the same breath, what else goes live with it.
+   */
+  const ridingLinks = focus
+    ? allLinks.filter((link) => link.suggestion_id !== focus.suggestionId).length
+    : 0;
+  /**
+   * Selected links on this site that this review does not cover.
+   *
+   * `selected_suggestions` is counted site-wide before anything is rendered, so
+   * subtracting what is on screen is the whole remainder — the siblings in this
+   * article, and every other article waiting. They keep waiting; a narrowed
+   * preparation never read them.
+   */
+  const otherSelected = data
+    ? Math.max(0, data.selected_suggestions - allLinks.length)
+    : 0;
+
   const allSelected = plans.length > 0 && selectedPlans.length === plans.length;
   const someSelected = selectedPlans.length > 0 && !allSelected;
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -283,18 +342,41 @@ export default function PublicationReview({
   }, [someSelected]);
 
   /**
-   * Which articles are showing their change. A batch of ten with every change
-   * open is a page nobody scrolls to the end of, so the ones most likely to be
-   * read open themselves and the rest ask.
+   * Articles start unread. An explicit open is the review action; merely
+   * rendering a prepared artifact does not prove that an operator saw it.
+   * Closing an opened article only tidies the page and deliberately keeps the
+   * reviewed state.
    */
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  const isExpanded = (planId: number, index: number) =>
-    expanded[planId] ?? index < AUTO_EXPANDED;
-  const toggleExpanded = (planId: number, index: number) =>
-    setExpanded((current) => ({
-      ...current,
-      [planId]: !(current[planId] ?? index < AUTO_EXPANDED),
-    }));
+  const [opened, setOpened] = useState<Set<number>>(() => new Set());
+  const isExpanded = (planId: number) => expanded[planId] ?? false;
+  const isRead = (planId: number) => opened.has(planId);
+
+  const openPlan = (planId: number, scroll = false) => {
+    setExpanded((current) => ({ ...current, [planId]: true }));
+    setOpened((current) => (current.has(planId) ? current : new Set(current).add(planId)));
+    if (scroll) {
+      document.getElementById(`publication-plan-${planId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  };
+
+  const toggleExpanded = (planId: number) => {
+    if (isExpanded(planId)) {
+      setExpanded((current) => ({ ...current, [planId]: false }));
+      return;
+    }
+    openPlan(planId);
+  };
+
+  /** Unticking an unread article removes it from the review requirement. */
+  const unread = selectedPlans.filter((plan) => !isRead(plan.id));
+  const nextUnread = unread[0];
+  const showNextUnread = () => {
+    if (nextUnread) openPlan(nextUnread.id, true);
+  };
 
   return (
     <section aria-label="Exact edit review">
@@ -310,8 +392,7 @@ export default function PublicationReview({
               : `Reading up to ${PREPARE_MAX_ARTICLES} source articles on ${siteName}.`}
           </div>
           <p className="max-w-md text-caption leading-normal text-muted">
-            Each article is one request to the live site, so this can take a minute. Nothing is
-            written while it runs.
+            Nothing is written while the source articles are read.
           </p>
         </div>
       )}
@@ -341,12 +422,67 @@ export default function PublicationReview({
             </div>
           )}
 
+          {/* The operator opened one link from the queue. Say what that means
+              before the article, not after it: what else this article carries,
+              and how much of the batch is being held back. */}
+          {focus && (
+            <div className="card mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-5">
+              <div className="min-w-0 flex-1">
+                <div className="text-body-sm font-medium text-ink">
+                  {ridingLinks > 0
+                    ? "This review is for one link, and its article carries others"
+                    : "This review is for one link"}
+                </div>
+                <p className="mt-1 max-w-prose text-caption leading-normal text-muted">
+                  {ridingLinks > 0
+                    ? `Approving this article also publishes ${plural(
+                        ridingLinks,
+                        "other selected link",
+                      )}. `
+                    : "Only this link is included in this review. "}
+                  {otherSelected > 0 &&
+                    `${plural(
+                      otherSelected,
+                      "selected link",
+                    )} on this site ${otherSelected === 1 ? "is" : "are"} outside this review.`}
+                </p>
+              </div>
+              {otherSelected > 0 && (
+                <button
+                  type="button"
+                  onClick={focus.onShowAll}
+                  className="btn btn-outline flex-none"
+                >
+                  Review every selected link
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Silence would leave the operator reading a batch they did not ask
+              for, with no idea why their link is not the thing on screen. */}
+          {focusMissing && (
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-hairline-strong bg-surface-strong px-4 py-3 text-caption leading-normal text-body"
+            >
+              <span className="font-medium text-ink">
+                That link was not prepared.
+              </span>{" "}
+                Its article could not be read, or it is already published or no longer selected.
+                The prepared articles are shown below.
+            </div>
+          )}
+
           {/* What was read, before the operator scrolls into the articles. The
               decision itself is counted in the bar at the foot of the page. */}
           <div className="card mb-4 px-4 py-4 sm:px-5">
             <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
               <div className="flex flex-wrap gap-x-8 gap-y-4">
-                <Stat value={plans.length} label="Articles prepared" />
+                <Stat
+                  value={plans.length}
+                  label={focus ? "Article for this link" : "Articles prepared"}
+                />
                 <Stat
                   value={preparedWrites}
                   label={preparedWrites === 1 ? "Link to write" : "Links to write"}
@@ -355,9 +491,6 @@ export default function PublicationReview({
                   <Stat value={preparedPresent} label="Already present" muted />
                 )}
               </div>
-              <p className="max-w-xs text-caption leading-normal text-muted sm:text-right">
-                Read from {siteName}. Nothing is live until you approve it.
-              </p>
             </div>
 
             {plans.length > 1 && (
@@ -381,17 +514,83 @@ export default function PublicationReview({
             {plans.length > 0 && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
                 <p className="max-w-2xl text-caption leading-normal text-body">
-                  Reviewing each exact edit is{" "}
-                  <span className="font-medium text-ink">strongly recommended</span>, but
-                  optional. If you trust your selected links, you can approve the prepared batch
-                  as-is.
+                  Every selected article's exact change has to be read before it can be approved.
+                  Open the ones still closed, or untick an article to leave it for later.
                 </p>
-                <a
-                  href="#approval-actions"
-                  className="touch-target inline-flex items-center text-caption font-medium text-ink underline underline-offset-2 hover:text-primary"
+                <span className="text-caption text-muted" aria-live="polite">
+                  {selectedPlans.length - unread.length} of {selectedPlans.length} read
+                </span>
+              </div>
+            )}
+
+            {selectedLinks.length > 0 && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
+                <div className="min-w-0">
+                  <div className="text-caption font-medium text-ink">Check site structure</div>
+                  <p className="mt-1 max-w-2xl text-caption-sm leading-normal text-muted">
+                    Preview orphan, underlinked, hub, and concentration changes before this
+                    batch is approved. This is read-only and does not publish anything.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSimulate(selectedLinks.map((link) => link.suggestion_id))}
+                  disabled={busy || simulationLoading}
+                  className="btn btn-outline flex-none"
                 >
-                  Skip review
-                </a>
+                  {simulationLoading ? "Simulating…" : "Simulate structure"}
+                </button>
+              </div>
+            )}
+
+            {simulationError && (
+              <div role="alert" className="mt-3 text-caption text-error-ink">
+                The structural simulation could not be loaded. The exact edit review is still
+                available.
+              </div>
+            )}
+
+            {simulation && (
+              <div className="mt-3 rounded-lg border border-hairline-strong bg-canvas-soft px-3 py-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div className="text-caption font-medium text-ink">Structural preview</div>
+                  <div className="text-caption-sm text-muted">
+                    {simulation.applied_suggestion_ids.length} new internal links modeled
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-3 text-caption-sm sm:grid-cols-4">
+                  <div>
+                    <div className="text-muted">Orphans</div>
+                    <div className="font-medium text-body">
+                      {simulation.before.orphan_count} → {simulation.after.orphan_count}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted">Underlinked</div>
+                    <div className="font-medium text-body">
+                      {simulation.before.underlinked_count} → {simulation.after.underlinked_count}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted">Links</div>
+                    <div className="font-medium text-body">
+                      {simulation.before.active_links} → {simulation.after.active_links}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted">Top-target share</div>
+                    <div className="font-medium text-body">
+                      {Math.round(simulation.target_concentration * 100)}%
+                    </div>
+                  </div>
+                </div>
+                {simulation.warnings.length > 0 && (
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-caption-sm text-body">
+                    {simulation.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
           </div>
@@ -429,13 +628,14 @@ export default function PublicationReview({
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {plans.map((plan, index) => {
+              {plans.map((plan) => {
                 const selected = selectedIds.has(plan.id);
-                const open = isExpanded(plan.id, index);
+                const open = isExpanded(plan.id);
                 return (
                   <section
                     key={plan.id}
-                    className={`card px-4 py-4 transition-colors sm:px-5 ${
+                    id={`publication-plan-${plan.id}`}
+                    className={`card scroll-mt-4 px-4 py-4 transition-colors sm:px-5 ${
                       selected ? "border-ink" : ""
                     }`}
                   >
@@ -477,27 +677,44 @@ export default function PublicationReview({
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:pl-8">
                       <button
                         type="button"
-                        onClick={() => toggleExpanded(plan.id, index)}
+                        onClick={() => toggleExpanded(plan.id)}
                         aria-expanded={open}
                         className="touch-target inline-flex items-center text-caption font-medium text-ink underline underline-offset-2 hover:text-primary"
                       >
                         {open ? "Hide the change" : "Show the change"}
                       </button>
-                      <span className="text-caption-sm text-muted">Exact artifact verified</span>
+                      <span className="text-caption-sm text-muted">
+                        {!selected
+                          ? "Excluded from this approval"
+                          : isRead(plan.id)
+                            ? "Exact artifact reviewed"
+                            : "Not read yet"}
+                      </span>
                     </div>
 
-                    {open && <ExactHtml siteId={siteId} planId={plan.id} />}
+                    <ExactHtml siteId={siteId} planId={plan.id} />
                   </section>
                 );
               })}
             </div>
           )}
 
+          {/* The same raised tray the site list uses for a batch action, and for
+              the same reason: a sticky bar needs a ground of its own. On
+              {colors.canvas-soft} with no stacking order it wore the page's own
+              ground, so the article cards scrolled over the top of it and the
+              approve button sat on nothing. `bottom-3` also keeps the primary
+              action off the very corner of the viewport, where the scrollbar
+              and the operating system's own overlays live. */}
           <div
             id="approval-actions"
-            className="sticky bottom-0 mt-3 scroll-mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-hairline bg-canvas-soft py-4"
+            className="sticky bottom-3 z-10 mt-4 scroll-mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
           >
-            <div className="min-w-0 flex-1 text-caption" aria-live="polite">
+            {/* What is about to be published, and the button that publishes it,
+                read as one group. Held at the two ends of a full-width bar they
+                stood far apart on a wide window, and the button sat in the
+                corner the scrollbar and the desktop overlays own. */}
+            <div className="min-w-0 text-caption" aria-live="polite">
               <div className="font-medium text-ink">
                 {plural(selectedPlans.length, "article")} · {plural(writeCount, "link")} to write
                 {presentCount > 0 && ` · ${presentCount} already present`}
@@ -505,11 +722,13 @@ export default function PublicationReview({
               {/* An unticked article is otherwise silent: the operator sees no
                   trace of the decision they just made not to publish it. */}
               <div className="text-muted">
-                {excludedCount > 0
+                {unread.length > 0
+                  ? `${plural(unread.length, "article")} still to read before this can be approved.`
+                  : excludedCount > 0
                   ? `${excludedCount} ${
                       excludedCount === 1 ? "article stays" : "articles stay"
                     } unpublished and can be reviewed later.`
-                  : "Nothing is live yet."}
+                  : "All selected changes are reviewed above."}
               </div>
             </div>
             {approvedNotQueued ? (
@@ -521,6 +740,15 @@ export default function PublicationReview({
               >
                 {busy ? "Queueing…" : "Queue approved edits"}
               </button>
+            ) : unread.length > 0 ? (
+              <button
+                type="button"
+                onClick={showNextUnread}
+                disabled={busy}
+                className="btn btn-primary flex-none"
+              >
+                Read the next change
+              </button>
             ) : (
               <button
                 type="button"
@@ -530,7 +758,9 @@ export default function PublicationReview({
               >
                 {busy
                   ? "Approving…"
-                  : `Approve and queue ${plural(selectedPlans.length, "article")}`}
+                  : readOnlyExport
+                    ? `Approve ${plural(selectedPlans.length, "exact edit")} for CSV export`
+                    : `Approve and queue ${plural(selectedPlans.length, "exact edit")}`}
               </button>
             )}
           </div>

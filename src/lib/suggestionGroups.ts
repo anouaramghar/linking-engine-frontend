@@ -11,9 +11,23 @@ export const suggestionGroupKey = (suggestion: Suggestion) =>
   `${suggestion.site_id}:${suggestion.source_article.id}`;
 
 /**
- * Keep the engine's score order while making every source article contiguous.
- * The first occurrence fixes the group position, so the server's highest-ranked
- * suggestion remains the source group's queue priority.
+ * Order rows by the persisted delivery rank when the engine recorded one.
+ * Missing ranks are legacy rows, so they stay after ranked rows while keeping
+ * the server's original order among themselves.
+ */
+export const sortSuggestionsByFinalRank = (suggestions: Suggestion[]) =>
+  suggestions
+    .map((suggestion, index) => ({ suggestion, index }))
+    .sort((left, right) => {
+      const leftRank = left.suggestion.final_rank ?? Number.POSITIVE_INFINITY;
+      const rightRank = right.suggestion.final_rank ?? Number.POSITIVE_INFINITY;
+      return leftRank - rightRank || left.index - right.index;
+    })
+    .map(({ suggestion }) => suggestion);
+
+/**
+ * Keep the API's queue order for source groups while making each source's rows
+ * follow the final ranking that the engine persisted for that source.
  */
 export const groupSuggestionsBySource = (
   suggestions: Suggestion[],
@@ -36,5 +50,8 @@ export const groupSuggestionsBySource = (
     });
   });
 
-  return Array.from(groups.values());
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    suggestions: sortSuggestionsByFinalRank(group.suggestions),
+  }));
 };

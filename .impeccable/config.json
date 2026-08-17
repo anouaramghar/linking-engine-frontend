@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-14T15:35:43.913Z",
+        "reason": "DESIGN.md pins Inter as the operator-UI body font and EB Garamond as display; this session is a motion refinement of the incumbent system, and a font swap was rejected on 2026-08-14"
+      }
+    ]
+  }
+}

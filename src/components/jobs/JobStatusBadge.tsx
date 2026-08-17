@@ -36,7 +36,9 @@ export default function JobStatusBadge({
       title={job.error ?? undefined}
       role="status"
       aria-live="polite"
-      aria-label={label}
+      // The tooltip is mouse-only, so a failure reason that lives only there is
+      // a reason half the operators never read.
+      aria-label={job.error ? `${label}. ${job.error}` : label}
     >
       {active ? (
         <LogoLoadingAnimation size="xs" className="text-primary flex-none" aria-hidden="true" />

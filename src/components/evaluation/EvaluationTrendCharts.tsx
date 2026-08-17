@@ -16,6 +16,42 @@ const shortDate = (value: string) =>
 const xAt = (index: number, total: number) =>
   LEFT + (index * (WIDTH - LEFT - RIGHT)) / Math.max(1, total - 1);
 
+function AccessibleDataTable({
+  id,
+  caption,
+  headers,
+  rows,
+}: {
+  id: string;
+  caption: string;
+  headers: string[];
+  rows: string[][];
+}) {
+  return (
+    <table id={id} className="sr-only">
+      <caption>{caption}</caption>
+      <thead>
+        <tr>
+          {headers.map((header) => (
+            <th key={header} scope="col">
+              {header}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, rowIndex) => (
+          <tr key={`${id}-${rowIndex}`}>
+            {row.map((cell, cellIndex) => (
+              <td key={`${id}-${rowIndex}-${cellIndex}`}>{cell}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function ChartFrame({
   title,
   description,
@@ -48,6 +84,14 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
     })
     .join(" ");
   const reviewed = points.reduce((sum, point) => sum + point.accepted + point.rejected, 0);
+  const dataRows = points.map((point) => [
+    shortDate(point.bucket_start),
+    point.acceptance_rate === null
+      ? "Not available"
+      : `${Math.round(point.acceptance_rate * 100)}%`,
+    formatCount(point.accepted),
+    formatCount(point.rejected),
+  ]);
 
   return (
     <ChartFrame
@@ -62,9 +106,10 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
         <div className="overflow-x-auto">
           <svg
             viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            className="min-w-[620px]"
+            className="min-w-chart"
             role="img"
             aria-label="Acceptance rate over time"
+            aria-describedby="acceptance-trend-data"
           >
             {[0, 0.5, 1].map((rate) => {
               const y = TOP + (1 - rate) * (HEIGHT - TOP - BOTTOM);
@@ -77,7 +122,7 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
                     y2={y}
                     className="stroke-hairline"
                   />
-                  <text x={0} y={y + 4} className="fill-muted text-[11px]">
+                  <text x={0} y={y + 4} className="fill-muted text-caption-sm">
                     {Math.round(rate * 100)}%
                   </text>
                 </g>
@@ -113,7 +158,7 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
                   x={xAt(index, points.length)}
                   y={HEIGHT - 10}
                   textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}
-                  className="fill-muted text-[11px]"
+                  className="fill-muted text-caption-sm"
                 >
                   {shortDate(points[index].bucket_start)}
                 </text>
@@ -122,6 +167,12 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
           <p className="mt-1 text-caption-sm text-muted">
             {formatCount(reviewed)} reviewed suggestions across {formatCount(points.length)} time buckets.
           </p>
+          <AccessibleDataTable
+            id="acceptance-trend-data"
+            caption="Acceptance rate data over time"
+            headers={["Date", "Acceptance rate", "Accepted", "Rejected"]}
+            rows={dataRows}
+          />
         </div>
       )}
     </ChartFrame>
@@ -159,6 +210,11 @@ export function OrphanTrend({ points }: { points: OrphanTrendPoint[] }) {
       return `${x},${y}`;
     })
     .join(" ");
+  const dataRows = points.map((point) => [
+    shortDate(point.snapshot_date),
+    formatCount(point.remaining),
+    formatCount(point.active_articles),
+  ]);
 
   return (
     <ChartFrame
@@ -168,9 +224,10 @@ export function OrphanTrend({ points }: { points: OrphanTrendPoint[] }) {
       <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="min-w-[620px]"
+          className="min-w-chart"
           role="img"
           aria-label="Orphan pages remaining over time"
+          aria-describedby="orphan-trend-data"
         >
           <line
             x1={LEFT}
@@ -199,24 +256,30 @@ export function OrphanTrend({ points }: { points: OrphanTrendPoint[] }) {
               </circle>
             );
           })}
-          <text x={0} y={TOP + 4} className="fill-muted text-[11px]">
+          <text x={0} y={TOP + 4} className="fill-muted text-caption-sm">
             {formatCount(max)}
           </text>
-          <text x={0} y={HEIGHT - BOTTOM + 4} className="fill-muted text-[11px]">
+          <text x={0} y={HEIGHT - BOTTOM + 4} className="fill-muted text-caption-sm">
             {formatCount(min)}
           </text>
-          <text x={LEFT} y={HEIGHT - 10} className="fill-muted text-[11px]">
+          <text x={LEFT} y={HEIGHT - 10} className="fill-muted text-caption-sm">
             {shortDate(points[0].snapshot_date)}
           </text>
           <text
             x={WIDTH - RIGHT}
             y={HEIGHT - 10}
             textAnchor="end"
-            className="fill-muted text-[11px]"
+            className="fill-muted text-caption-sm"
           >
             {shortDate(points[points.length - 1].snapshot_date)}
           </text>
         </svg>
+        <AccessibleDataTable
+          id="orphan-trend-data"
+          caption="Orphan pages remaining over time"
+          headers={["Date", "Orphan pages remaining", "Active articles"]}
+          rows={dataRows}
+        />
       </div>
     </ChartFrame>
   );

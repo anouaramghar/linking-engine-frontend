@@ -1,7 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ContentPoolPage from "./ContentPoolPage";
+
+const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
 
 const mocks = vi.hoisted(() => ({
   sites: { data: [] as unknown[], isPending: false, isError: false, isFetching: false, refetch: vi.fn() },
@@ -9,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   revoke: vi.fn(),
   reactivate: vi.fn(),
   remove: vi.fn(),
+  bulk: vi.fn(),
+  poolBatch: vi.fn(),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -18,6 +24,24 @@ vi.mock("../hooks/useSites", () => ({
   useReactivatePoolSource: () => ({ mutateAsync: mocks.reactivate }),
   useDeleteSite: () => ({ mutateAsync: mocks.remove, isPending: false }),
   useCreateSite: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useBulkCreateSites: () => ({
+    mutate: mocks.bulk,
+    reset: vi.fn(),
+    data: undefined,
+    isPending: false,
+    isError: false,
+  }),
+  useValidatePoolSources: () => ({
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+  usePoolIngestionBatch: () => ({
+    mutateAsync: mocks.poolBatch,
+    isPending: false,
+  }),
   usePoolAuditEvents: () => ({
     events: [],
     hasNextPage: false,
@@ -48,6 +72,8 @@ beforeEach(() => {
   mocks.revoke.mockReset();
   mocks.reactivate.mockReset();
   mocks.remove.mockReset();
+  mocks.bulk.mockReset();
+  mocks.poolBatch.mockReset();
 });
 
 afterEach(cleanup);
@@ -72,8 +98,9 @@ describe("ContentPoolPage", () => {
     expect(document.body.textContent).toContain("Industry feed");
     expect(document.body.textContent).toContain("Not approved");
     expect(document.body.textContent).not.toContain("Owned");
-    fireEvent.click(screen.getByRole("button", { name: /Actions for Industry feed/ }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve Industry feed" }));
+    expect(screen.getByRole("dialog").textContent).toContain("https://news.example.com/feed");
+    fireEvent.click(screen.getByRole("button", { name: "Approve source" }));
 
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(2));
   });
@@ -102,16 +129,128 @@ describe("ContentPoolPage", () => {
     await waitFor(() => expect(mocks.reactivate).toHaveBeenCalledWith(3));
   });
 
-  it("opens a creation form fixed to the content-pool connector", () => {
+  it("opens a pool source in a new tab instead of asking for a copy and paste", () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "Industry feed",
+        base_url: "https://news.example.com/feed",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_quarantined: false,
+      },
+    ];
     render(<ContentPoolPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "+ Connect pool source" }));
-    expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source");
-    expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).value).toBe(
+    const link = screen.getByRole("link", { name: "Open Industry feed in a new tab" });
+    expect(link.getAttribute("href")).toBe("https://news.example.com/feed");
+    // A new tab keeps the operator's place in the pool, and `noreferrer` keeps
+    // the dashboard's address out of a third party's logs.
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("opens a creation form fixed to the content-pool connector", async () => {
+    render(<ContentPoolPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect pool source" }));
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").textContent).toContain("Connect a pool source"),
+    );
+    expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).value).toBe(
       "pool",
     );
-    expect((screen.getByRole("combobox", { name: "Connector" }) as HTMLSelectElement).disabled).toBe(
+    expect((screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement).disabled).toBe(
       true,
+    );
+  });
+
+  it("selects approved sources and runs a crawl-only batch", async () => {
+    mocks.sites.data = [
+      {
+        id: 2,
+        name: "Wikipedia",
+        base_url: "https://en.wikipedia.org/wiki/RSS",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_quarantined: false,
+      },
+      {
+        id: 3,
+        name: "Industry feed",
+        base_url: "https://news.example.com/feed.xml",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_quarantined: false,
+      },
+      {
+        id: 4,
+        name: "Pending feed",
+        base_url: "https://pending.example.com/feed.xml",
+        platform: "pool",
+        pool_source_approved: false,
+        pool_source_quarantined: false,
+      },
+      {
+        id: 5,
+        name: "Quarantined feed",
+        base_url: "https://quarantined.example.com/feed.xml",
+        platform: "pool",
+        pool_source_approved: true,
+        pool_source_quarantined: true,
+      },
+    ];
+    mocks.poolBatch.mockResolvedValue({
+      queued: [
+        { siteId: 2, job: { job_id: "job-2" } },
+        { siteId: 3, job: { job_id: "job-3" } },
+      ],
+      failed: [],
+    });
+    render(<ContentPoolPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Select sources" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all eligible visible pool sources" }),
+    );
+
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Wikipedia for batch" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", {
+        name: "Select Industry feed for batch",
+      }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: "Select Pending feed for batch" }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", {
+        name: "Select Quarantined feed for batch",
+      }) as HTMLInputElement).disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run batch (2)" }));
+
+    await waitFor(() => expect(mocks.poolBatch).toHaveBeenCalledWith([2, 3]));
+    expect(screen.queryByRole("region", { name: "Pool batch selection" })).toBeNull();
+    expect(document.body.textContent).toContain("2 pool sources queued for crawl");
+  });
+
+  // The importer is a lazy chunk here, as it is on the Sites page, so the
+  // dialog only exists once Suspense has resolved it.
+  it("opens the dedicated content-pool CSV importer", async () => {
+    render(<ContentPoolPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Import CSV" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Import content-pool sources from CSV");
+    expect(dialog.textContent).toContain(
+      "valid rows are imported as unapproved content-pool sources",
     );
   });
 });

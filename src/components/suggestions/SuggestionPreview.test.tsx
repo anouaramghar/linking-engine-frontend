@@ -109,10 +109,10 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.getByText("Publishing is in progress.")).not.toBeNull();
   });
 
-  it("identifies an applied suggestion as published live", () => {
+  it("identifies an applied suggestion as published", () => {
     renderPreview("applied");
 
-    expect(screen.getByText("Published live")).not.toBeNull();
+    expect(screen.getByText("Published")).not.toBeNull();
     expect(screen.getByText("Published to the live article.")).not.toBeNull();
   });
 
@@ -186,6 +186,24 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
+  it("shows final delivery rank separately from semantic similarity", () => {
+    render(
+      <SuggestionCard
+        suggestion={{ ...suggestion("pending"), score: 0.89, final_rank: 1 }}
+        siteName="Example site"
+        selected={false}
+        onOpen={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Final rank #1")).not.toBeNull();
+    expect(screen.getByText("89%")).not.toBeNull();
+    expect(screen.getByText("Semantic match")).not.toBeNull();
+  });
+
   it("identifies a content-pool target as an external link", () => {
     const external = {
       ...suggestion("pending"),
@@ -211,7 +229,7 @@ describe("SuggestionPreview publication state", () => {
 
     expect(screen.getByText("External link · Content pool")).not.toBeNull();
     expect(screen.getByText("Wikipedia")).not.toBeNull();
-    expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Open target article" }).getAttribute("href")).toBe(
       "https://en.wikipedia.org/wiki/External_target",
     );
   });
@@ -242,13 +260,13 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("External link · Tavily")).not.toBeNull();
+    expect(screen.getByText("External link · Web search")).not.toBeNull();
     expect(screen.getByText("Tavily")).not.toBeNull();
     expect(document.body.textContent).toContain(
       "Independent guidance about useful SEO links.",
     );
     expect(document.body.textContent).toContain("Search query: SEO Orlando");
-    expect(screen.getByRole("link", { name: "open target" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Open target article" }).getAttribute("href")).toBe(
       "https://reference.example/seo-guide",
     );
   });

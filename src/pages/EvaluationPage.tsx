@@ -6,6 +6,8 @@ import {
   type EvaluationFilters,
   type EvaluationMetric,
   type EvaluationMetrics,
+  type EvaluationProvenance,
+  type EvidenceSampleState,
   type MethodMetrics,
   type ScoreRangeMetrics,
 } from "../api/evaluation";
@@ -14,10 +16,11 @@ import {
   AcceptanceTrend,
   OrphanTrend,
 } from "../components/evaluation/EvaluationTrendCharts";
+import HelpHint from "../components/HelpHint";
 import PageHeader from "../components/PageHeader";
 import { useEvaluationMetrics } from "../hooks/useEvaluation";
 import { useSites } from "../hooks/useSites";
-import { formatCount } from "../lib/utils";
+import { downloadBlob, formatCount } from "../lib/utils";
 
 type RangeKey = "7d" | "30d" | "90d" | "all";
 
@@ -46,6 +49,10 @@ const DEFINITION = {
     "Published suggestions divided by completed publishing outcomes: published plus terminal failures.",
   orphans:
     "Active pages with no observed inbound internal link in the latest crawl. Orphans helped are verified inserted or appended LinkMesh links to previously orphaned targets.",
+  exposure:
+    "A suggestion is exposed when the review queue renders it. Unseen decisions are kept separate because an unseen candidate is not a rejection.",
+  graph:
+    "Graph context is the generation-time structural snapshot attached to a suggestion. It describes graph opportunity, not topical relevance.",
 } as const;
 
 const formatRate = (value: number | null | undefined) => {
@@ -72,11 +79,14 @@ const formatDelta = (value: number | null | undefined) => {
   return `${points > 0 ? "+" : ""}${points.toFixed(Math.abs(points) < 1 ? 2 : 1)} pp vs previous`;
 };
 
-const methodLabel = (method: string) => {
-  if (method === "hybrid_bm25") return "Hybrid BM25";
-  if (method === "baseline_cosine") return "Cosine baseline";
-  return method.replaceAll("_", " ");
+const METHOD_LABELS: Record<string, string> = {
+  hybrid_bm25: "Hybrid BM25",
+  baseline_cosine: "Cosine baseline",
+  external_search: "Web search",
 };
+
+const methodLabel = (method: string) =>
+  METHOD_LABELS[method] ?? method.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
 
 const filtersFor = (range: RangeKey, siteId: number | undefined): EvaluationFilters => {
   const selected = RANGE_OPTIONS.find((option) => option.value === range)!;
@@ -89,18 +99,6 @@ const filtersFor = (range: RangeKey, siteId: number | undefined): EvaluationFilt
     date_to: dateTo.toISOString(),
   };
 };
-
-function DefinitionHint({ text }: { text: string }) {
-  return (
-    <span
-      title={text}
-      aria-label={text}
-      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-pill border border-hairline text-caption-sm normal-case text-muted"
-    >
-      ?
-    </span>
-  );
-}
 
 function MetricCard({
   label,
@@ -128,14 +126,14 @@ function MetricCard({
       />
       <div className="eyebrow relative">
         {label}
-        <DefinitionHint text={definition} />
+        <HelpHint label="What this metric means">{definition}</HelpHint>
       </div>
       <div
         className={`relative mt-3 font-serif text-display-lg text-ink ${
           loading ? "animate-pulse text-muted" : ""
         }`}
       >
-        {loading ? "···" : value}
+        {loading ? "…" : value}
       </div>
       <div className="relative mt-2 text-caption leading-normal text-muted">{detail}</div>
       {comparison && (
@@ -147,7 +145,7 @@ function MetricCard({
           className="relative mt-3 text-caption font-medium text-ink underline underline-offset-4"
           onClick={onDetails}
         >
-          View suggestions
+          View matching suggestions
         </button>
       )}
     </div>
@@ -171,7 +169,9 @@ function CompactStat({
     <div className="rounded-xl bg-surface-strong px-4 py-3">
       <div className="text-caption-sm text-muted">
         {label}
-        {definition && <DefinitionHint text={definition} />}
+        {definition && (
+          <HelpHint label="What this metric means">{definition}</HelpHint>
+        )}
       </div>
       <div className="mt-1 text-title-md font-medium text-ink">{value}</div>
       <div className="mt-1 text-caption-sm text-muted">{detail}</div>
@@ -181,7 +181,7 @@ function CompactStat({
           className="mt-2 text-caption-sm font-medium text-ink underline underline-offset-4"
           onClick={onDetails}
         >
-          View suggestions
+          View matching suggestions
         </button>
       )}
     </div>
@@ -209,11 +209,11 @@ function MethodComparison({ methods }: { methods: MethodMetrics[] }) {
                 <th className="px-4 py-3 font-medium sm:px-6">Method</th>
                 <th className="px-4 py-3 text-right font-medium">Suggestions</th>
                 <th className="px-4 py-3 text-right font-medium">Acceptance</th>
-                <th className="px-4 py-3 text-right font-medium">Applied</th>
-                <th className="px-4 py-3 text-right font-medium sm:pr-6">Avg. semantic</th>
+                <th className="px-4 py-3 text-right font-medium">Published</th>
+                <th className="px-4 py-3 text-right font-medium sm:pr-6">Avg. semantic score</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-hairline text-body-sm">
+            <tbody className="divide-y divide-hairline text-body-sm tabular-nums">
               {methods.map((method) => (
                 <tr key={method.method}>
                   <td className="px-4 py-4 font-medium text-ink sm:px-6">
@@ -264,7 +264,7 @@ function ScoreRangePerformance({ ranges }: { ranges: ScoreRangeMetrics[] }) {
               <th className="px-4 py-3 text-right font-medium sm:pr-6">Acceptance</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-hairline text-body-sm">
+          <tbody className="divide-y divide-hairline text-body-sm tabular-nums">
             {ranges.map((range) => (
               <tr key={range.label}>
                 <td className="px-4 py-4 font-medium text-ink sm:px-6">{range.label}</td>
@@ -304,7 +304,7 @@ function SitesBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
                 <th className="px-4 py-3 text-right font-medium sm:pr-6">Published</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-hairline text-body-sm">
+            <tbody className="divide-y divide-hairline text-body-sm tabular-nums">
               {metrics.sites.map((site) => (
                 <tr key={site.site_id}>
                   <td className="px-4 py-4 font-medium text-ink sm:px-6">{site.site_name}</td>
@@ -326,6 +326,104 @@ function SitesBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
           </table>
         </div>
       )}
+    </section>
+  );
+}
+
+const SAMPLE_STATE_LABEL: Record<EvidenceSampleState, string> = {
+  evidence_unavailable: "Evidence unavailable",
+  more_individual_labels_required: "More individual labels required",
+  three_site_baseline_ready: "Three-site baseline ready",
+};
+
+/**
+ * States plainly what this page is before any number is read.
+ *
+ * It sits above the metrics, not inside the collapsed definitions panel: the
+ * whole point is that a reader cannot take a rate off this dashboard and use it
+ * to argue for a ranking or model change without having seen why they may not.
+ */
+function ProvenanceNotice({ provenance }: { provenance: EvaluationProvenance }) {
+  const {
+    sample_state,
+    sites_meeting_label_target,
+    baseline_site_target,
+    individual_labels,
+    individual_label_target,
+    bulk_labels,
+    evidence_cutoff,
+    schema_version,
+    commit,
+    label_provenance,
+    limitations,
+  } = provenance;
+  const ready = sample_state === "three_site_baseline_ready";
+
+  return (
+    <section
+      className="card mb-4 border border-hairline-strong px-4 py-4 sm:px-6"
+      aria-label="Evidence provenance and limitations"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="badge">Operational telemetry</span>
+        <h2 className="font-serif text-display-sm text-ink">
+          Not evidence for ranking or model changes
+        </h2>
+      </div>
+      <p className="mt-2 text-caption leading-normal text-muted">
+        These numbers report what the system did. Changing a ranking default or a model
+        needs a versioned three-site baseline instead — {baseline_site_target} representative
+        sites with at least {formatCount(individual_label_target)} individual labels each.
+      </p>
+      <dl className="mt-4 grid grid-cols-1 gap-3 text-caption leading-normal sm:grid-cols-2">
+        <div>
+          <dt className="font-medium text-ink">Sample state</dt>
+          <dd className="mt-1 text-muted">
+            {SAMPLE_STATE_LABEL[sample_state]}
+            {!ready && (
+              <>
+                {" — "}
+                {formatCount(sites_meeting_label_target)} of {baseline_site_target} sites at the
+                label target
+              </>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-ink">Label provenance</dt>
+          <dd className="mt-1 text-muted">
+            {formatCount(individual_labels)} individual, {formatCount(bulk_labels)} from bulk
+            rules. {label_provenance}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-ink">Evidence cutoff</dt>
+          <dd className="mt-1 text-muted">
+            {evidence_cutoff
+              ? new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }).format(new Date(evidence_cutoff))
+              : "No suggestions in this cohort"}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-ink">Schema and build</dt>
+          <dd className="mt-1 break-all text-muted">
+            {schema_version} · commit {commit ?? "unknown"}
+          </dd>
+        </div>
+      </dl>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-caption font-medium text-ink">
+          What these numbers cannot settle ({limitations.length})
+        </summary>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-caption leading-normal text-muted">
+          {limitations.map((limitation) => (
+            <li key={limitation}>{limitation}</li>
+          ))}
+        </ul>
+      </details>
     </section>
   );
 }
@@ -355,6 +453,104 @@ function MetricDefinitions({ cohortDefinition }: { cohortDefinition: string }) {
         </div>
       </dl>
     </details>
+  );
+}
+
+const labelReason = (reason: string) =>
+  reason === "unspecified"
+    ? "No reason supplied"
+    : reason.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
+
+function EvidenceBreakdown({ metrics }: { metrics: EvaluationMetrics }) {
+  const exposure = metrics.exposure;
+  const graph = metrics.graph_impact;
+  const reasons = metrics.rejection_reasons ?? [];
+  if (!exposure && !graph && reasons.length === 0) return null;
+
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {exposure && (
+        <section className="card px-4 py-5 sm:px-6">
+          <h2 className="font-serif text-display-sm text-ink">
+            Exposure and labels <HelpHint label="What this metric means">{DEFINITION.exposure}</HelpHint>
+          </h2>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            Decisions are split by whether the suggestion was rendered before review.
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <CompactStat
+              label="Exposed"
+              value={`${formatCount(exposure.exposed)} / ${formatCount(exposure.suggestions)}`}
+              detail={`${formatRate(exposure.exposure_rate)} of the cohort`}
+            />
+            <CompactStat
+              label="Unseen"
+              value={formatCount(exposure.unseen)}
+              detail={`${formatCount(exposure.unseen_decisions)} decisions excluded from exposed quality`}
+            />
+            <CompactStat
+              label="Exposed acceptance"
+              value={formatRate(exposure.exposed_acceptance_rate)}
+              detail={`${formatCount(exposure.exposed_decisions)} exposed decisions`}
+            />
+            <CompactStat
+              label="Unseen decisions"
+              value={formatCount(exposure.unseen_decisions)}
+              detail="Not treated as rejection evidence"
+            />
+          </div>
+        </section>
+      )}
+
+      {(graph || reasons.length > 0) && (
+        <section className="card px-4 py-5 sm:px-6">
+          <h2 className="font-serif text-display-sm text-ink">
+            Graph impact and rejection reasons{" "}
+            <HelpHint label="What this metric means">{DEFINITION.graph}</HelpHint>
+          </h2>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            Structural context and optional reviewer explanations captured at decision time.
+          </p>
+          {graph && (
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <CompactStat
+                label="Graph context"
+                value={formatCount(graph.suggestions_with_graph_context)}
+                detail={`${formatCount(graph.exposed_graph_suggestions)} exposed`}
+              />
+              <CompactStat
+                label="Graph adjusted"
+                value={formatCount(graph.graph_adjusted_suggestions)}
+                detail={`${formatCount(graph.accepted_or_published_graph_suggestions)} accepted or published`}
+              />
+              <CompactStat
+                label="Orphan targets accepted"
+                value={formatCount(graph.orphan_targets_accepted)}
+                detail="Generation-time graph signal"
+              />
+              <CompactStat
+                label="Underlinked accepted"
+                value={formatCount(graph.underlinked_targets_accepted)}
+                detail="Generation-time graph signal"
+              />
+            </div>
+          )}
+          {reasons.length > 0 && (
+            <div className="mt-4 border-t border-hairline pt-4">
+              <div className="text-caption-sm font-medium text-ink">Rejection reasons</div>
+              <ul className="mt-2 space-y-1 text-caption text-muted">
+                {reasons.map((item) => (
+                  <li key={item.reason} className="flex justify-between gap-3">
+                    <span>{labelReason(item.reason)}</span>
+                    <span className="font-medium text-body">{formatCount(item.count)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -410,6 +606,7 @@ function DashboardBody({
 
   return (
     <>
+      <ProvenanceNotice provenance={metrics.provenance} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card, index) => (
           <MetricCard
@@ -463,7 +660,8 @@ function DashboardBody({
 
         <section className="card px-4 py-5 sm:px-6">
           <h2 className="font-serif text-display-sm text-ink">
-            Orphan-page impact <DefinitionHint text={DEFINITION.orphans} />
+            Orphan-page impact{" "}
+            <HelpHint label="What this metric means">{DEFINITION.orphans}</HelpHint>
           </h2>
           <p className="mt-1 text-caption leading-normal text-muted">
             Latest crawl state plus verified LinkMesh publications for this cohort.
@@ -492,7 +690,7 @@ function DashboardBody({
                 className="mt-2 text-caption-sm font-medium text-ink underline underline-offset-4"
                 onClick={() => onDrilldown("orphan_helped")}
               >
-                View suggestions
+                View helped suggestions
               </button>
             </div>
           </div>
@@ -503,6 +701,8 @@ function DashboardBody({
         <AcceptanceTrend points={metrics.trend} />
         <OrphanTrend points={metrics.orphan_trend} />
       </div>
+
+      <EvidenceBreakdown metrics={metrics} />
 
       <MethodComparison methods={metrics.methods} />
       <ScoreRangePerformance ranges={metrics.score_ranges} />
@@ -545,14 +745,7 @@ export default function EvaluationPage() {
     setExportError(false);
     try {
       const blob = await getEvaluationCsv(filters);
-      const href = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = `linkmesh-evaluation-${range}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(href);
+      downloadBlob(blob, `linkmesh-evaluation-${range}.csv`);
     } catch {
       setExportError(true);
     } finally {
@@ -565,7 +758,6 @@ export default function EvaluationPage() {
       <PageHeader
         title="Evaluation"
         sub="Live editorial, placement and publishing performance"
-        badge="Live data"
       />
       <div className="relative overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <div className="card mb-4 flex flex-wrap items-end gap-3 px-4 py-4 sm:px-5">
@@ -573,7 +765,7 @@ export default function EvaluationPage() {
             Date range
             <select
               aria-label="Date range"
-              className="input mt-1 w-full min-w-40"
+              className="field mt-1 w-full min-w-40"
               value={range}
               onChange={(event) => updateFilter("range", event.target.value)}
             >
@@ -588,7 +780,7 @@ export default function EvaluationPage() {
             Site
             <select
               aria-label="Site"
-              className="input mt-1 w-full min-w-48"
+              className="field mt-1 w-full min-w-48"
               value={siteId ?? ""}
               onChange={(event) => updateFilter("site", event.target.value)}
             >
@@ -606,7 +798,7 @@ export default function EvaluationPage() {
             onClick={() => void query.refetch()}
             disabled={query.isFetching}
           >
-            {query.isFetching ? "Refreshing..." : "Refresh"}
+            {query.isFetching ? "Refreshing…" : "Refresh"}
           </button>
           <button
             type="button"
@@ -614,7 +806,7 @@ export default function EvaluationPage() {
             onClick={() => void exportCsv()}
             disabled={isExporting}
           >
-            {isExporting ? "Exporting..." : "Export CSV"}
+            {isExporting ? "Exporting…" : "Export CSV"}
           </button>
           {exportError && (
             <span role="alert" className="w-full text-caption text-error-ink">
@@ -627,9 +819,8 @@ export default function EvaluationPage() {
           <span>
             {query.data
               ? `Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(query.data.generated_at))}`
-              : "Loading the latest evaluation data"}
+              : "Loading the latest evaluation data…"}
           </span>
-          <span>Filters are saved in the page URL.</span>
         </div>
 
         {query.isPending && (
@@ -644,8 +835,8 @@ export default function EvaluationPage() {
                   "Publishing success",
                 ][index]}
                 value="—"
-                detail="Loading live metrics"
-                definition="Loading metric definition"
+                detail="Loading live metrics…"
+                definition="Loading metric definition…"
                 orb={orb}
                 loading
               />

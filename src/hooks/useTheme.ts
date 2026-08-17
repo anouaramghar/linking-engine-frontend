@@ -34,8 +34,8 @@ const isPreference = (value: unknown): value is ThemePreference =>
 /**
  * The stored preference, or "system" when there is nothing to read.
  *
- * Shared with the pre-paint script in `index.html`, which does the same read in
- * plain JS before React mounts. The two must agree on the key and the values or
+ * Shared with the pre-paint script in `public/theme-boot.js`, which does the
+ * same read in plain JS before React mounts. The two must agree on the key and the values or
  * the page repaints on hydration — that duplication is the price of having no
  * flash, and it is why both sides are one `localStorage.getItem` and nothing
  * more.

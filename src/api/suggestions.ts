@@ -6,6 +6,7 @@ import type {
   SuggestionEvent,
   SuggestionStatus,
   SuggestionTargetOrigin,
+  RejectionReason,
 } from "../types/suggestion";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -89,8 +90,28 @@ export const countSuggestions = (filters: SuggestionQueueFilters) =>
     })
     .then((response) => response.data);
 
-export const reviewSuggestion = (id: number, status: ReviewStatus) =>
-  api.put<Suggestion>(`/suggestions/${id}`, { status }).then((r) => r.data);
+export const reviewSuggestion = (
+  id: number,
+  status: ReviewStatus,
+  rejectionReason?: RejectionReason,
+) =>
+  api
+    .put<Suggestion>(`/suggestions/${id}`, {
+      status,
+      ...(rejectionReason ? { rejection_reason: rejectionReason } : {}),
+    })
+    .then((r) => r.data);
+
+export const markSuggestionsExposed = (
+  suggestionIds: number[],
+  surface: "queue" | "preview" = "queue",
+) =>
+  api
+    .post<{ exposed: number }>("/suggestions/exposure", {
+      suggestion_ids: suggestionIds,
+      surface,
+    })
+    .then((r) => r.data);
 
 /**
  * The first call for a suggestion runs a model and can take several seconds;
@@ -142,7 +163,10 @@ export interface BulkReviewResult {
   reviewed: number[];
   /** Includes legacy engines that confirm a count without returning row ids. */
   reviewedCount: number;
-  /** Rows already picked up for publishing or expired, left untouched. */
+  /**
+   * Rows the engine refused to touch: publishing, already published, expired,
+   * or bound to an approved publication plan.
+   */
   skipped: number[];
   status: ReviewStatus;
 }
@@ -283,6 +307,10 @@ export const bulkReview = async (suggestion_ids: number[], status: ReviewStatus)
 
 export const triggerAnalysis = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}`).then((r) => r.data);
+
+/** Generate the same ranked suggestions for one source article only. */
+export const triggerArticleAnalysis = (articleId: number) =>
+  api.post<JobAccepted>(`/articles/${articleId}/suggestions`).then((r) => r.data);
 
 export const triggerComparison = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}/compare`).then((r) => r.data);

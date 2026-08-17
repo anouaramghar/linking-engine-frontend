@@ -5,6 +5,7 @@ import {
   useExternalSourceEvaluations,
   useUpdateExternalLinkPolicy,
 } from "../../hooks/useSites";
+import { useSuggestionCounts } from "../../hooks/useSuggestions";
 import { errorDetail } from "../../lib/errors";
 import type {
   ExternalLinkPolicy,
@@ -31,6 +32,73 @@ const toForm = (policy: ExternalLinkPolicy) => ({
 });
 
 type PolicyForm = ReturnType<typeof toForm>;
+
+const added = (before: string[], after: string[]) =>
+  after.filter((value) => !before.includes(value));
+const removed = (before: string[], after: string[]) =>
+  before.filter((value) => !after.includes(value));
+const listPhrase = (values: string[]) =>
+  values.length > 3 ? `${values.slice(0, 3).join(", ")} and ${values.length - 3} more` : values.join(", ");
+
+/**
+ * The edits in this draft that can expire an existing approved suggestion.
+ *
+ * Saving this form is not a settings change that takes effect next time: the
+ * engine re-evaluates every external suggestion against the new rules
+ * immediately and expires the ones that no longer pass — including ones an
+ * editor has already approved for publication. Only tightening can do that, so
+ * only tightening is worth stopping the operator for. Loosening a rule is
+ * saved without a prompt.
+ */
+const tighteningChanges = (
+  saved: ExternalLinkPolicy,
+  next: ExternalLinkPolicyUpdate,
+): string[] => {
+  const changes: string[] = [];
+  if (saved.external_links_enabled && !next.external_links_enabled) {
+    changes.push("External suggestions are being turned off for this site.");
+  }
+  if (!saved.require_https && next.require_https) {
+    changes.push("HTTPS becomes mandatory, so every plain-HTTP target is rejected.");
+  }
+  if (next.min_trust_score > saved.min_trust_score) {
+    changes.push(
+      `Minimum trust score rises from ${saved.min_trust_score} to ${next.min_trust_score}.`,
+    );
+  }
+  if (next.min_domain_age_days > saved.min_domain_age_days) {
+    changes.push(
+      `Minimum domain age rises from ${saved.min_domain_age_days} to ${next.min_domain_age_days} days.`,
+    );
+  }
+  if (!saved.trusted_tlds.length && next.trusted_tlds.length) {
+    changes.push(
+      `Only these top-level domains stay eligible: ${listPhrase(next.trusted_tlds)}.`,
+    );
+  } else {
+    const droppedTlds = removed(saved.trusted_tlds, next.trusted_tlds);
+    if (droppedTlds.length) {
+      changes.push(`Top-level domains no longer trusted: ${listPhrase(droppedTlds)}.`);
+    }
+  }
+  if (!saved.allowlist_domains.length && next.allowlist_domains.length) {
+    changes.push(
+      "An allowlist is being introduced, which lowers the trust score of every domain not on it.",
+    );
+  } else {
+    const droppedAllow = removed(saved.allowlist_domains, next.allowlist_domains);
+    if (droppedAllow.length) {
+      changes.push(`Removed from the allowlist: ${listPhrase(droppedAllow)}.`);
+    }
+  }
+  const newBlocks = added(saved.blocklist_domains, next.blocklist_domains);
+  if (newBlocks.length) changes.push(`Newly blocked: ${listPhrase(newBlocks)}.`);
+  const newCompetitors = added(saved.competitor_domains, next.competitor_domains);
+  if (newCompetitors.length) {
+    changes.push(`Newly marked as competitors: ${listPhrase(newCompetitors)}.`);
+  }
+  return changes;
+};
 
 function DomainListField({
   id,
@@ -74,26 +142,52 @@ export default function ExternalLinkPolicyModal({
   const update = useUpdateExternalLinkPolicy(site.id);
   const [draft, setDraft] = useState<Partial<PolicyForm>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingChanges, setPendingChanges] = useState<string[] | null>(null);
   const prefix = useId();
+  // What the tightening could take away, fetched only while this modal is open.
+  // Two queries because the policy re-check covers both kinds of outward link
+  // this site can hold — a web-search target and a content-pool target on
+  // another site — and the counts endpoint takes one origin at a time. Internal
+  // links are untouched by this policy and are deliberately not counted.
+  const enabled = Boolean(policyQuery.data);
+  const webSearchAtRisk = useSuggestionCounts(
+    { siteId: site.id, targetOrigin: "web_search" },
+    enabled,
+  );
+  const poolAtRisk = useSuggestionCounts(
+    { siteId: site.id, targetOrigin: "content_pool" },
+    enabled,
+  );
+  const atRisk =
+    webSearchAtRisk.data && poolAtRisk.data
+      ? {
+          pending: webSearchAtRisk.data.pending + poolAtRisk.data.pending,
+          approved: webSearchAtRisk.data.approved + poolAtRisk.data.approved,
+        }
+      : null;
 
   const form = policyQuery.data ? { ...toForm(policyQuery.data), ...draft } : null;
 
-  const set = (patch: Partial<PolicyForm>) =>
+  const set = (patch: Partial<PolicyForm>) => {
+    setPendingChanges(null);
     setDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const payloadOf = (current: PolicyForm): ExternalLinkPolicyUpdate => ({
+    external_links_enabled: current.external_links_enabled,
+    require_https: current.require_https,
+    min_trust_score: Number(current.min_trust_score),
+    min_domain_age_days: Number(current.min_domain_age_days),
+    trusted_tlds: parseList(current.trusted_tlds),
+    allowlist_domains: parseList(current.allowlist_domains),
+    blocklist_domains: parseList(current.blocklist_domains),
+    competitor_domains: parseList(current.competitor_domains),
+  });
 
   const save = async () => {
     if (!form || update.isPending) return;
     setFormError(null);
-    const payload: ExternalLinkPolicyUpdate = {
-      external_links_enabled: form.external_links_enabled,
-      require_https: form.require_https,
-      min_trust_score: Number(form.min_trust_score),
-      min_domain_age_days: Number(form.min_domain_age_days),
-      trusted_tlds: parseList(form.trusted_tlds),
-      allowlist_domains: parseList(form.allowlist_domains),
-      blocklist_domains: parseList(form.blocklist_domains),
-      competitor_domains: parseList(form.competitor_domains),
-    };
+    const payload = payloadOf(form);
     try {
       const saved = await update.mutateAsync(payload);
       onSaved(
@@ -103,8 +197,21 @@ export default function ExternalLinkPolicyModal({
       );
       onClose();
     } catch (error) {
+      setPendingChanges(null);
       setFormError(errorDetail(error, "The external link policy could not be saved."));
     }
+  };
+
+  /** Confirm first when the draft can expire work an editor has already approved. */
+  const requestSave = () => {
+    if (!form || !policyQuery.data || update.isPending) return;
+    const changes = tighteningChanges(policyQuery.data, payloadOf(form));
+    if (!changes.length) {
+      void save();
+      return;
+    }
+    setFormError(null);
+    setPendingChanges(changes);
   };
 
   return (
@@ -143,7 +250,8 @@ export default function ExternalLinkPolicyModal({
                   Enable external suggestions
                 </span>
                 <span className="mt-1 block text-caption text-muted">
-                  Turning this off expires pending and approved external suggestions.
+                  New managed sites start with this off. Enable it only for the separate external-linking
+                  capability; turning it off expires pending and approved external suggestions.
                 </span>
               </span>
             </label>
@@ -309,22 +417,55 @@ export default function ExternalLinkPolicyModal({
           </section>
 
           {formError && (
-            <div role="alert" className="rounded-lg bg-error-soft px-4 py-3 text-caption text-error-ink">
+            <div
+              role="alert"
+              className="rounded-lg border border-error/30 bg-error/5 px-4 py-3 text-caption text-error-ink"
+            >
               {formError}
             </div>
           )}
 
+          {pendingChanges && (
+            <div
+              role="alert"
+              aria-labelledby={`${prefix}-confirm`}
+              className="rounded-lg border border-error/30 bg-error/5 px-4 py-3"
+            >
+              <h3 id={`${prefix}-confirm`} className="text-body-sm font-medium text-error-ink">
+                This tightens the policy and expires suggestions now
+              </h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-caption leading-relaxed text-error-ink">
+                {pendingChanges.map((change) => (
+                  <li key={change}>{change}</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-caption leading-relaxed text-error-ink">
+                {atRisk
+                  ? `${atRisk.pending} pending and ${atRisk.approved} approved outward suggestions are re-checked against the new rules. Any that no longer pass expire immediately, approved ones included, and expiry cannot be undone.`
+                  : "Every pending and approved outward suggestion for this site is re-checked against the new rules. Any that no longer pass expire immediately, approved ones included, and expiry cannot be undone."}
+              </p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 border-t border-hairline pt-4">
-            <button type="button" className="btn btn-outline" onClick={onClose}>
-              Cancel
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={pendingChanges ? () => setPendingChanges(null) : onClose}
+            >
+              {pendingChanges ? "Back to editing" : "Cancel"}
             </button>
             <button
               type="button"
               className="btn btn-primary"
               disabled={update.isPending}
-              onClick={() => void save()}
+              onClick={pendingChanges ? () => void save() : requestSave}
             >
-              {update.isPending ? "Saving…" : "Save policy"}
+              {update.isPending
+                ? "Saving…"
+                : pendingChanges
+                  ? "Save and expire blocked suggestions"
+                  : "Save policy"}
             </button>
           </div>
         </div>

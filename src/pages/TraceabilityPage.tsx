@@ -3,14 +3,21 @@ import { useMemo, useState } from "react";
 import { getTraceEventsCsv, type TraceEventFilters } from "../api/traceability";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import { usePageState } from "../hooks/usePageState";
 import { useSites } from "../hooks/useSites";
 import { useTraceEvents } from "../hooks/useTraceability";
-import { formatCount } from "../lib/utils";
+import { downloadBlob, formatCount } from "../lib/utils";
 
 const PAGE_SIZE = 50;
 
+// The documented lifecycle set, in docs/design/suggestion-traceability.md order.
+// `external_discovered` is the provenance event every accepted web-search
+// candidate gets in addition to `generated`; leaving it out of this list made
+// the one event that explains a paid external suggestion the only one an
+// operator could not filter for.
 const EVENT_TYPES = [
   "generated",
+  "external_discovered",
   "imported",
   "reviewed",
   "restored",
@@ -25,12 +32,43 @@ const EVENT_TYPES = [
 
 const STATUSES = ["pending", "approved", "rejected", "applying", "applied", "failed", "expired"];
 
+const EVENT_LABELS: Record<string, string> = {
+  generated: "Generated",
+  external_discovered: "External suggestion found",
+  imported: "Imported",
+  reviewed: "Reviewed",
+  restored: "Restored",
+  publishing: "Publishing",
+  publish_attempt_failed: "Publishing attempt failed",
+  applied: "Published",
+  failed: "Publishing failed",
+  expired: "Expired",
+  policy_expired: "Expired by policy",
+  status_changed: "Status changed",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Pending review",
+  approved: "Selected for review",
+  rejected: "Rejected",
+  applying: "Publishing",
+  applied: "Published",
+  failed: "Publishing failed",
+  expired: "Expired",
+};
+
+const displayLabel = (value: string, labels: Record<string, string>) =>
+  labels[value] ?? value.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
+
 const isoStart = (value: string) => value ? new Date(`${value}T00:00:00`).toISOString() : undefined;
 const isoEnd = (value: string) => value ? new Date(`${value}T23:59:59.999`).toISOString() : undefined;
 
 export default function TraceabilityPage() {
   const sites = useSites().data ?? [];
-  const [draft, setDraft] = useState({
+  // The draft, what it was last applied as, and where in the results we had got
+  // to are one position in an investigation. Following a trace ID onto another
+  // page and coming back is part of that investigation, not the end of it.
+  const [draft, setDraft] = usePageState("traceability.draft", {
     traceId: "",
     actor: "",
     eventType: "",
@@ -39,8 +77,8 @@ export default function TraceabilityPage() {
     dateFrom: "",
     dateTo: "",
   });
-  const [filters, setFilters] = useState<TraceEventFilters>({});
-  const [offset, setOffset] = useState(0);
+  const [filters, setFilters] = usePageState<TraceEventFilters>("traceability.filters", {});
+  const [offset, setOffset] = usePageState("traceability.offset", 0);
   const [exporting, setExporting] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const query = useTraceEvents(filters, PAGE_SIZE, offset);
@@ -73,12 +111,7 @@ export default function TraceabilityPage() {
     setExporting(true);
     try {
       const blob = await getTraceEventsCsv(filters);
-      const href = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = href;
-      anchor.download = "linkmesh-traceability.csv";
-      anchor.click();
-      URL.revokeObjectURL(href);
+      downloadBlob(blob, "linkmesh-traceability.csv");
     } finally {
       setExporting(false);
     }
@@ -94,32 +127,32 @@ export default function TraceabilityPage() {
     <>
       <PageHeader
         title="Suggestion traceability"
-        sub="Search every lifecycle event from generation through editorial review and publishing"
+        sub="Search suggestion history from generation through publishing"
         badge="Audit"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 lg:px-8">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
         <section className="card p-4 sm:p-5" aria-label="Traceability filters">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label className="text-caption text-muted">
               Trace ID
-              <input className="field mt-1" value={draft.traceId} onChange={(event) => setDraft({ ...draft, traceId: event.target.value })} placeholder="Paste a trace ID" />
+              <input className="field mt-1" value={draft.traceId} onChange={(event) => setDraft({ ...draft, traceId: event.target.value })} placeholder="Paste a trace ID…" />
             </label>
             <label className="text-caption text-muted">
-              Editor or actor
+              Actor
               <input className="field mt-1" value={draft.actor} onChange={(event) => setDraft({ ...draft, actor: event.target.value })} placeholder="editor@example.com" />
             </label>
             <label className="text-caption text-muted">
               Event
               <select className="field mt-1" value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value })}>
                 <option value="">All events</option>
-                {EVENT_TYPES.map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
+                {EVENT_TYPES.map((value) => <option key={value} value={value}>{displayLabel(value, EVENT_LABELS)}</option>)}
               </select>
             </label>
             <label className="text-caption text-muted">
               Current status
               <select className="field mt-1" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
                 <option value="">All statuses</option>
-                {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+                {STATUSES.map((value) => <option key={value} value={value}>{displayLabel(value, STATUS_LABELS)}</option>)}
               </select>
             </label>
             <label className="text-caption text-muted">
@@ -153,7 +186,7 @@ export default function TraceabilityPage() {
         </div>
 
         {query.isPending && <div className="mt-3"><SkeletonRows count={6} label="Loading trace events" /></div>}
-        {query.isError && <div className="mt-3"><ErrorPanel title="Trace events could not be loaded" description="The audit API did not return the requested history." onRetry={() => void query.refetch()} retrying={query.isFetching} /></div>}
+        {query.isError && <div className="mt-3"><ErrorPanel title="Trace events could not be loaded" description="The requested trace history could not be returned." onRetry={() => void query.refetch()} retrying={query.isFetching} /></div>}
         {!query.isPending && !query.isError && query.data?.items.length === 0 && (
           <div className="mt-3">
             <EmptyPanel>
@@ -168,16 +201,16 @@ export default function TraceabilityPage() {
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="badge">{event.event_type.replaceAll("_", " ")}</span>
+                    <span className="badge">{displayLabel(event.event_type, EVENT_LABELS)}</span>
                     <span className="text-caption text-muted">{event.site_name}</span>
                     <time className="text-caption text-muted" dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
                   </div>
                   <h2 className="mt-2 text-body-sm font-medium text-ink">{event.source_title} → {event.target_title}</h2>
-                  <p className="mt-1 text-caption text-muted">Actor: <span className="text-body">{event.actor}</span> · Current status: <span className="text-body">{event.suggestion_status}</span></p>
+                  <p className="mt-1 text-caption text-muted">Actor: <span className="text-body">{event.actor}</span> · Current status: <span className="text-body">{displayLabel(event.suggestion_status, STATUS_LABELS)}</span></p>
                   {event.publish_error && <p className="mt-2 rounded-lg bg-error/10 px-3 py-2 text-caption text-error-ink">Publishing error: {event.publish_error}</p>}
                 </div>
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => void copyTrace(event.trace_id)}>
-                  {copied === event.trace_id ? "Copied" : "Copy Trace ID"}
+                  {copied === event.trace_id ? "Copied" : "Copy trace ID"}
                 </button>
               </div>
               <p className="mt-2 break-all text-caption-sm text-muted">Trace ID: {event.trace_id}</p>

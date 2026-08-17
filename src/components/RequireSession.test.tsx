@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import RequireSession from "./RequireSession";
@@ -17,7 +17,7 @@ vi.mock("../pages/LoginPage", () => ({
 afterEach(cleanup);
 
 describe("RequireSession", () => {
-  it("shows the login screen when nobody is signed in", () => {
+  it("shows the login screen when nobody is signed in", async () => {
     useSession.mockReturnValue({ data: null, isPending: false, isError: false });
 
     render(
@@ -26,7 +26,7 @@ describe("RequireSession", () => {
       </RequireSession>,
     );
 
-    expect(screen.getByText("Login screen")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Login screen")).toBeTruthy());
     expect(screen.queryByText("Dashboard")).toBeNull();
   });
 

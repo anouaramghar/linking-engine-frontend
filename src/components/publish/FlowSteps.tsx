@@ -1,13 +1,12 @@
-const STEPS = ["Select links", "Review exact edits (recommended)", "Approve and queue"];
+const STEPS = ["Select links", "Review exact edits"];
 
 /**
- * The three steps between a suggestion and a live link, shown in the queue
- * and its exact-edit workspace.
+ * The two user-facing pages between a suggestion and a live link.
  *
  * Selecting a row does not publish anything, and that is the one thing the
  * queue has to say out loud before the protected review opens.
  */
-export default function FlowSteps({ current }: { current: 1 | 2 | 3 }) {
+export default function FlowSteps({ current }: { current: 1 | 2 }) {
   return (
     <ol
       aria-label="Review flow"

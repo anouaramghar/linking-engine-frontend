@@ -17,8 +17,10 @@ interface Props {
   onAccept: (id: number) => void;
   onReject: (id: number) => void;
   onUndo: (id: number) => void;
+  onReviewPublication?: (id: number) => void;
   actionsDisabled?: boolean;
   showSource?: boolean;
+  showStatusBadge?: boolean;
 }
 
 function SuggestionCard({
@@ -29,16 +31,19 @@ function SuggestionCard({
   onAccept,
   onReject,
   onUndo,
+  onReviewPublication,
   actionsDisabled = false,
   showSource = true,
+  showStatusBadge = true,
 }: Props) {
   const meta = STATUS_META[s.status];
+  const finalRank = s.final_rank ?? null;
 
   return (
     <li
       data-suggestion-id={s.id}
       aria-current={selected || undefined}
-      className={`card flex animate-rowIn flex-col items-stretch gap-2.5 px-3.5 py-3 transition-shadow hover:shadow-soft sm:px-4 lg:flex-row lg:items-center lg:gap-4 ${
+      className={`card queue-row flex flex-col items-stretch gap-2.5 px-3.5 py-3 hover:shadow-soft sm:px-4 lg:flex-row lg:items-center lg:gap-4 ${
         selected ? "border-ink" : ""
       }`}
     >
@@ -49,7 +54,11 @@ function SuggestionCard({
         <button
           type="button"
           onClick={() => onOpen(s.id)}
-          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}`}
+          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}${
+            finalRank === null
+              ? `; semantic match ${pct(s.score)}`
+              : `; final rank #${finalRank}; semantic match ${pct(s.score)}`
+          }`}
           className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
         >
           <span className="min-w-0 flex-1">
@@ -62,7 +71,7 @@ function SuggestionCard({
                   </span>
                 </>
               ) : (
-                <span className="text-muted">Links to</span>
+                <span className="text-muted">Target</span>
               )}
               <span className={showSource ? "text-body" : "font-medium text-ink"}>
                 {s.target_article.title}
@@ -73,11 +82,22 @@ function SuggestionCard({
               )}
             </span>
           </span>
-          <span className="flex w-[72px] flex-none flex-col items-end text-right sm:w-[104px]">
-            <span className="block text-body-md font-medium text-ink">{pct(s.score)}</span>
-            <span className="mb-1 mt-1 block h-[3px] w-full overflow-hidden rounded-pill bg-hairline">
+          <span className="flex w-score flex-none flex-col items-end text-right sm:w-score-wide">
+            {finalRank !== null && (
+              <span className="block text-caption-sm font-medium text-ink">
+                Final rank #{finalRank}
+              </span>
+            )}
+            <span className="block tabular-nums text-body-md font-medium text-ink">{pct(s.score)}</span>
+            <span className="mb-1 mt-1 block h-meter w-full overflow-hidden rounded-pill bg-hairline">
+              {/* The score is the one measured quantity on the row, and it used
+                  to arrive already drawn. Sweeping it out of the track from the
+                  left makes a page of rows read as a page of readings — and the
+                  sweep is `scaleX` on a span already sized to the score, so the
+                  hundred meters the queue can mount cost transforms rather than
+                  a hundred width-driven layouts. */}
               <span
-                className="block h-full rounded-pill bg-primary"
+                className="block h-full origin-left animate-meterFill rounded-pill bg-primary"
                 style={{ width: pct(s.score) }}
               />
             </span>
@@ -87,7 +107,13 @@ function SuggestionCard({
       </div>
       {/* Keep the decision column stable so row content never shifts when a
           status badge or Undo action replaces Select and Reject. */}
-      <div className="flex w-full flex-none flex-wrap items-center justify-end gap-2 lg:w-[220px]">
+      <div
+        className={`flex w-full flex-none flex-wrap items-center justify-end gap-2 ${
+          s.status === "approved" && onReviewPublication
+            ? "lg:w-decision-review"
+            : "lg:w-decision"
+        }`}
+      >
         {s.status === "pending" ? (
           <>
             <button
@@ -117,7 +143,25 @@ function SuggestionCard({
           </>
         ) : (
           <>
-            <span className="badge">{meta.label}</span>
+            {/* The tint is a utility over `.badge`'s component-layer fill, so
+                a status with no tint keeps the neutral pill unchanged. */}
+            {showStatusBadge && (
+              <span className={`badge ${meta.tint}`}>{meta.label}</span>
+            )}
+            {s.status === "approved" && onReviewPublication && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onReviewPublication(s.id);
+                }}
+                aria-label={`Review exact edit for suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
+                disabled={actionsDisabled}
+                className="btn btn-primary btn-sm"
+              >
+                Review exact edit
+              </button>
+            )}
             {isReversible(s.status) && (
               <button
                 type="button"

@@ -52,19 +52,21 @@ export default function SuggestionPreview({
   const onKeyDown = useFocusTrap(panel, onClose, overlaid);
 
   const panelClass =
-    "h-full min-h-0 w-full flex-none overflow-y-auto border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
+    "h-full min-h-0 w-full flex-none overflow-y-auto overscroll-contain border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
 
   const body = (
     <>
       <div className="mb-5 flex items-center justify-between">
         <div className="eyebrow">Suggestion #{String(s.id).padStart(3, "0")}</div>
-        <button
-          aria-label="Close preview"
-          onClick={onClose}
-          className="-mr-2 -mt-2 inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
-        >
-          &times;
-        </button>
+        <div className="-mr-2 -mt-2 flex items-center">
+          <button
+            aria-label="Close preview"
+            onClick={onClose}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
+          >
+            &times;
+          </button>
+        </div>
       </div>
 
       <div className="eyebrow mb-2">Source article</div>
@@ -77,13 +79,13 @@ export default function SuggestionPreview({
           rel="noreferrer"
           className="underline underline-offset-2 hover:text-ink"
         >
-          open article
+          Open source article
         </a>
       </div>
 
       <PlacementContextCard placement={placement} />
 
-      <div className="eyebrow mb-2 mt-5">Links to &rarr;</div>
+      <div className="eyebrow mb-2 mt-5">Target article</div>
       <div className="rounded-xl bg-surface-strong p-4">
         <div className="break-words text-body-sm font-medium leading-snug text-ink">
           {s.target_article.title}
@@ -102,7 +104,7 @@ export default function SuggestionPreview({
             rel="noreferrer"
             className="underline underline-offset-2 hover:text-ink"
           >
-            open target
+            Open target article
           </a>
         </div>
         {s.anchor_text && (
@@ -141,7 +143,14 @@ export default function SuggestionPreview({
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <div className="flex min-h-10 items-center justify-center gap-2 rounded-pill bg-surface-strong px-4 text-caption-upper uppercase text-ink">
+          {/* Both grounds are utilities, so the fallback is chosen here rather
+              than layered — stylesheet order, not attribute order, decides
+              which of two competing `bg-*` utilities wins. */}
+          <div
+            className={`flex min-h-10 items-center justify-center gap-2 rounded-pill px-4 text-caption-upper uppercase text-ink ${
+              STATUS_META[s.status].tint || "bg-surface-strong"
+            }`}
+          >
             <span className={`dot ${STATUS_META[s.status].dot}`} />
             {STATUS_META[s.status].label}
           </div>
@@ -171,7 +180,7 @@ export default function SuggestionPreview({
       )}
 
       {publicationMessage && (
-        <div aria-label="Publish status" className="card mt-3 px-4 py-3">
+        <div role="region" aria-label="Publish status" className="card mt-3 px-4 py-3">
           <div className="eyebrow">Publish status</div>
           <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
           {s.status === "failed" && s.publish_error && (
@@ -184,13 +193,13 @@ export default function SuggestionPreview({
 
       {s.status === "pending" && (
         <div className="mt-3 text-caption leading-normal text-muted">
-          Selecting this suggestion adds it to the review tray. It is not queued and not scheduled —
-          the exact edit it produces still has to be reviewed and approved.
+          Selection adds this suggestion to the review tray; it is not published until the exact
+          edit is approved.
         </div>
       )}
       {s.status === "rejected" && (
         <div className="mt-3 text-caption leading-normal text-muted">
-          Rejected suggestions are not included in publish batches.
+          Rejected suggestions are not published.
         </div>
       )}
     </>

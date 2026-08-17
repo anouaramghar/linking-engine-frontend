@@ -241,59 +241,89 @@ export default function NeonBorder(props: Props) {
         let corner = 0;
         let stepT = 0;
 
-        const frame = (now: number) => {
+        function schedule() {
+            if (
+                document.visibilityState === "hidden" ||
+                live.current.speed <= 0
+            ) {
+                return;
+            }
+            raf = requestAnimationFrame(frame);
+        }
+
+        function frame(now: number) {
+            raf = 0;
+            if (
+                document.visibilityState === "hidden" ||
+                live.current.speed <= 0
+            ) {
+                return;
+            }
+
             const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
             last = now;
             const p = live.current;
             const s = Math.max(0, Math.min(20, p.speed));
+            const step = p.movement === "step";
+            const beat = step
+                ? SLOWEST_STEP +
+                  ((FASTEST_STEP - SLOWEST_STEP) * (s - 1)) / 19
+                : (SLOWEST_CYCLE +
+                      ((FASTEST_CYCLE - SLOWEST_CYCLE) * (s - 1)) / 19) /
+                  4;
 
-            if (s > 0) {
-                const step = p.movement === "step";
-                const beat = step
-                    ? SLOWEST_STEP +
-                      ((FASTEST_STEP - SLOWEST_STEP) * (s - 1)) / 19
-                    : (SLOWEST_CYCLE +
-                          ((FASTEST_CYCLE - SLOWEST_CYCLE) * (s - 1)) / 19) /
-                      4;
+            stepT += dt / beat;
+            while (stepT >= 1) {
+                stepT -= 1;
+                corner += 1;
+            }
+            const eased = step
+                ? stepEase(Math.min(1, stepT * 2))
+                : glideEase(stepT);
 
-                stepT += dt / beat;
-                while (stepT >= 1) {
-                    stepT -= 1;
-                    corner += 1;
-                }
-                const eased = step
-                    ? stepEase(Math.min(1, stepT * 2))
-                    : glideEase(stepT);
+            const { w, h } = sizeRef.current;
+            const fw = w > 0 ? w : 100;
+            const fh = h > 0 ? h : 100;
+            const from = cornerLap(corner, fw, fh);
+            const to = cornerLap(corner + 1, fw, fh);
+            lap = from + (to - from) * eased;
 
-                const { w, h } = sizeRef.current;
-                const fw = w > 0 ? w : 100;
-                const fh = h > 0 ? h : 100;
-                const from = cornerLap(corner, fw, fh);
-                const to = cornerLap(corner + 1, fw, fh);
-                lap = from + (to - from) * eased;
-
-                const a = groupARef.current;
-                if (a) {
-                    a.style.setProperty(
-                        "--arc",
-                        buildArc(lap, p.borderSize, w, h, p.color)
-                    );
-                }
-                const b = groupBRef.current;
-                if (b) {
-                    b.style.setProperty(
-                        "--arc",
-                        buildArc(lap + 0.5, p.borderSize, w, h, p.color)
-                    );
-                }
+            const a = groupARef.current;
+            if (a) {
+                a.style.setProperty(
+                    "--arc",
+                    buildArc(lap, p.borderSize, w, h, p.color)
+                );
+            }
+            const b = groupBRef.current;
+            if (b) {
+                b.style.setProperty(
+                    "--arc",
+                    buildArc(lap + 0.5, p.borderSize, w, h, p.color)
+                );
             }
 
-            raf = requestAnimationFrame(frame);
-        };
-        raf = requestAnimationFrame(frame);
+            schedule();
+        }
 
-        return () => cancelAnimationFrame(raf);
-    }, []);
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "hidden") {
+                if (raf) cancelAnimationFrame(raf);
+                raf = 0;
+                return;
+            }
+            last = performance.now();
+            schedule();
+        };
+
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        schedule();
+
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [speed]);
 
     const thick = Math.max(1, Math.min(10, thickness));
 

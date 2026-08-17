@@ -15,14 +15,16 @@ import {
   getSuggestionEvents,
   listAllSuggestionIds,
   listSuggestionPage,
+  markSuggestionsExposed,
   reviewSuggestion,
+  triggerArticleAnalysis,
   undoFilteredBulkReview,
 } from "../api/suggestions";
 import type {
   SuggestionCursor,
   SuggestionQueueFilters,
 } from "../api/suggestions";
-import type { ReviewStatus } from "../types/suggestion";
+import type { RejectionReason, ReviewStatus } from "../types/suggestion";
 
 export const useSuggestions = (
   filters: SuggestionQueueFilters,
@@ -128,11 +130,29 @@ const useInvalidateSingleReview = () => {
 export const useReview = () => {
   const invalidate = useInvalidateSingleReview();
   return useMutation({
-    mutationFn: ({ id, status }: { id: number; status: ReviewStatus }) =>
-      reviewSuggestion(id, status),
+    mutationFn: ({
+      id,
+      status,
+      rejectionReason,
+    }: {
+      id: number;
+      status: ReviewStatus;
+      rejectionReason?: RejectionReason;
+    }) => reviewSuggestion(id, status, rejectionReason),
     onSuccess: invalidate,
   });
 };
+
+export const useMarkSuggestionsExposed = () =>
+  useMutation({
+    mutationFn: ({
+      ids,
+      surface,
+    }: {
+      ids: number[];
+      surface?: "queue" | "preview";
+    }) => markSuggestionsExposed(ids, surface),
+  });
 
 export const useBulkReview = () => {
   const invalidate = useInvalidateQueue();
@@ -162,3 +182,15 @@ export const useFilteredBulkUndo = () => {
 
 export const useAllFilteredSuggestionIds = () =>
   useMutation({ mutationFn: listAllSuggestionIds });
+
+/** Reuse the site analysis task with one source article as its explicit scope. */
+export const useTriggerArticleAnalysis = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (articleId: number) => triggerArticleAnalysis(articleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["suggestions"] });
+    },
+  });
+};

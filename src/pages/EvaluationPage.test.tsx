@@ -30,6 +30,25 @@ const metrics: EvaluationMetrics = {
   date_to: "2026-08-05T12:00:00Z",
   cohort_definition:
     "The date range selects suggestions generated during that period; outcomes describe that cohort.",
+  provenance: {
+    surface: "operational_telemetry",
+    schema_version: "evaluation_metrics_v2",
+    commit: "abc1234",
+    evidence_cutoff: "2026-08-05T11:00:00Z",
+    individual_labels: 70,
+    bulk_labels: 30,
+    label_provenance:
+      "70 decisions made row by row, 30 made by a bulk rule. Both are counted in the rates on this page; only the first are individual labels.",
+    sample_state: "more_individual_labels_required",
+    sites_meeting_label_target: 0,
+    individual_label_target: 100,
+    baseline_site_target: 3,
+    limitations: [
+      "Operational telemetry, not an evidence artifact.",
+      "Acceptance is not correctness.",
+    ],
+    supports_ranking_decisions: false,
+  },
   editorial: {
     suggestions_total: 120,
     pending: 20,
@@ -41,6 +60,27 @@ const metrics: EvaluationMetrics = {
     average_decision_hours: 7.5,
     median_decision_hours: 5,
     decision_time_sample: 100,
+  },
+  exposure: {
+    suggestions: 120,
+    exposed: 90,
+    unseen: 30,
+    exposure_rate: 0.75,
+    exposed_decisions: 75,
+    unseen_decisions: 25,
+    exposed_acceptance_rate: 0.64,
+  },
+  rejection_reasons: [
+    { reason: "wrong_target", count: 12 },
+    { reason: "unspecified", count: 8 },
+  ],
+  graph_impact: {
+    suggestions_with_graph_context: 80,
+    graph_adjusted_suggestions: 20,
+    exposed_graph_suggestions: 60,
+    accepted_or_published_graph_suggestions: 35,
+    orphan_targets_accepted: 10,
+    underlinked_targets_accepted: 15,
   },
   placement: { generated: 50, successful: 35, success_rate: 0.7 },
   publication: {
@@ -191,15 +231,24 @@ describe("EvaluationPage", () => {
   it("renders live filters, comparisons, trends and metric definitions", () => {
     renderPage();
 
-    expect(screen.getByRole("combobox", { name: "Date range" })).not.toBeNull();
-    expect(screen.getByRole("combobox", { name: "Site" })).not.toBeNull();
+    expect(screen.getByRole("combobox", { name: "Date range" }).className).toContain(
+      "field",
+    );
+    expect(screen.getByRole("combobox", { name: "Site" }).className).toContain("field");
+    expect(screen.getAllByLabelText("What this metric means")).toHaveLength(9);
     expect(screen.getByText("Editor acceptance")).not.toBeNull();
     expect(screen.getByText("Median decision time")).not.toBeNull();
     expect(screen.getByText("Placement success")).not.toBeNull();
     expect(screen.getByText("Publishing success")).not.toBeNull();
+    expect(screen.getByText("Exposure and labels")).not.toBeNull();
+    expect(screen.getByText("Graph impact and rejection reasons")).not.toBeNull();
+    expect(screen.getByText("Wrong target")).not.toBeNull();
     expect(screen.getAllByText("60%").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("+10.0 pp vs previous")).not.toBeNull();
     expect(screen.getByRole("img", { name: "Acceptance rate over time" })).not.toBeNull();
+    expect(
+      screen.getByRole("table", { name: "Acceptance rate data over time" }),
+    ).not.toBeNull();
     expect(screen.getByText(/First snapshot recorded/)).not.toBeNull();
     expect(screen.getByText("How these metrics are calculated")).not.toBeNull();
     expect(screen.getByText(metrics.cohort_definition)).not.toBeNull();
@@ -207,6 +256,19 @@ describe("EvaluationPage", () => {
     expect(screen.getByText("Cosine baseline")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Soon");
     expect(document.body.textContent).not.toContain("GraphSAGE");
+  });
+
+  it("states that the page is telemetry and shows its provenance and limitations", () => {
+    renderPage();
+
+    expect(screen.getByText("Operational telemetry")).not.toBeNull();
+    expect(screen.getByText("Not evidence for ranking or model changes")).not.toBeNull();
+    expect(screen.getByText(/More individual labels required/)).not.toBeNull();
+    expect(screen.getByText(/0 of 3 sites at the label target/)).not.toBeNull();
+    expect(screen.getByText(/70 individual, 30 from bulk rules/)).not.toBeNull();
+    expect(screen.getByText(/evaluation_metrics_v2 · commit abc1234/)).not.toBeNull();
+    expect(screen.getByText("What these numbers cannot settle (2)")).not.toBeNull();
+    expect(screen.getByText("Acceptance is not correctness.")).not.toBeNull();
   });
 
   it("stores selected date and site filters in the URL and query contract", () => {
@@ -231,7 +293,7 @@ describe("EvaluationPage", () => {
   it("opens a drill-down with the suggestions behind a metric", () => {
     renderPage();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "View suggestions" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "View matching suggestions" })[0]);
 
     expect(screen.getByRole("dialog", { name: "Accepted suggestions" })).not.toBeNull();
     expect(screen.getByText("Source article")).not.toBeNull();
@@ -257,7 +319,10 @@ describe("EvaluationPage", () => {
 
     await waitFor(() => expect(getEvaluationCsv).toHaveBeenCalledWith({ site_id: 1 }));
     expect(createObjectURL).toHaveBeenCalledWith(blob);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:evaluation");
+    await waitFor(
+      () => expect(revokeObjectURL).toHaveBeenCalledWith("blob:evaluation"),
+      { timeout: 1_500 },
+    );
   });
 
   it("uses an unavailable value when a metric has no sample", () => {

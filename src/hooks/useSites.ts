@@ -13,6 +13,8 @@ import {
   deleteSite,
   getEditorialRankingPolicy,
   getExternalLinkPolicy,
+  importArticleRows,
+  ingestPoolSourceBatch,
   listPoolAuditEvents,
   listExternalSourceEvaluations,
   POOL_AUDIT_PAGE_SIZE,
@@ -23,8 +25,13 @@ import {
   revokePoolSource,
   updateExternalLinkPolicy,
   updateEditorialRankingPolicy,
+  validatePoolSources,
 } from "../api/sites";
-import type { EditorialRankingPolicyUpdate, ExternalLinkPolicyUpdate } from "../types/site";
+import type {
+  ArticleImportRow,
+  EditorialRankingPolicyUpdate,
+  ExternalLinkPolicyUpdate,
+} from "../types/site";
 
 export const useSites = (search = "") =>
   useInfiniteQuery({
@@ -57,6 +64,22 @@ export const useBulkCreateSites = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: bulkCreateSites,
+    onSuccess: () => invalidateSiteDependencies(qc),
+  });
+};
+
+export const useImportArticleRows = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      siteId,
+      rows,
+      replaceSnapshot,
+    }: {
+      siteId: number;
+      rows: ArticleImportRow[];
+      replaceSnapshot?: boolean;
+    }) => importArticleRows(siteId, rows, replaceSnapshot),
     onSuccess: () => invalidateSiteDependencies(qc),
   });
 };
@@ -126,6 +149,23 @@ export const usePoolAuditEvents = (siteId: number | null) => {
     ...query,
     events: query.data?.pages.flatMap((page) => page) ?? [],
   };
+};
+
+export const useValidatePoolSources = () =>
+  useMutation({
+    mutationFn: validatePoolSources,
+  });
+
+export const usePoolIngestionBatch = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ingestPoolSourceBatch,
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
+        qc.invalidateQueries({ queryKey: ["sites"] }),
+      ]),
+  });
 };
 
 export const useExternalLinkPolicy = (siteId: number | null) =>

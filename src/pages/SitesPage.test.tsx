@@ -1,11 +1,19 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatCount, timeAgo } from "../lib/utils";
 import SitesPage from "./SitesPage";
 
 const navigate = vi.hoisted(() => vi.fn());
 
-vi.mock("react-router-dom", () => ({ useNavigate: () => navigate }));
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router-dom")>()),
+  useNavigate: () => navigate,
+}));
+
+const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
 
 const mocks = vi.hoisted(() => ({
   sites: {
@@ -95,12 +103,13 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("SitesPage scheduler copy", () => {
-  it("identifies RQ as the re-crawl scheduler", () => {
+describe("SitesPage copy", () => {
+  it("keeps implementation details out of the site summary", () => {
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Scheduled re-crawls run through RQ.");
-    expect(document.body.textContent?.toLowerCase()).not.toContain("celery");
+    expect(document.body.textContent).not.toContain("ContentConnector");
+    expect(document.body.textContent).not.toContain("RQ");
+    expect(document.body.textContent).not.toContain("Article object");
   });
 
   it("does not expose unsupported future or fleet actions", () => {
@@ -223,9 +232,9 @@ describe("SitesPage batch pipeline", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
     fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more sites" }));
     fireEvent.click(screen.getAllByRole("checkbox", { name: "Select all visible sites" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Show more sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more sites" }));
 
     expect(screen.getByRole("region", { name: "Batch selection" }).textContent).toContain(
       "100 sites selected",
@@ -301,14 +310,18 @@ describe("SitesPage load states", () => {
     render(<SitesPage />);
 
     expect(document.body.textContent).toContain("Articles");
-    expect(document.body.textContent).toContain("Int. links");
+    expect(document.body.textContent).toContain("Internal links");
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
-    // `formatCount`, which pins the separator rather than leaving it to
-    // whatever locale the browser happens to be in.
-    expect(document.body.textContent).toContain("3,914");
-    expect(document.body.textContent).toContain("2 h ago");
+    // `formatCount`, which follows the operator's locale. Asserting a literal
+    // "3,914" would pin the suite to an en-US machine and fail on, say, a
+    // French one ("3 914"). Comparing against the helper keeps the assertion
+    // locale-independent; `not.toContain("3914")` is what still catches a
+    // count rendered raw, since every locale inserts a group separator here.
+    expect(document.body.textContent).toContain(formatCount(3914));
+    expect(document.body.textContent).not.toContain("3914");
+    expect(document.body.textContent).toContain(timeAgo(lastCrawl));
     expect(document.body.textContent).not.toContain("Soon");
   });
 });
@@ -461,7 +474,7 @@ describe("SitesPage source controls", () => {
     ];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("1 connected source");
+    expect(document.body.textContent).toContain("1 connected site");
     expect(document.body.textContent).toContain("docs.example.com");
     expect(document.body.textContent).not.toContain("News pool");
   });
@@ -565,7 +578,7 @@ describe("SitesPage WordPress account", () => {
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
     fireEvent.click(screen.getByText("Add WordPress account"));
 
-    fireEvent.change(screen.getByLabelText("WordPress username"), {
+    fireEvent.change(await screen.findByLabelText("WordPress username"), {
       target: { value: "editor" },
     });
     fireEvent.change(screen.getByLabelText("Application password"), {
@@ -584,13 +597,13 @@ describe("SitesPage WordPress account", () => {
     );
   });
 
-  it("refuses half a credential without asking the engine", () => {
+  it("refuses half a credential without asking the engine", async () => {
     withCredentials(false);
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
     fireEvent.click(screen.getByText("Add WordPress account"));
 
-    fireEvent.change(screen.getByLabelText("WordPress username"), {
+    fireEvent.change(await screen.findByLabelText("WordPress username"), {
       target: { value: "editor" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Attach account" }));
@@ -599,16 +612,87 @@ describe("SitesPage WordPress account", () => {
     expect(mocks.setCredentials.mutate).not.toHaveBeenCalled();
   });
 
-  it("asks before detaching an account, because it stops publication", () => {
+  it("asks before detaching an account, because it stops publication", async () => {
     withCredentials(true);
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
     fireEvent.click(screen.getByText("Replace WordPress account"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove this account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this account" }));
     expect(mocks.clearCredentials.mutate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove account" }));
     expect(mocks.clearCredentials.mutate).toHaveBeenCalledWith(7, expect.anything());
+  });
+});
+
+describe("SitesPage row affordances", () => {
+  const CRAWLED_SITE = {
+    id: 9,
+    name: "Vibe",
+    base_url: "https://www.vibe.com",
+    platform: "wordpress",
+    crawl_frequency: "manual",
+    created_at: "2026-08-04T08:00:00Z",
+    last_ingestion_status: "failed",
+    last_crawl_at: "2026-08-11T08:00:00Z",
+    last_ingestion_error: "403 from https://www.vibe.com/wp-json/wp/v2/posts",
+  };
+
+  it("says why a crawl failed, where the failure is shown", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    // The compact hint exposes the reason in its accessible name as well as
+    // the disclosure content — that is the copy this asserts on.
+    const badge = screen.getByLabelText(/Crawl failed\./);
+    expect(badge.getAttribute("title")).toContain(
+      "403 from https://www.vibe.com/wp-json/wp/v2/posts",
+    );
+    const hint = screen.getByLabelText("Why this status?");
+    expect(hint.parentElement?.classList.contains("help-hint")).toBe(true);
+    expect(
+      screen
+        .getByText(/403 from https:\/\/www\.vibe\.com\/wp-json\/wp\/v2\/posts/)
+        .classList.contains("help-hint-popover"),
+    ).toBe(true);
+  });
+
+  it("closes the status explanation on Escape and outside click", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    const summary = screen.getByLabelText("Why this status?");
+    const details = summary.parentElement as HTMLDetailsElement;
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(details.open).toBe(false);
+
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    fireEvent.pointerDown(document.body);
+    expect(details.open).toBe(false);
+  });
+
+  it("opens the live site in a new tab instead of asking for a copy and paste", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+
+    const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
+    expect(link.getAttribute("href")).toBe("https://www.vibe.com");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("keeps that link out of the batch selection label", () => {
+    mocks.sites.data = [CRAWLED_SITE];
+    render(<SitesPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Select sites" }));
+
+    // Inside the label, every click meant to open the site would tick the box.
+    const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
+    expect(link.closest("label")).toBeNull();
   });
 });

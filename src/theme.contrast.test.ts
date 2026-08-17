@@ -58,12 +58,36 @@ const PAIRS: Array<[string, string, number]> = [
   ["muted", "canvas-soft", 4.5],
   ["muted", "surface-card", 4.5],
   ["muted", "surface-strong", 4.5],
+  // A tinted status badge is still a badge: it carries `ink` at 12px, so the
+  // four grounds are held to the text minimum in both themes. This is the pair
+  // that stops a tint from being nudged "just a bit stronger" for looks until
+  // the label stops being readable on it.
+  ["ink", "tint-positive", 4.5],
+  ["ink", "tint-negative", 4.5],
+  ["ink", "tint-active", 4.5],
+  ["ink", "tint-progress", 4.5],
   ["error-ink", "canvas", 4.5],
   ["error-ink", "canvas-soft", 4.5],
   ["error-ink", "surface-card", 4.5],
   ["on-primary", "primary", 4.5],
+  // Syntax is text, and a colour nobody can read is worse than no colour at
+  // all. Code sits on the card surface; the folded rows in the same view sit on
+  // the soft canvas.
+  ["code-tag", "surface-card", 4.5],
+  ["code-tag", "canvas-soft", 4.5],
+  ["code-attr", "surface-card", 4.5],
+  ["code-attr", "canvas-soft", 4.5],
+  ["code-value", "surface-card", 4.5],
+  ["code-value", "canvas-soft", 4.5],
+  ["code-comment", "surface-card", 4.5],
+  ["code-comment", "canvas-soft", 4.5],
   ["on-dark", "surface-dark", 4.5],
+  // The two grounds that stay dark in both themes, so both take `on-dark`
+  // rather than `on-primary`: the Notice banner and the `.btn-danger` pill.
+  // `on-primary` inverts with the theme and measured 4.09:1 here, which is how
+  // the danger button lost its contrast in dark without any test noticing.
   ["on-dark", "error", 4.5],
+  ["on-dark", "error-active", 4.5],
   ["on-dark-soft", "surface-dark", 4.5],
   // Selected text is still text. This pair is the reason selection has its own
   // two tokens rather than borrowing the lavender orb, which travels.

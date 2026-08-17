@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDelimitedText, parseSiteCsv } from "./csvImport";
+import { parseDelimitedText, parseSiteCsv, poolSourceType } from "./csvImport";
 
 const header = "name,base_url,platform";
 
@@ -141,5 +141,50 @@ describe("parseSiteCsv", () => {
       "base_url",
     ]);
     expect(parseSiteCsv("").missingColumns).toEqual(["name", "base_url"]);
+  });
+});
+
+describe("content-pool CSV mode", () => {
+  const options = {
+    defaultPlatform: "pool" as const,
+    allowedPlatforms: ["pool"] as const,
+    allowWordPressCredentials: false,
+    requireHttps: true,
+  };
+
+  it("forces rows without a platform into the content pool", () => {
+    const { rows, missingColumns } = parseSiteCsv(
+      [
+        "name,base_url",
+        "Wikipedia AI,https://en.wikipedia.org/wiki/Artificial_intelligence",
+        "Industry feed,https://news.example.com/feed.xml",
+      ].join("\n"),
+      options,
+    );
+
+    expect(missingColumns).toEqual([]);
+    expect(rows.map((row) => row.site?.platform)).toEqual(["pool", "pool"]);
+    expect(rows.map((row) => poolSourceType(row.site!.base_url))).toEqual([
+      "Wikipedia",
+      "RSS/Atom candidate",
+    ]);
+  });
+
+  it("rejects non-pool platforms, insecure URLs, and WordPress credentials", () => {
+    const { rows } = parseSiteCsv(
+      [
+        "name,base_url,platform,wp_username,wp_app_password",
+        "Owned,https://owned.example.com,wordpress,,",
+        "Insecure,http://news.example.com/feed.xml,pool,,",
+        "Credentialed,https://news.example.com/feed.xml,pool,editor,secret",
+      ].join("\n"),
+      options,
+    );
+
+    expect(rows.map((row) => row.error)).toEqual([
+      'platform "wordpress" is not allowed in this import',
+      "content-pool base_url must start with https://",
+      "WordPress credentials are not allowed for content-pool sources",
+    ]);
   });
 });

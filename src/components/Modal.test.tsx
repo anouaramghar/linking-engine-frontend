@@ -91,6 +91,24 @@ describe("Modal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a description out of the part that scrolls", () => {
+    render(
+      <Modal
+        title="Import sites from CSV"
+        description={<>Columns: name, base_url</>}
+        onClose={vi.fn()}
+      >
+        <p>Body</p>
+      </Modal>,
+    );
+
+    // In the body it slid under the heading the moment anything below it grew,
+    // which is how the column list ended up half-hidden behind the title.
+    const description = screen.getByText(/Columns: name, base_url/);
+    const scroller = screen.getByText("Body").parentElement!;
+    expect(scroller.contains(description)).toBe(false);
+  });
+
   it("can protect a review from accidental backdrop dismissal", () => {
     const onClose = vi.fn();
     render(

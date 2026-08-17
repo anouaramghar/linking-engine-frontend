@@ -6,7 +6,9 @@ import {
   bulkReviewByFilter,
   countSuggestions,
   listSuggestionPage,
+  markSuggestionsExposed,
   reviewSuggestion,
+  triggerArticleAnalysis,
   triggerAnalysis,
   triggerComparison,
 } from "./suggestions";
@@ -221,17 +223,42 @@ describe("discovery filters on the wire", () => {
 });
 
 describe("current suggestion mutations", () => {
+  it("records rendered suggestions on the exposure endpoint", async () => {
+    const result = { exposed: 2 };
+    api.post.mockResolvedValue({ data: result });
+
+    await expect(markSuggestionsExposed([7, 8], "preview")).resolves.toEqual(result);
+
+    expect(api.post).toHaveBeenCalledWith("/suggestions/exposure", {
+      suggestion_ids: [7, 8],
+      surface: "preview",
+    });
+  });
+
+  it("serializes an optional rejection reason without changing approval", async () => {
+    api.put.mockResolvedValue({ data: { id: 7, status: "rejected" } });
+
+    await reviewSuggestion(7, "rejected", "wrong_target");
+
+    expect(api.put).toHaveBeenCalledWith("/suggestions/7", {
+      status: "rejected",
+      rejection_reason: "wrong_target",
+    });
+  });
+
   it("uses the backend's review, generation, and comparison routes", async () => {
     api.put.mockResolvedValue({ data: { id: 7, status: "approved" } });
     api.post
       .mockResolvedValueOnce({ data: { reviewed: [8, 9], skipped: [], status: "rejected" } })
       .mockResolvedValueOnce({ data: { job_id: "analysis-job" } })
-      .mockResolvedValueOnce({ data: { job_id: "comparison-job" } });
+      .mockResolvedValueOnce({ data: { job_id: "comparison-job" } })
+      .mockResolvedValueOnce({ data: { job_id: "article-job" } });
 
     await reviewSuggestion(7, "approved");
     await bulkReview([8, 9], "rejected");
     await triggerAnalysis(3);
     await triggerComparison(3);
+    await triggerArticleAnalysis(42);
 
     expect(api.put).toHaveBeenCalledWith("/suggestions/7", { status: "approved" });
     expect(api.post).toHaveBeenNthCalledWith(1, "/suggestions/bulk-review", {
@@ -240,6 +267,7 @@ describe("current suggestion mutations", () => {
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
     expect(api.post).toHaveBeenNthCalledWith(3, "/suggestions/3/compare");
+    expect(api.post).toHaveBeenNthCalledWith(4, "/articles/42/suggestions");
   });
 });
 

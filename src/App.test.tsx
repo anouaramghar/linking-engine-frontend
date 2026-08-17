@@ -1,6 +1,6 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -10,7 +10,7 @@ vi.mock("./hooks/useSites", () => ({
 }));
 
 vi.mock("./hooks/useSuggestions", () => ({
-  useSuggestionCounts: () => ({ data: { pending: 3 } }),
+  useSuggestionCounts: () => ({ data: { pending: 3, approved: 2 } }),
 }));
 
 vi.mock("./hooks/usePublish", () => ({
@@ -66,12 +66,23 @@ Object.defineProperty(window, "localStorage", {
   },
 });
 
+const LocationProbe = () => {
+  const location = useLocation();
+  return (
+    <div data-testid="location">
+      {location.pathname}
+      {location.search}
+    </div>
+  );
+};
+
 afterEach(cleanup);
 beforeEach(() => store.clear());
 
 const shell = (path = "/queue") =>
   render(
     <MemoryRouter initialEntries={[path]}>
+      <LocationProbe />
       <App />
     </MemoryRouter>,
   );
@@ -85,11 +96,27 @@ describe("App shell", () => {
 
     for (const nav of [mobile, desktop]) {
       expect(nav.querySelector('a[href="/queue"]')).not.toBeNull();
+      expect(nav.querySelector('a[href="/selected"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/sites"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/content-pool"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/evaluation"]')).not.toBeNull();
       expect(nav.querySelector('a[href="/access"]')).not.toBeNull();
     }
+  });
+
+  it("keeps queue filters when returning from another page", async () => {
+    const user = userEvent.setup();
+    shell("/queue?status=approved&q=hooks&origin=content_pool&suggestion=42");
+
+    const primary = screen.getByRole("navigation", { name: "Primary navigation" });
+    await user.click(within(primary).getByRole("link", { name: /Sites/ }));
+    await waitFor(() => expect(screen.getByText("Sites page")).toBeTruthy());
+
+    await user.click(within(primary).getByRole("link", { name: /Review queue/ }));
+
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/queue?status=approved&q=hooks&origin=content_pool&suggestion=42",
+    );
   });
 
   it("announces engine health in whichever shell is visible", () => {
@@ -122,6 +149,7 @@ describe("Rail collapse", () => {
     // the document too and "Sites" would match in both shells.
     for (const name of [
       "Review queue",
+      "Selected links",
       "Sites",
       "Content Pool",
       "Evaluation",
@@ -130,7 +158,7 @@ describe("Rail collapse", () => {
     ]) {
       expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
-    expect(rail().querySelectorAll("a")).toHaveLength(6);
+    expect(rail().querySelectorAll("a")).toHaveLength(7);
   });
 
   it("carries each count when the badge cannot show it", async () => {
@@ -143,6 +171,8 @@ describe("Rail collapse", () => {
 
     const queue = rail().querySelector('a[href="/queue"]');
     expect(queue?.textContent).toContain("3 pending");
+    const selected = rail().querySelector('a[href="/selected"]');
+    expect(selected?.textContent).toContain("2 selected");
     expect(rail().querySelector('a[href="/publish"]')).toBeNull();
   });
 

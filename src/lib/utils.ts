@@ -8,7 +8,24 @@ export const scorePercent = (score: number) => Math.round(score * 100);
 
 export const pct = (n: number) => `${scorePercent(n)}%`;
 
-export const formatCount = (count: number) => new Intl.NumberFormat("en-US").format(count);
+const numberFormatter = new Intl.NumberFormat();
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+export const formatCount = (count: number) => numberFormatter.format(count);
+
+export const downloadBlob = (blob: Blob, filename: string) => {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  // Let the browser start the download before releasing the object URL. Some
+  // browsers cancel the download when the URL is revoked in the same tick.
+  window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+};
 
 export const sitePlatformLabel = (platform: "wordpress" | "html" | "pool") => {
   if (platform === "wordpress") return "WP REST API";
@@ -26,41 +43,70 @@ export const initials = (name: string) =>
 
 export const timeAgo = (iso: string | null) => {
   if (!iso) return "never";
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
+  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!Number.isFinite(seconds)) return "unknown";
+  const absoluteSeconds = Math.abs(seconds);
+  if (absoluteSeconds < 60) return relativeTimeFormatter.format(Math.round(-seconds), "second");
+  if (absoluteSeconds < 3600)
+    return relativeTimeFormatter.format(Math.round(-seconds / 60), "minute");
+  if (absoluteSeconds < 86400)
+    return relativeTimeFormatter.format(Math.round(-seconds / 3600), "hour");
+  return relativeTimeFormatter.format(Math.round(-seconds / 86400), "day");
 };
 
 export const METHOD_LABEL: Record<string, string> = {
   baseline_cosine: "cosine",
   hybrid_bm25: "hybrid BM25",
-  external_search: "Tavily",
+  external_search: "Web search",
 };
 
 export const TARGET_ORIGIN_LABEL: Record<SuggestionTargetOrigin, string> = {
   internal: "Internal link",
   content_pool: "External link · Content pool",
-  web_search: "External link · Tavily",
+  web_search: "External link · Web search",
 };
 
 /**
- * Status is carried by a dot beside its own text label, never by tinting the
- * label itself. The design system has exactly two chromatic semantics
- * ({colors.semantic-success} and {colors.semantic-error}); the in-between
- * states borrow ink and muted rather than inventing a warning hue, and
- * "Publishing" pulses because it is the only status that is still moving.
+ * Status is carried by a dot beside its own text label, and now by the ground
+ * the label sits on as well.
+ *
+ * The tint is a second channel, never the only one: every status below still
+ * ships its dot and its full word, so nothing here depends on colour being
+ * seen. What the tint buys is scanning speed — a column of identical grey pills
+ * made an operator read the word to learn the state, on every row.
+ *
+ * `pending` and `expired` take no tint on purpose. A review queue is mostly
+ * pending, so tinting it would spend the signal on the majority and leave the
+ * four states worth noticing competing with a wall of colour.
  */
-export const STATUS_META: Record<SuggestionStatus, { label: string; dot: string }> = {
-  pending: { label: "Pending review", dot: "bg-muted-soft" },
+export const STATUS_META: Record<
+  SuggestionStatus,
+  { label: string; dot: string; tint: string }
+> = {
+  pending: { label: "Pending review", dot: "bg-muted-soft", tint: "" },
   // The wire value stays `approved`, but the editor still has to approve the
   // exact publication edit before anything is queued or written to the site.
-  approved: { label: "Selected for review", dot: "bg-primary" },
-  rejected: { label: "Rejected", dot: "bg-error" },
-  applying: { label: "Publishing", dot: "bg-primary animate-pulse" },
-  applied: { label: "Published live", dot: "bg-success" },
-  expired: { label: "Expired", dot: "bg-muted-soft" },
-  failed: { label: "Publishing failed", dot: "bg-error" },
+  // Lavender rather than green: this is the selection ground the app already
+  // uses for "chosen, not yet done", and a green here would claim the row is
+  // published when it is only picked.
+  approved: {
+    label: "Selected for review",
+    dot: "bg-primary",
+    tint: "bg-tint-active",
+  },
+  rejected: { label: "Rejected", dot: "bg-error", tint: "bg-tint-negative" },
+  applying: {
+    label: "Publishing",
+    dot: "bg-primary animate-pulse",
+    tint: "bg-tint-progress",
+  },
+  applied: { label: "Published", dot: "bg-success", tint: "bg-tint-positive" },
+  expired: { label: "Expired", dot: "bg-muted-soft", tint: "" },
+  failed: {
+    label: "Publishing failed",
+    dot: "bg-error",
+    tint: "bg-tint-negative",
+  },
 };
 
 /**
@@ -78,8 +124,6 @@ export const PUBLICATION_STATUS_MESSAGE: Partial<Record<SuggestionStatus, string
   failed: "Publishing failed repeatedly and stopped retrying. Undo to try again.",
 };
 
-export const RQ_SCHEDULING_COPY = "Scheduled re-crawls run through RQ.";
-
 /**
  * The system's five atmospheric gradient stops — mint, peach, lavender, sky,
  * rose — expressed through theme tokens rather than a second copy of their
@@ -96,8 +140,38 @@ const ORB_PLATE_CLASSES = [
 
 /**
  * A {component.voice-icon-circular} plate, blooming one of the five stops over
- * {colors.surface-strong}. Sites cycle the palette by index, so a fleet reads
- * as one system rather than five unrelated badges.
+ * {colors.surface-strong}. Sites cycle the palette so a fleet reads as one
+ * system rather than five unrelated badges.
+ *
+ * Keyed to the site's id, not its position in the list. Position was wrong in a
+ * way that only showed up in use: the hue is the one thing on the row an
+ * operator recognises before reading anything, and deleting a site or landing
+ * on a differently-ordered response re-coloured every site below it. An id is
+ * the only thing about a site that never moves, so it is what the colour hangs
+ * on — and it is what lets the queue and the Sites page agree without passing
+ * an index between two pages that sort differently.
  */
-export const orbPlateClass = (index: number) =>
-  ORB_PLATE_CLASSES[index % ORB_PLATE_CLASSES.length];
+export const orbPlateClass = (siteId: number) =>
+  ORB_PLATE_CLASSES[Math.abs(siteId) % ORB_PLATE_CLASSES.length];
+
+/**
+ * The same five stops as a wash across a header band rather than a filled
+ * plate: the stop fades out by 55%, so the tint colours the edge the group
+ * starts at and the text further along still sits on the plain soft canvas.
+ *
+ * Held at 10%. The band carries {colors.muted} caption text, and the wash is
+ * drawn *under* it — at this strength the ground moves by about 0.15 of a
+ * contrast point in either theme, which keeps the pairing above AA that
+ * `theme.contrast.test.ts` measures against the untinted canvas.
+ */
+const ORB_WASH_CLASSES = [
+  "bg-[linear-gradient(to_right,theme(colors.orb-mint/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-peach/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-lavender/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-sky/10%),transparent_55%)]",
+  "bg-[linear-gradient(to_right,theme(colors.orb-rose/10%),transparent_55%)]",
+] as const;
+
+/** The wash matching a site's plate, so one site reads as one hue everywhere. */
+export const orbWashClass = (siteId: number) =>
+  ORB_WASH_CLASSES[Math.abs(siteId) % ORB_WASH_CLASSES.length];

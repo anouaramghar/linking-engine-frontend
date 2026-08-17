@@ -28,6 +28,8 @@ export interface PendingPublicationSite {
    * read as publishable rather than silently hiding the review button.
    */
   can_publish?: boolean;
+  /** True for static HTML sources whose approved artifacts can be exported. */
+  can_export?: boolean;
 }
 
 export interface PendingPublicationPage {
@@ -67,10 +69,11 @@ export interface PublicationPlan {
   plan_hash: string;
   source_article_id: number;
   source_url: string;
-  /** Present only on the deprecated synchronous preparation response. */
-  original_html?: string;
-  /** Present only on the deprecated synchronous preparation response. */
-  updated_html?: string;
+  /**
+   * No HTML here on purpose. A prepared batch is megabytes of markup and this
+   * shape is polled until the job settles, so the exact bytes are fetched one
+   * plan at a time from `PublicationPlanHtml`.
+   */
   links: PlanLink[];
 }
 
@@ -129,13 +132,31 @@ export const getPendingPublicationSite = (siteId: number) =>
  */
 export const PREPARE_MAX_ARTICLES = 10;
 
+/**
+ * Start a preparation. `suggestionIds` narrows it to those links.
+ *
+ * The narrowing is the engine's job, not the dashboard's: a plan's hash covers
+ * a whole source article, so an article holding three selected links is one
+ * artifact that publishes all three. Showing one of them and hiding the others
+ * would change nothing about what approval writes. Asking the engine for one
+ * link renders an artifact that carries that link alone — and costs one live
+ * request instead of ten.
+ */
 export const preparePublicationPlans = (
   siteId: number,
   maxArticles = PREPARE_MAX_ARTICLES,
+  suggestionIds?: number[],
 ) =>
   api
     .post<JobAccepted>(`/publish/${siteId}/plans/prepare-async`, undefined, {
-      params: { max_articles: maxArticles },
+      params: {
+        max_articles: maxArticles,
+        suggestion_ids: suggestionIds?.length ? suggestionIds : undefined,
+      },
+      // FastAPI reads a list query parameter as repeated bare keys. Axios
+      // writes `suggestion_ids[]=1` by default, which binds to nothing there
+      // and would silently prepare the whole batch instead of one link.
+      paramsSerializer: { indexes: null },
     })
     .then((response) => response.data);
 
@@ -155,4 +176,10 @@ export const approvePublicationPlans = (
 export const queueApprovedPlans = (siteId: number, planIds?: number[]) =>
   api
     .post(`/publish/${siteId}`, planIds ? { plan_ids: planIds } : undefined)
+    .then((response) => response.data);
+
+/** Download approved, hash-verified artifacts for a non-WordPress workflow. */
+export const exportPublicationCsv = (siteId: number) =>
+  api
+    .get<Blob>(`/publish/${siteId}/export.csv`, { responseType: "blob" })
     .then((response) => response.data);

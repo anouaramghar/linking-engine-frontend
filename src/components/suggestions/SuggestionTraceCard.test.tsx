@@ -95,6 +95,44 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("\u2014")).not.toBeNull();
   });
 
+  it("explains the persisted final rank without treating cosine as the order", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={{
+          ...suggestion,
+          final_rank: 1,
+          retrieval_version: "hybrid_bm25_v1",
+          ranking_version: "hybrid_bm25:graph=off:feedback=off",
+          score_components: {
+            version: "hybrid_bm25_v1",
+            final_order: "bm25_512",
+            recipe: "structured_t3_tax2_c512",
+            bm25_score: 12.4,
+            fusion_rank: 3,
+            dense_rank: 9,
+            lexical_rank: 2,
+          },
+        }}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByText("How the rank was decided")).not.toBeNull();
+    expect(screen.getByText("Final rank #1")).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "Semantic match remains the separate cosine similarity shown above.",
+    );
+
+    const details = screen.getByText("Show ranking details").closest("details");
+    expect(details?.open).toBe(false);
+    fireEvent.click(screen.getByText("Show ranking details"));
+    expect(details?.open).toBe(true);
+    expect(screen.getByText("Dense retrieval position")).not.toBeNull();
+    expect(screen.getByText("#9")).not.toBeNull();
+    expect(screen.getByText("structured_t3_tax2_c512")).not.toBeNull();
+    expect(screen.getByText("hybrid_bm25:graph=off:feedback=off")).not.toBeNull();
+  });
+
   it("offers a retry when history cannot be loaded", () => {
     const onRetry = vi.fn();
     render(
@@ -133,6 +171,37 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("95/100")).not.toBeNull();
   });
 
+  it("shows graph context without presenting structure as relevance", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={{
+          ...suggestion,
+          score_components: {
+            bm25_score: 12.4,
+            graph: {
+              snapshot_id: 8,
+              graph_version: "a".repeat(64),
+              target_in_degree: 0,
+              source_out_degree: 4,
+              target_orphan: true,
+              target_underlinked: true,
+              target_saturated: false,
+              adjustment: 0.03,
+              mode: "shadow",
+            },
+          },
+        }}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByText("Graph context")).not.toBeNull();
+    expect(screen.getByText("Target inlinks")).not.toBeNull();
+    expect(screen.getByText("Orphan")).not.toBeNull();
+    expect(screen.getByText("Observed beside BM25")).not.toBeNull();
+    expect(document.body.textContent).toContain("orphan status does not qualify");
+  });
+
   it("shows Tavily provenance without treating provider relevance as semantic score", () => {
     render(
       <SuggestionTraceCard
@@ -167,7 +236,7 @@ describe("SuggestionTraceCard", () => {
       />,
     );
 
-    expect(screen.getByText("Tavily relevance")).not.toBeNull();
+    expect(screen.getByText("Search relevance")).not.toBeNull();
     expect(screen.getByText("74%")).not.toBeNull();
     expect(screen.getByText("Safety checks")).not.toBeNull();
     expect(screen.getByText("Passed")).not.toBeNull();

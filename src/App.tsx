@@ -1,10 +1,27 @@
-import { lazy, Suspense, useId, type ReactNode } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
 import RailTip from "./components/RailTip";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
+import { PageStateProvider } from "./hooks/usePageState";
+import {
+  QueueSearchContext,
+  queueDestination,
+  useQueueNavigation,
+  useQueueSearch,
+} from "./hooks/useQueueNavigation";
+import { QueueWorkspaceProvider } from "./hooks/useQueueWorkspace";
 import { useRail } from "./hooks/useRail";
 import { useSites } from "./hooks/useSites";
 import { useSuggestionCounts } from "./hooks/useSuggestions";
@@ -16,6 +33,7 @@ const ContentPoolPage = lazy(() => import("./pages/ContentPoolPage"));
 const SitesPage = lazy(() => import("./pages/SitesPage"));
 const TraceabilityPage = lazy(() => import("./pages/TraceabilityPage"));
 const ValidationPage = lazy(() => import("./pages/ValidationPage"));
+const SelectedPage = lazy(() => import("./pages/SelectedPage"));
 const PublishPage = lazy(() => import("./pages/PublishPage"));
 
 function RouteFallback() {
@@ -25,7 +43,7 @@ function RouteFallback() {
       aria-label="Loading page"
       className="flex min-h-0 flex-1 items-center justify-center px-4 text-caption text-muted"
     >
-      Loading page...
+      Loading page…
     </div>
   );
 }
@@ -60,8 +78,21 @@ const QUEUE: NavItem = {
   ),
 };
 
+const SELECTED: NavItem = {
+  to: "/selected",
+  label: "Selected links",
+  short: "Selected",
+  countNoun: "selected",
+  icon: (
+    <>
+      <path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4-7 4V4.5a1 1 0 0 1 1-1Z" />
+      <path d="m8.5 11.5 2.3 2.3 4.7-4.7" />
+    </>
+  ),
+};
+
 /** The selection, exact-edit review, and approval all belong to this workspace. */
-const FLOW = [QUEUE];
+const FLOW = [QUEUE, SELECTED];
 
 /**
  * The queue is the destination; the remaining items are where you go between
@@ -190,13 +221,20 @@ function RailLink({
   counts: Record<string, number | null>;
   collapsed: boolean;
 }) {
+  const location = useLocation();
+  const { remember } = useQueueNavigation();
+  const queueSearch = useQueueSearch();
+  const activeQueueSearch = location.pathname === "/queue" ? location.search : queueSearch;
   const raw = counts[item.to] ?? null;
   const count = raw !== null && raw > 0 ? raw : null;
   const noun = item.countNoun ?? "waiting";
 
   const link = (
     <NavLink
-      to={item.to}
+      to={queueDestination(item.to, activeQueueSearch)}
+      onClick={() => {
+        if (location.pathname === "/queue") remember(location.search);
+      }}
       className={({ isActive }) =>
         `relative flex min-h-11 items-center rounded-pill text-nav-link transition-colors
          duration-150 ${collapsed ? "h-11 w-11 justify-center" : "w-full gap-2.5 px-2.5"} ${
@@ -307,52 +345,151 @@ function RailNavigation({
   );
 }
 
-/** The mobile row stays flat: the columns are already the grouping. */
-function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
+function NavCount({ count, noun, isActive }: { count: number; noun: string; isActive: boolean }) {
   return (
-    <nav aria-label="Mobile navigation" className="grid grid-cols-6 gap-1 px-2 pb-2">
-      {NAV.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) =>
-            `flex min-h-11 items-center justify-center gap-1 rounded-pill px-2 text-center
-             text-nav-link transition-colors duration-150 ${
-               isActive
-                 ? "bg-primary text-on-primary"
-                 : "text-body hover:bg-surface-strong hover:text-ink"
-             }`
-          }
+    <span
+      className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
+        px-1.5 text-caption-upper tabular-nums ${
+          isActive ? "bg-on-primary/20 text-on-primary" : "bg-surface-strong text-ink"
+        }`}
+    >
+      <span aria-hidden="true">{count}</span>
+      <span className="sr-only">
+        {count} {noun}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Navigation for every width below the desktop rail.
+ *
+ * Two shapes, because one does not fit both ends of the range. Six permanent
+ * columns at 375px leave about 55px each: below the 44px touch target the design
+ * system asks for once the gaps are taken out, with every label truncated to a
+ * word that no longer names its page. The system's own rule is a hamburger below
+ * 768px, so that is what runs there — a disclosure holding the full labels, the
+ * same grouping as the rail, and rows a thumb can actually hit. From 768px the
+ * row has room to be a row, and stays one.
+ *
+ * The panel closes on navigation and on Escape: it covers the page it is
+ * navigating away from, so leaving it open after a choice would hide the result
+ * of that choice.
+ */
+function MobileNavigation({ counts }: { counts: Record<string, number | null> }) {
+  const location = useLocation();
+  const { remember } = useQueueNavigation();
+  const queueSearch = useQueueSearch();
+  const activeQueueSearch = location.pathname === "/queue" ? location.search : queueSearch;
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const groupId = useId();
+
+  const item = (navItem: NavItem, layout: "row" | "stack") => {
+    const raw = counts[navItem.to] ?? null;
+    const count = raw !== null && raw > 0 ? raw : null;
+    const noun = navItem.countNoun ?? "waiting";
+    return (
+      <NavLink
+        to={queueDestination(navItem.to, activeQueueSearch)}
+        onClick={() => {
+          if (location.pathname === "/queue") remember(location.search);
+          setOpen(false);
+        }}
+        className={({ isActive }) =>
+          `flex min-h-11 items-center rounded-pill text-nav-link transition-colors duration-150 ${
+            layout === "row" ? "justify-center gap-1 px-2 text-center" : "gap-2.5 px-3"
+          } ${
+            isActive
+              ? "bg-primary text-on-primary"
+              : "text-body hover:bg-surface-strong hover:text-ink"
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            {layout === "stack" && <NavMark icon={navItem.icon} />}
+            <span className={layout === "row" ? "min-w-0 truncate" : "min-w-0 flex-1 truncate"}>
+              {layout === "row" ? navItem.short ?? navItem.label : navItem.label}
+            </span>
+            {count !== null && <NavCount count={count} noun={noun} isActive={isActive} />}
+          </>
+        )}
+      </NavLink>
+    );
+  };
+
+  return (
+    <>
+      <div className="px-4 pb-2 md:hidden">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((current) => !current)}
+          className="btn btn-outline flex min-h-11 w-full items-center justify-center gap-2"
         >
-          {({ isActive }) => {
-            const raw = counts[item.to] ?? null;
-            const count = raw !== null && raw > 0 ? raw : null;
-            return (
+          <svg
+            aria-hidden="true"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+          >
+            {open ? (
               <>
-                {/* Six columns at 375px leave about 55px each, so the label has
-                    to be allowed to shrink rather than push the row wider. */}
-                <span className="min-w-0 truncate">{item.short ?? item.label}</span>
-                {count !== null && (
-                  <span
-                    className={`flex h-5 min-w-5 flex-none items-center justify-center rounded-pill
-                      px-1.5 text-caption-upper tabular-nums ${
-                        isActive
-                          ? "bg-on-primary/20 text-on-primary"
-                          : "bg-surface-strong text-ink"
-                      }`}
-                  >
-                    <span aria-hidden="true">{count}</span>
-                    <span className="sr-only">
-                      {count} {item.countNoun ?? "waiting"}
-                    </span>
-                  </span>
-                )}
+                <path d="M5 5 19 19" />
+                <path d="M19 5 5 19" />
               </>
-            );
+            ) : (
+              <>
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h16" />
+              </>
+            )}
+          </svg>
+          {open ? "Close menu" : "Menu"}
+        </button>
+      </div>
+
+      {open && (
+        <nav
+          id={panelId}
+          aria-label="Mobile menu"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setOpen(false);
           }}
-        </NavLink>
-      ))}
-    </nav>
+          className="flex flex-col gap-1 px-2 pb-3 md:hidden"
+        >
+          <ul className="flex flex-col gap-1">
+            {FLOW.map((navItem) => (
+              <li key={navItem.to}>{item(navItem, "stack")}</li>
+            ))}
+          </ul>
+          <h2 id={groupId} className="eyebrow mt-3 px-3 pb-1">
+            Manage
+          </h2>
+          <ul aria-labelledby={groupId} className="flex flex-col gap-1">
+            {MANAGED.map((navItem) => (
+              <li key={navItem.to}>{item(navItem, "stack")}</li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <nav
+        aria-label="Mobile navigation"
+        className="hidden grid-cols-7 gap-1 px-2 pb-2 md:grid lg:hidden"
+      >
+        {NAV.map((navItem) => (
+          <span key={navItem.to}>{item(navItem, "row")}</span>
+        ))}
+      </nav>
+    </>
   );
 }
 
@@ -388,18 +525,30 @@ function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle:
 }
 
 export default function App() {
+  const location = useLocation();
+  const [rememberedQueueSearch, setRememberedQueueSearch] = useState(() =>
+    location.pathname === "/queue" ? location.search : "",
+  );
+  const rememberQueueSearch = useCallback(
+    (search: string) => setRememberedQueueSearch(search),
+    [],
+  );
+  const queueNavigation = useMemo(
+    () => ({ search: rememberedQueueSearch, remember: rememberQueueSearch }),
+    [rememberedQueueSearch, rememberQueueSearch],
+  );
+
   const { data: sites } = useSites();
   const ownedSites = sites?.filter((site) => site.platform !== "pool");
   const ownedSiteCount = ownedSites?.length ?? null;
-  const hasSites = Boolean(ownedSites?.length);
-  const { data: counts } = useSuggestionCounts({}, hasSites);
+  const { data: counts } = useSuggestionCounts({});
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.
   const { preference, setTheme } = useTheme();
   const { collapsed, toggle } = useRail();
   const pending = counts?.pending ?? null;
-  const navCounts = { [QUEUE.to]: pending };
+  const navCounts = { [QUEUE.to]: pending, [SELECTED.to]: counts?.approved ?? null };
   const healthLabel = healthPending
     ? "Checking engine"
     : healthFailed
@@ -414,7 +563,11 @@ export default function App() {
   }`;
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
+    <QueueSearchContext.Provider value={queueNavigation}>
+      {/* Above <Routes>, so a page's work outlives the page. See usePageState. */}
+      <PageStateProvider>
+        <QueueWorkspaceProvider>
+          <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row">
       {/* The rail repeats on every route, so without this a keyboard user pays
           for it on every navigation before reaching the queue. */}
       <a
@@ -538,24 +691,51 @@ export default function App() {
         tabIndex={-1}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
       >
-        {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
-        <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
-        <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
-        <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/queue" replace />} />
-            <Route path="/queue" element={<ValidationPage />} />
-            <Route path="/publish" element={<PublishPage />} />
-            <Route path="/publish/:siteId" element={<PublishPage />} />
-            <Route path="/sites" element={<SitesPage />} />
-            <Route path="/content-pool" element={<ContentPoolPage />} />
-            <Route path="/evaluation" element={<EvaluationPage />} />
-            <Route path="/traceability" element={<TraceabilityPage />} />
-            <Route path="/access" element={<AccessPage />} />
-            <Route path="*" element={<Navigate to="/queue" replace />} />
-          </Routes>
-        </Suspense>
+        {/* Atmospheric orbs — the system's only colour moment, carrying no content.
+
+            `-z-10` is load-bearing, not tidying. These are positioned and the
+            routed page under them is not, and a positioned element paints above
+            a static one whatever the source order says — so the decoration was
+            drawing *over* the content: a lavender haze across the top-right and
+            a mint wash over the cards. `pointer-events-none` is why it went
+            unnoticed for so long; the orbs were never in the way of a click,
+            only of the words.
+
+            A negative index, and deliberately no stacking context on the
+            parent. Negative-z children paint below in-flow block backgrounds,
+            which is exactly the rung these want. Giving <main> its own stacking
+            context would fix the orbs too and break something worse: every
+            modal renders inside <main> at `z-50` with no portal, and the rail
+            beside it is `z-30`, so bounding "above" to <main> would drop each
+            dialog underneath the navigation.
+
+            The sibling pages solve this the other way, by making their content
+            positioned (LoginPage's panel, every text row in an Evaluation metric
+            card). That option is not open here: the content is <Routes>, and
+            each page owns its own root. */}
+        <div className="pointer-events-none absolute -right-20 -top-32 -z-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
+        <div className="pointer-events-none absolute -bottom-36 left-56 -z-10 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
+        <RouteErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/queue" replace />} />
+              <Route path="/queue" element={<ValidationPage />} />
+              <Route path="/selected" element={<SelectedPage />} />
+              <Route path="/publish" element={<PublishPage />} />
+              <Route path="/publish/:siteId" element={<PublishPage />} />
+              <Route path="/sites" element={<SitesPage />} />
+              <Route path="/content-pool" element={<ContentPoolPage />} />
+              <Route path="/evaluation" element={<EvaluationPage />} />
+              <Route path="/traceability" element={<TraceabilityPage />} />
+              <Route path="/access" element={<AccessPage />} />
+              <Route path="*" element={<Navigate to="/queue" replace />} />
+            </Routes>
+          </Suspense>
+        </RouteErrorBoundary>
       </main>
-    </div>
+          </div>
+        </QueueWorkspaceProvider>
+      </PageStateProvider>
+    </QueueSearchContext.Provider>
   );
 }

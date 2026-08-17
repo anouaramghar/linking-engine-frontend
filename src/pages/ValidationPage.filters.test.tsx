@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Suggestion } from "../types/suggestion";
+import { QueueWorkspaceProvider } from "../hooks/useQueueWorkspace";
 import ValidationPage from "./ValidationPage";
 
 const SITE = {
@@ -86,6 +87,7 @@ vi.mock("../hooks/useSuggestions", () => ({
     refetch: vi.fn(),
   }),
   useReview: () => ({ mutate: vi.fn() }),
+  useMarkSuggestionsExposed: () => ({ mutate: vi.fn() }),
   useBulkReview: () => ({ mutate: vi.fn(), isPending: false }),
   useFilteredBulkReview: () => ({
     mutate: mocks.filteredBulkMutate,
@@ -139,8 +141,10 @@ const TrackLocation = () => {
 const renderQueue = (initialEntry = "/") =>
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <ValidationPage />
-      <TrackLocation />
+      <QueueWorkspaceProvider>
+        <ValidationPage />
+        <TrackLocation />
+      </QueueWorkspaceProvider>
     </MemoryRouter>,
   );
 
