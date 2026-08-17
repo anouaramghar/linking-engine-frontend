@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatCount, timeAgo } from "../lib/utils";
 import SitesPage from "./SitesPage";
 
 const navigate = vi.hoisted(() => vi.fn());
@@ -313,9 +314,14 @@ describe("SitesPage load states", () => {
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
-    // `formatCount`, which follows the operator's locale.
-    expect(document.body.textContent).toContain("3,914");
-    expect(document.body.textContent).toContain("2 hours ago");
+    // `formatCount`, which follows the operator's locale. Asserting a literal
+    // "3,914" would pin the suite to an en-US machine and fail on, say, a
+    // French one ("3 914"). Comparing against the helper keeps the assertion
+    // locale-independent; `not.toContain("3914")` is what still catches a
+    // count rendered raw, since every locale inserts a group separator here.
+    expect(document.body.textContent).toContain(formatCount(3914));
+    expect(document.body.textContent).not.toContain("3914");
+    expect(document.body.textContent).toContain(timeAgo(lastCrawl));
     expect(document.body.textContent).not.toContain("Soon");
   });
 });
