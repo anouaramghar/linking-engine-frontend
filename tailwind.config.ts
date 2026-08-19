@@ -39,6 +39,7 @@ export default {
       // canvas is not a button.
       primary: token("primary"),
       "primary-active": token("primary-active"),
+      "notification-unread": token("notification-unread"),
 
       // Text
       ink: token("ink"),

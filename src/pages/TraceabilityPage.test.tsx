@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PageStateProvider } from "../hooks/usePageState";
@@ -10,6 +10,7 @@ import TraceabilityPage from "./TraceabilityPage";
 const mocks = vi.hoisted(() => ({
   filters: {} as Record<string, unknown>,
   copy: vi.fn(),
+  exportCsv: vi.fn(),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -62,13 +63,18 @@ vi.mock("../hooks/useTraceability", () => ({
   },
 }));
 
-vi.mock("../api/traceability", () => ({
-  getTraceEventsCsv: vi.fn(),
-}));
+vi.mock("../api/traceability", () => ({ getTraceEventsCsv: mocks.exportCsv }));
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.search}</div>;
+}
 
 beforeEach(() => {
   mocks.filters = {};
   mocks.copy.mockReset();
+  mocks.exportCsv.mockReset();
+  mocks.exportCsv.mockResolvedValue(new Blob(["event_id\n12"], { type: "text/csv" }));
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: { writeText: mocks.copy.mockResolvedValue(undefined) },
@@ -84,9 +90,16 @@ describe("TraceabilityPage", () => {
       configurable: true,
       value: { writeText: mocks.copy.mockResolvedValue(undefined) },
     });
-    render(<TraceabilityPage />, { wrapper: MemoryRouter });
+    render(
+      <MemoryRouter initialEntries={["/traceability"]}>
+        <TraceabilityPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText("Publishing error: WordPress returned 403")).not.toBeNull();
+    expect(screen.getByRole("option", { name: "Shown in review queue" })).not.toBeNull();
+    expect(screen.queryByRole("option", { name: "Status changed" })).toBeNull();
     await user.click(screen.getByText("Full event details"));
     expect(screen.getByText(/"attempt": 2/)).not.toBeNull();
     expect(screen.getByText(/"terminal": true/)).not.toBeNull();
@@ -113,10 +126,50 @@ describe("TraceabilityPage", () => {
     expect(mocks.filters.date_to).toBe(
       new Date("2026-08-10T23:59:59.999").toISOString(),
     );
+    expect(screen.getByTestId("location").textContent).toContain("trace_id=trace-abc");
+    expect(screen.getByTestId("location").textContent).toContain("site_id=7");
 
     await user.click(screen.getByRole("button", { name: "Copy trace ID" }));
     expect(mocks.copy).toHaveBeenCalledWith("trace-abc");
     expect(screen.getByRole("button", { name: "Copied" })).not.toBeNull();
+  });
+
+  it("applies filters when the operator presses Enter", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityPage />, { wrapper: MemoryRouter });
+
+    await user.type(screen.getByLabelText("Trace ID"), "trace-abc");
+    await user.keyboard("{Enter}");
+
+    expect(mocks.filters).toMatchObject({ trace_id: "trace-abc" });
+  });
+
+  it("prevents exporting a draft filter and reports export failures", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityPage />, { wrapper: MemoryRouter });
+
+    await user.type(screen.getByLabelText("Trace ID"), "trace-abc");
+    const blockedExport = screen.getByRole("button", { name: "Apply filters to export" });
+    expect(blockedExport.hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Apply filters" }));
+    mocks.exportCsv.mockRejectedValueOnce(new Error("network unavailable"));
+    await user.click(screen.getByRole("button", { name: "Export filtered CSV" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("CSV export failed");
+  });
+
+  it("shows an inline error for an inverted date range", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityPage />, { wrapper: MemoryRouter });
+
+    await user.type(screen.getByLabelText("From"), "2026-08-10");
+    await user.type(screen.getByLabelText("To"), "2026-08-01");
+    await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("From date must be on or before To date");
+    expect(document.activeElement).toBe(screen.getByLabelText("From"));
+    expect(mocks.filters).toEqual({});
   });
 
   it("still holds the audit filters after a trip to another page", async () => {

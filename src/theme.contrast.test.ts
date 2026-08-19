@@ -103,6 +103,9 @@ const PAIRS: Array<[string, string, number]> = [
   ["error", "canvas", 3],
   ["error", "canvas-soft", 3],
   ["error", "surface-card", 3],
+  ["notification-unread", "canvas", 3],
+  ["notification-unread", "canvas-soft", 3],
+  ["notification-unread", "surface-card", 3],
 ];
 
 describe.each([

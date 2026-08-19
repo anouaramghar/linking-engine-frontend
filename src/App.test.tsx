@@ -23,6 +23,20 @@ vi.mock("./hooks/useHealth", () => ({
   useHealth: () => ({ isError: false, isPending: false }),
 }));
 
+vi.mock("./hooks/useJobs", () => ({
+  useActiveJobs: () => ({ data: [], isPending: false, isError: false }),
+}));
+
+vi.mock("./hooks/useAlerts", () => ({
+  useAlerts: () => ({
+    alerts: [],
+    unreadCount: 0,
+    isPending: false,
+    isError: false,
+    acknowledge: vi.fn(),
+  }),
+}));
+
 vi.mock("./hooks/useSession", () => ({
   useSession: () => ({ data: { id: 1, telegram_id: 42, username: "amir", display_name: null } }),
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
@@ -104,6 +118,27 @@ describe("App shell", () => {
     }
   });
 
+  it("places the utility icons between the logo and the review queue", () => {
+    shell();
+
+    const rail = screen.getByRole("complementary");
+    const logo = within(rail).getByText("LinkMesh");
+    const activity = within(rail).getByRole("button", { name: "Activity" });
+    const notifications = within(rail).getByRole("button", { name: "Notifications" });
+    const collapse = within(rail).getByRole("button", { name: "Collapse sidebar" });
+    const queue = within(rail).getByRole("link", { name: /Review queue/ });
+
+    expect(activity.className).toContain("w-8");
+    expect(notifications.className).toContain("w-8");
+    expect(collapse.className).toContain("w-8");
+    expect(rail.className).toContain("w-56");
+    expect(rail.querySelectorAll('[aria-hidden="true"].h-px')).toHaveLength(2);
+    expect(logo.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(activity.compareDocumentPosition(notifications) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notifications.compareDocumentPosition(collapse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(collapse.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("keeps queue filters when returning from another page", async () => {
     const user = userEvent.setup();
     shell("/queue?status=approved&q=hooks&origin=content_pool&suggestion=42");
@@ -134,6 +169,16 @@ describe("App shell", () => {
 describe("Rail collapse", () => {
   const rail = () => screen.getByRole("navigation", { name: "Primary navigation" });
 
+  it("uses the panel outline mark for the rail toggle", () => {
+    shell();
+
+    const icon = screen.getByRole("button", { name: "Collapse sidebar" }).querySelector("svg");
+
+    expect(icon?.querySelector("rect")).not.toBeNull();
+    expect(icon?.querySelectorAll("path")).toHaveLength(1);
+    expect(icon?.querySelector("path")?.getAttribute("d")).toBe("M9 3v18");
+  });
+
   it("keeps every destination named once the labels are hidden", async () => {
     const user = userEvent.setup();
     shell();
@@ -158,6 +203,8 @@ describe("Rail collapse", () => {
     ]) {
       expect(within(rail()).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
+    const collapsedBrand = within(screen.getByRole("complementary")).getByText(/LinkMesh/);
+    expect(collapsedBrand.parentElement?.className).toContain("justify-center");
     expect(rail().querySelectorAll("a")).toHaveLength(7);
   });
 
@@ -168,6 +215,10 @@ describe("Rail collapse", () => {
     // The collapsed rail draws an indicator dot, not "3" — the number has to
     // reach assistive tech some other way or it is simply gone.
     await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    expect(screen.getByRole("button", { name: "Activity" }).className).toContain("w-7");
+    expect(screen.getByRole("button", { name: "Notifications" }).className).toContain("w-7");
+    expect(screen.getByRole("button", { name: "Expand sidebar" }).className).toContain("w-7");
 
     const queue = rail().querySelector('a[href="/queue"]');
     expect(queue?.textContent).toContain("3 pending");

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
 import { ingestSite } from "../api/sites";
@@ -83,7 +83,6 @@ interface TrackedJob {
 }
 
 const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
-const ArticleImportModal = lazy(() => import("../components/sites/ArticleImportModal"));
 const BulkImportModal = lazy(() => import("../components/sites/BulkImportModal"));
 const BatchPipelinePanel = lazy(() => import("../components/sites/BatchPipelinePanel"));
 const EditorialRankingPolicyModal = lazy(
@@ -135,25 +134,6 @@ function CurrentSiteStatus({
       lastAnalysisAt={site.last_analysis_at}
       analysisError={site.last_analysis_error}
     />
-  );
-}
-
-/**
- * Hybrid is the managed standard for every non-pool source, so this states the
- * site's configuration rather than reading any one row. The title says so out
- * loud: a queue card reports how that particular suggestion was produced, which
- * for an older row can still be the cosine baseline, and the two are not in
- * disagreement when it happens.
- */
-function SuggestionMethodBadge() {
-  return (
-    <span
-      className="badge"
-      title="Combines semantic and keyword matching for new suggestions"
-    >
-      <span className="dot bg-primary" />
-      Hybrid
-    </span>
   );
 }
 
@@ -212,7 +192,6 @@ function SiteIdentity({ site }: { site: Site }) {
 }
 
 export default function SitesPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get("q") ?? "";
   const setSearch = (value: string) => {
@@ -258,7 +237,6 @@ export default function SitesPage() {
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [articleImportFor, setArticleImportFor] = useState<Site | null>(null);
   // Crawls and pipeline runs outlive the visit that started them, so the list of
   // the ones this operator started has to as well. Dropped on navigation, a job
   // someone kicked off two minutes ago becomes indistinguishable from one a
@@ -743,7 +721,6 @@ export default function SitesPage() {
                   activeJobsBySite={activeJobsBySite}
                   trackedJobsBySite={trackedJobsBySite}
                 />
-                {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
               <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
@@ -801,17 +778,6 @@ export default function SitesPage() {
                             onSelect: () => setRankingPolicySite(site),
                           },
                           {
-                            // Was "Publish approved", and it published every
-                            // selected suggestion for the site with nobody
-                            // having seen the resulting edit. Publication is now
-                            // reachable only through the review that shows the
-                            // exact HTML and takes an explicit approval.
-                            label: "Review publication changes",
-                            disabled: false,
-                            onSelect: () =>
-                              navigate(`/queue?site=${site.id}&status=approved`),
-                          },
-                          {
                             // The label carries the state, so the menu says
                             // whether this site can publish at all without the
                             // row needing another badge.
@@ -820,10 +786,6 @@ export default function SitesPage() {
                               : "Add WordPress account",
                             disabled: false,
                             onSelect: () => setCredentialsFor(site),
-                          },
-                          {
-                            label: "Import article CSV",
-                            onSelect: () => setArticleImportFor(site),
                           },
                         ]),
                     {
@@ -905,12 +867,6 @@ export default function SitesPage() {
       <Suspense fallback={null}>
         {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
         {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
-        {articleImportFor && (
-          <ArticleImportModal
-            site={articleImportFor}
-            onClose={() => setArticleImportFor(null)}
-          />
-        )}
         {credentialsFor && (
           <SiteCredentialsModal
             site={credentialsFor}

@@ -1,4 +1,12 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
@@ -13,7 +21,7 @@ import QueueLink from "../components/QueueLink";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import FlowSteps from "../components/publish/FlowSteps";
 import { usePageState } from "../hooks/usePageState";
-import { useGraphSimulation } from "../hooks/useGraph";
+import { useGraphNetwork } from "../hooks/useGraph";
 import {
   useApprovePlans,
   usePendingPublication,
@@ -29,6 +37,7 @@ const plural = (count: number, word: string) =>
   `${count} ${count === 1 ? word : `${word}s`}`;
 
 const NO_TICKS: Set<number> = new Set();
+const NO_OPENED: Set<number> = new Set();
 const PublicationReview = lazy(() => import("../components/publish/PublicationReview"));
 
 /**
@@ -220,7 +229,8 @@ export default function PublishPage() {
   const [notQueued, setNotQueued] = useState<{ planIds?: number[] } | null>(null);
   /** Set when the engine refused the approval because the plans moved on. */
   const [stale, setStale] = useState(false);
-  const graphSimulation = useGraphSimulation();
+  const graphNetwork = useGraphNetwork();
+  const resetGraphViews = graphNetwork.reset;
 
   /**
    * One preparation and one set of ticks per batch.
@@ -250,6 +260,10 @@ export default function PublishPage() {
     "publish.ticks",
     () => new Map(),
   );
+  const [openedPlans, setOpenedPlans] = usePageState<Map<string, Set<number>>>(
+    "publish.opened",
+    () => new Map(),
+  );
   const [preparing, setPreparing] = useState<number | null>(null);
   const [prepareFailed, setPrepareFailed] = useState<number | null>(null);
   /** The suggestion being returned to the queue, if any. */
@@ -261,6 +275,12 @@ export default function PublishPage() {
   const activeSiteQuery = usePendingPublicationSite(siteId);
   /** Which batch this page is showing: one site, at one scope. */
   const batchKey = siteId === null ? "" : `${siteId}:${focusSuggestionId ?? "all"}`;
+  const previousGraphBatchKey = useRef(batchKey);
+  useEffect(() => {
+    if (previousGraphBatchKey.current === batchKey) return;
+    previousGraphBatchKey.current = batchKey;
+    resetGraphViews();
+  }, [batchKey, resetGraphViews]);
   const preparePlans = usePreparePublicationPlans(routeJobId, batchKey);
   const approvePlans = useApprovePlans();
   const queuePlans = useQueueApprovedPlans();
@@ -436,6 +456,12 @@ export default function PublishPage() {
       next.delete(key);
       return next;
     });
+    setOpenedPlans((current) => {
+      if (!current.has(key)) return current;
+      const next = new Map(current);
+      next.delete(key);
+      return next;
+    });
   };
 
   const reload = () => {
@@ -444,7 +470,7 @@ export default function PublishPage() {
     setNotice(null);
     forget(batchKey);
     preparePlans.reset();
-    graphSimulation.reset();
+    resetGraphViews();
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -476,7 +502,7 @@ export default function PublishPage() {
           setRemoving(null);
           forget(batchKey);
           preparePlans.reset();
-          graphSimulation.reset();
+          resetGraphViews();
           if (focusedReview) {
             navigate("/queue");
             return;
@@ -561,7 +587,7 @@ export default function PublishPage() {
    */
   const showAllPlans = () => {
     if (siteId === null) return;
-    graphSimulation.reset();
+    resetGraphViews();
     preparePlans.reset();
     setSearchParams(
       (current) => {
@@ -578,7 +604,7 @@ export default function PublishPage() {
 
   const toggleTick = (planId: number) => {
     if (siteId === null) return;
-    graphSimulation.reset();
+    resetGraphViews();
     setTicks((current) => {
       const next = new Set(current.get(batchKey) ?? []);
       if (!next.delete(planId)) next.add(planId);
@@ -588,11 +614,20 @@ export default function PublishPage() {
 
   const toggleAllTicks = (planIds: number[]) => {
     if (siteId === null) return;
-    graphSimulation.reset();
+    resetGraphViews();
     setTicks((current) => {
       const held = current.get(batchKey) ?? NO_TICKS;
       const all = planIds.length > 0 && planIds.every((id) => held.has(id));
       return new Map(current).set(batchKey, all ? new Set() : new Set(planIds));
+    });
+  };
+
+  const markOpened = (planId: number) => {
+    if (siteId === null) return;
+    setOpenedPlans((current) => {
+      const held = current.get(batchKey);
+      if (held?.has(planId)) return current;
+      return new Map(current).set(batchKey, new Set(held ?? NO_OPENED).add(planId));
     });
   };
 
@@ -616,7 +651,7 @@ export default function PublishPage() {
           // preparation would hand a returning operator an approve button for
           // work already on its way to the site.
           forget(batchKey);
-          graphSimulation.reset();
+          resetGraphViews();
           setNotice({ message: "Publish queued for the approved edits.", tone: "info" });
         },
         onError: (error) => {
@@ -916,22 +951,24 @@ export default function PublishPage() {
                 preparation === undefined
               }
               busy={busy || removing !== null}
-              approvedNotQueued={notQueued !== null && !showDurableRecovery}
-              selectedIds={selectedIds}
-              onToggle={toggleTick}
-              onToggleAll={toggleAllTicks}
-              removingSuggestionId={removing}
+               approvedNotQueued={notQueued !== null && !showDurableRecovery}
+               selectedIds={selectedIds}
+               onToggle={toggleTick}
+               onToggleAll={toggleAllTicks}
+               openedIds={openedPlans.get(batchKey) ?? NO_OPENED}
+               onOpened={markOpened}
+               removingSuggestionId={removing}
               onRemoveLink={removeLink}
               onRetry={reload}
               onApproveAndQueue={approveAndQueue}
               onQueueOnly={() => queueApproved(notQueued?.planIds)}
               readOnlyExport={activeSite?.platform === "html"}
-              simulation={graphSimulation.data}
-              simulationLoading={graphSimulation.isPending}
-              simulationError={graphSimulation.isError}
-              onSimulate={(suggestionIds) =>
-                graphSimulation.mutate({ siteId: activeSite.id, suggestionIds })
-              }
+              siteGraph={graphNetwork.data}
+              siteGraphLoading={graphNetwork.isPending}
+              siteGraphError={graphNetwork.isError}
+              onOpenSiteGraph={() => {
+                graphNetwork.mutate({ siteId: activeSite.id });
+              }}
             />
           </Suspense>
         )}

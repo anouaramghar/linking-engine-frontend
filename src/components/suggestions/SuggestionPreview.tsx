@@ -60,6 +60,7 @@ export default function SuggestionPreview({
         <div className="eyebrow">Suggestion #{String(s.id).padStart(3, "0")}</div>
         <div className="-mr-2 -mt-2 flex items-center">
           <button
+            type="button"
             aria-label="Close preview"
             onClick={onClose}
             className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
@@ -77,6 +78,7 @@ export default function SuggestionPreview({
           href={s.source_article.url}
           target="_blank"
           rel="noreferrer"
+          aria-label="Open source article in a new tab"
           className="underline underline-offset-2 hover:text-ink"
         >
           Open source article
@@ -102,6 +104,7 @@ export default function SuggestionPreview({
             href={s.target_article.url}
             target="_blank"
             rel="noreferrer"
+            aria-label="Open target article in a new tab"
             className="underline underline-offset-2 hover:text-ink"
           >
             Open target article

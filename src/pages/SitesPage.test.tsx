@@ -6,11 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatCount, timeAgo } from "../lib/utils";
 import SitesPage from "./SitesPage";
 
-const navigate = vi.hoisted(() => vi.fn());
-
 vi.mock("react-router-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router-dom")>()),
-  useNavigate: () => navigate,
 }));
 
 const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
@@ -75,7 +72,6 @@ vi.mock("../hooks/usePipeline", () => ({
 }));
 
 beforeEach(() => {
-  navigate.mockReset();
   Object.assign(mocks.sites, {
     data: [],
     isPending: false,
@@ -427,7 +423,7 @@ describe("SitesPage crawled vs analysed", () => {
   });
 });
 
-describe("SitesPage Hybrid standard", () => {
+describe("SitesPage generation controls", () => {
   const site = {
     id: 42,
     name: "Docs",
@@ -442,11 +438,11 @@ describe("SitesPage Hybrid standard", () => {
     last_crawl_at: "2026-07-28T08:00:00Z",
   };
 
-  it("shows Hybrid as the managed generation method", () => {
+  it("does not show a generation-method badge", () => {
     mocks.sites.data = [site];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Hybrid");
+    expect(document.body.textContent).not.toContain("Hybrid");
 
     fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
@@ -534,13 +530,15 @@ describe("SitesPage publication", () => {
     expect(document.body.textContent).not.toContain("Publish approved");
   });
 
-  it("routes to the review that shows the exact edits instead", () => {
+  it("removes the publication review and article CSV actions", () => {
     ownedSite();
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
-    fireEvent.click(screen.getByText("Review publication changes"));
 
-    expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
+    expect(
+      screen.queryByRole("menuitem", { name: "Review publication changes" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Import article CSV" })).toBeNull();
   });
 });
 

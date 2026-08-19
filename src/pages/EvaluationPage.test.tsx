@@ -249,6 +249,9 @@ describe("EvaluationPage", () => {
     expect(
       screen.getByRole("table", { name: "Acceptance rate data over time" }),
     ).not.toBeNull();
+    expect(screen.getByRole("table", { name: "Ranking method comparison" })).not.toBeNull();
+    expect(screen.getByRole("table", { name: "Editor acceptance by semantic score" })).not.toBeNull();
+    expect(screen.getByRole("table", { name: "Suggestions by site" })).not.toBeNull();
     expect(screen.getByText(/First snapshot recorded/)).not.toBeNull();
     expect(screen.getByText("How these metrics are calculated")).not.toBeNull();
     expect(screen.getByText(metrics.cohort_definition)).not.toBeNull();
@@ -325,6 +328,30 @@ describe("EvaluationPage", () => {
     );
   });
 
+  it("reports a failed CSV export instead of failing silently", async () => {
+    vi.useRealTimers();
+    getEvaluationCsv.mockRejectedValue(new Error("network unavailable"));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("CSV export failed"));
+  });
+
+  it("shows an empty state when no score ranges are available", () => {
+    useEvaluationMetrics.mockReturnValue({
+      data: { ...metrics, score_ranges: [] },
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(screen.getByText("No scored decisions were recorded in this period.")).not.toBeNull();
+  });
+
   it("uses an unavailable value when a metric has no sample", () => {
     useEvaluationMetrics.mockReturnValue({
       data: {
@@ -389,6 +416,7 @@ describe("EvaluationPage", () => {
     });
 
     renderPage();
+    expect(screen.getByRole("alert").textContent).toContain("Evaluation metrics could not be loaded");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });

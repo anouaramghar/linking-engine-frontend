@@ -10,7 +10,7 @@ import { useCallback, useState } from "react";
  * `catch` because storage throws outright under a restrictive privacy setting.
  *
  * Deliberately *not* mirrored by a pre-paint script the way the theme is. A
- * theme flash repaints the whole page; this one only settles a 176px width
+ * theme flash repaints the whole page; this one only settles a 160px width
  * inside a shell that is already painting, and the width transition is
  * suppressed until after mount so it reads as the initial state rather than an
  * animation nobody asked for.

@@ -107,6 +107,9 @@
   --c-error-active: 185 28 28;
   --c-error-ink: 185 28 28;
 
+  /* A yellow-gold attention mark that remains visible against the pale canvas. */
+  --c-notification-unread: 180 130 8;
+
   /**
    * Status tints — the grounds a status badge takes when it reports a state,
    * added because a queue where every status was the same grey pill made the
@@ -135,6 +138,10 @@
   --c-tint-negative: 253 226 226;
   --c-tint-active: 230 223 243;
   --c-tint-progress: 219 232 246;
+
+  /* Structural map signal: blue is reserved for saturated pages, where a
+     high inbound degree deserves attention without reading as an error. */
+  --c-graph-saturated: 3 105 161;
 
   --shadow-soft: 0.04;
   --shadow-lift: 0.08;
@@ -218,6 +225,7 @@
      against the page (3.05), so the pill keeps its own edge. */
   --c-error-active: 185 28 28;
   --c-error-ink: 252 165 165;
+  --c-notification-unread: 250 204 21;
 
   /* The same four meanings, deepened rather than lightened. A pale mint pill on
      an ink page is a light source, and the badge would outshine the row it
@@ -227,6 +235,7 @@
   --c-tint-negative: 76 29 29;
   --c-tint-active: 58 48 82;
   --c-tint-progress: 32 56 82;
+  --c-graph-saturated: 125 211 252;
 
   /* Black on near-black says little, so the shadow leans on depth rather than
      darkness — the hairline and the card's top highlight carry the edge. */
@@ -269,6 +278,12 @@ body {
   outline: 2px solid var(--focus-ring, rgb(var(--c-ink)));
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* SVG graphics do not consistently paint the browser outline. Keep the same
+   focus treatment visible for keyboard users selecting a page in GraphLens. */
+.graph-node:focus-visible .graph-node-focus {
+  opacity: 1;
 }
 
 /* Lavender in both themes, but not the same lavender: light selects with the

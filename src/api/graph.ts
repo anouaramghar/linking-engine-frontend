@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { GraphSimulation, GraphSummary } from "../types/graph";
+import type { GraphNetwork, GraphSummary } from "../types/graph";
 
 export const getGraphSummary = (siteId: number, limit = 50, offset = 0) =>
   api
@@ -8,9 +8,5 @@ export const getGraphSummary = (siteId: number, limit = 50, offset = 0) =>
     })
     .then((response) => response.data);
 
-export const simulateGraph = (siteId: number, suggestionIds: number[]) =>
-  api
-    .post<GraphSimulation>(`/sites/${siteId}/graph/simulations`, {
-      suggestion_ids: suggestionIds,
-    })
-    .then((response) => response.data);
+export const getGraphNetwork = (siteId: number) =>
+  api.get<GraphNetwork>(`/sites/${siteId}/graph/network`).then((response) => response.data);
