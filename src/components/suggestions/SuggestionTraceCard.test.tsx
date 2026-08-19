@@ -219,6 +219,18 @@ describe("SuggestionTraceCard", () => {
           provider_request_id: "request-123",
           provider_score: 0.74,
           score_components: {
+            citation_need: {
+              sentence: "A 2024 study found that 72% of editors verify quantitative claims.",
+              start: 140,
+              end: 210,
+              confidence: 0.94,
+              reasons: [
+                "research_or_attribution",
+                "quantitative_claim",
+                "time_sensitive_claim",
+              ],
+              detector_version: "citation_rules_en_v1",
+            },
             external_safety: {
               domain: "reference.example",
               eligible: true,
@@ -254,6 +266,12 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("Safety checks")).not.toBeNull();
     expect(screen.getByText("Live URL")).not.toBeNull();
     expect(screen.getByText("Live URL checks")).not.toBeNull();
+    expect(screen.getByText("Citation need")).not.toBeNull();
+    expect(screen.getByText("94%")).not.toBeNull();
+    expect(screen.getByRole("list", { name: "Citation need signals" })).not.toBeNull();
+    expect(screen.getByText("Quantitative claim")).not.toBeNull();
+    expect(screen.getByText(/this signal does not claim/)).not.toBeNull();
+    expect(document.body.textContent).toContain("citation_rules_en_v1");
     expect(screen.getByText("HTTP status")).not.toBeNull();
     expect(screen.getByText("Redirects followed")).not.toBeNull();
     expect(screen.getByText("https://reference.example/seo-guide").className).toContain(
