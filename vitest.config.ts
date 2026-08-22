@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
+    setupFiles: ["./src/testSetup.ts"],
     // Vitest stubs stylesheet imports to an empty string by default, which also
     // empties the `?raw` import `theme.contrast.test.ts` uses to read the
     // palette out of `index.css`. Nothing else in the suite imports CSS, so

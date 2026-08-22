@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PageStateProvider } from "../hooks/usePageState";
 import TraceabilityPage from "./TraceabilityPage";
+import * as traceabilityApi from "../api/traceability";
 
 const mocks = vi.hoisted(() => ({
   filters: {} as Record<string, unknown>,
@@ -154,5 +155,19 @@ describe("TraceabilityPage", () => {
     // The applied filters come back too, so the results below them are the ones
     // that were being read rather than an unfiltered first page.
     expect(mocks.filters).toMatchObject({ trace_id: "trace-abc", site_id: 7 });
+  });
+
+  it("reports CSV export failures with a recovery message", async () => {
+    vi.mocked(traceabilityApi.getTraceEventsCsv).mockRejectedValueOnce(
+      new Error("Export failed"),
+    );
+    const user = userEvent.setup();
+    render(<TraceabilityPage />, { wrapper: MemoryRouter });
+
+    await user.click(screen.getByRole("button", { name: "Export full event CSV" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "The event CSV could not be exported.",
+    );
   });
 });

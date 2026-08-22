@@ -476,11 +476,692 @@ input[type="number"] {
   padding-top: max(0.75rem, env(safe-area-inset-top));
 }
 
+/*
+ * The assistant drawer is the one contained instrument surface: an always-dark
+ * panel over either theme, built from the system's own dark-band tokens
+ * ({colors.surface-dark}, {colors.on-dark}) rather than a second palette. In
+ * light it is the pricing-tier-featured inversion; in dark the same tokens sit
+ * one rung above the page, so the drawer reads raised in both. Every line and
+ * fill on it is an overlay of {colors.on-dark} — the one text ground that does
+ * not travel — so the alpha hairlines hold the same strength over both grounds,
+ * and nothing here can drift into a second brand the way the previous purple
+ * beam did.
+ */
+.assistant-scrim {
+  background: rgb(var(--c-canvas-deep) / 0.5);
+}
+
+.assistant-panel-shell {
+  --assistant-line: rgb(var(--c-on-dark) / 0.14);
+  --assistant-line-soft: rgb(var(--c-on-dark) / 0.08);
+  --assistant-fill: rgb(var(--c-on-dark) / 0.04);
+  --assistant-fill-strong: rgb(var(--c-on-dark) / 0.09);
+  --assistant-muted: rgb(var(--c-on-dark) / 0.58);
+  /* Derived from {colors.semantic-error}: the dark theme's `error-ink` step,
+     the readable end of that hue. Error copy here never sits on the light
+     tinted ground plain `error-ink` is tuned for, and the panel ground stays
+     dark in both themes, so this step is held constant rather than flipped. */
+  --assistant-danger: 252 165 165;
+  /* The shell is an inverting surface; the stylesheet scopes focus rings per
+     ground, and an ink ring on the ink canvas is how a keyboard user loses
+     the drawer. */
+  --focus-ring: rgb(var(--c-on-dark));
+  background: rgb(var(--c-surface-dark));
+  color: rgb(var(--c-on-dark));
+  color-scheme: dark;
+  box-shadow: -24px 0 80px rgb(0 0 0 / var(--shadow-drawer));
+}
+
+/* Dark surfaces carry their edges with a hairline of light along the top;
+   the drawer keeps only that whisper of the same idea. */
+.assistant-panel-content {
+  overflow: hidden;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.03), transparent 140px);
+}
+
+/* Floating assistant controls clear mobile workflow trays and the home
+   indicator instead of sitting on top of the last action in a page.
+
+   The launcher is the system's own pill logic at disc size: {colors.primary}
+   carrying the brand mesh mark, flipping with the theme like every other
+   primary control — ink disc on the light canvas, bright disc carrying dark
+   ink once the page itself is dark. No private glow: neon is reserved for
+   authentication, and the drawer opens from this control, not through it. */
+.assistant-launcher {
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  right: max(1.25rem, env(safe-area-inset-right));
+  isolation: isolate;
+  position: fixed;
+  border: 0;
+  color: rgb(var(--c-on-primary));
+  background: rgb(var(--c-primary));
+  box-shadow: 0 12px 28px rgb(0 0 0 / var(--shadow-lift));
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.assistant-launcher:hover {
+  background: rgb(var(--c-primary-active));
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgb(0 0 0 / var(--shadow-lift));
+}
+
+.assistant-launcher:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.assistant-launcher--raised {
+  bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem));
+}
+
+.assistant-dialog-header {
+  padding-top: max(0.9rem, env(safe-area-inset-top));
+}
+
+.assistant-panel-header {
+  min-height: 78px;
+  gap: 16px;
+  padding-right: 18px;
+  padding-bottom: 14px;
+  padding-left: 20px;
+  border-bottom: 1px solid var(--assistant-line-soft);
+}
+
+/* The empty-state avatar uses a quiet plate holding the assistant's identity,
+   with no glow of its own. */
+.assistant-empty-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  color: rgb(var(--c-on-dark));
+  border: 1px solid var(--assistant-line);
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-launcher-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+}
+
+.assistant-avatar-renderer {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The drawer title is typeset in TSX utilities (`font-serif text-display-sm`),
+   matching every dialog heading in the app. */
+
+.assistant-panel-meta {
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Status reads the way every badge in the app reads — {component.badge-pill}
+   metrics with the colour carried by the dot alone, never tinted fills that
+   make one state look like two severities across themes. */
+.assistant-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 4px 10px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.assistant-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  /* Flat, like every other dot in the app: colour beside its own text label
+     is the whole chromatic budget. */
+  background: rgb(var(--c-success));
+}
+
+.assistant-status-dot--offline {
+  background: rgb(var(--c-error));
+}
+
+.assistant-status-dot--checking {
+  background: rgb(var(--c-on-dark) / 0.45);
+}
+
+/* Quiet header controls, built like the rail's own: no border at rest, a
+   fill step on hover. */
+.assistant-header-action {
+  display: inline-flex;
+  min-width: 40px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0 12px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.assistant-header-action--wide {
+  min-width: 0;
+}
+
+.assistant-header-action:hover {
+  color: rgb(var(--c-on-dark));
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-notice-wrap {
+  padding: 14px 18px 0;
+}
+
+.assistant-unavailable,
+.assistant-empty-state {
+  display: flex;
+  max-width: 320px;
+  flex-direction: column;
+  align-items: center;
+  margin: auto;
+  padding: 24px 18px;
+  text-align: center;
+}
+
+.assistant-empty-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+/* Empty-state headings speak in the app's display voice — EB Garamond light,
+   like every dialog title. Weight 400 because that is EB Garamond's lightest
+   cut; the values are otherwise {typography.display-sm}. */
+.assistant-empty-kicker {
+  margin-top: 18px;
+  color: rgb(var(--c-on-dark));
+  font-family: "EB Garamond", Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.assistant-empty-copy {
+  margin-top: 8px;
+  color: rgb(var(--c-on-dark-soft));
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.assistant-topic-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.assistant-topic-strip span {
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 4px 10px;
+  color: var(--assistant-muted);
+  background: var(--assistant-fill);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.assistant-conversation-log {
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  padding: 22px 18px;
+  scrollbar-color: rgb(var(--c-on-dark) / 0.25) transparent;
+}
+
+.assistant-conversation-log::-webkit-scrollbar {
+  width: 10px;
+}
+
+.assistant-conversation-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assistant-conversation-log::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: rgb(var(--c-on-dark) / 0.22);
+  background-clip: padding-box;
+}
+
+/* Agent turns run as editorial text on the ground, not bubbles — the label
+   above each turn already says who is speaking, so a box would say it twice.
+   The operator's own words get the one raised surface ({colors.surface-dark-elevated},
+   "cards on dark canvas"), which is also what makes the column scannable when
+   both voices run long. */
+.assistant-message-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.assistant-message-row--user {
+  justify-content: flex-end;
+}
+
+.assistant-message {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  /* The dashboard's default running size ({typography.caption}), not the
+     marketing body — this log is scanned like every other queue in the app. */
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.assistant-message--agent {
+  color: rgb(var(--c-on-dark-soft));
+}
+
+.assistant-message--user {
+  max-width: 85%;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: rgb(var(--c-on-dark));
+  background: rgb(var(--c-surface-dark-elevated));
+}
+
+.assistant-message-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.assistant-message-label__source {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* Rendered reply body.
+
+   The panel is scanned like every other queue in the app, so the figure that
+   answers the question has to win the eye before the sentence around it does.
+   Body copy sits at the panel's soft ink and each emphasis step brightens
+   toward full on-dark: weight and luminance say the same thing rather than
+   competing. Colour stays out of it, because in this system colour carries
+   status and an answer is not a status. */
+.assistant-md > * + * {
+  margin-top: 8px;
+}
+
+.assistant-md-p {
+  margin: 0;
+}
+
+.assistant-md-ul,
+.assistant-md-ol {
+  margin: 0;
+  padding-left: 1.25em;
+  list-style-position: outside;
+}
+
+.assistant-md-ul {
+  list-style-type: disc;
+}
+
+.assistant-md-ol {
+  list-style-type: decimal;
+}
+
+.assistant-md-li + .assistant-md-li {
+  margin-top: 3px;
+}
+
+/* A marker locates the row; it is punctuation, not one of the counts. */
+.assistant-md-li::marker {
+  color: var(--assistant-muted);
+}
+
+.assistant-md-ul--nested {
+  margin-top: 3px;
+  padding-left: 1.1em;
+  list-style-type: circle;
+}
+
+.assistant-md-strong {
+  color: rgb(var(--c-on-dark));
+  font-weight: 600;
+}
+
+/* Article titles arrive italic, and they are the one span of crawled text in
+   an answer otherwise built from the engine's own numbers. The slant is enough
+   to mark that boundary; tinting it as well would read as status. */
+.assistant-md-em {
+  font-style: italic;
+}
+
+/* Ids, slugs, and graph hashes are compared character by character, so they get
+   the face that keeps 0 and O apart and a chip that survives mid-sentence. */
+.assistant-md-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--assistant-fill-strong);
+  color: rgb(var(--c-on-dark));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+
+.assistant-md-link {
+  color: rgb(var(--c-on-dark));
+  text-decoration: underline;
+  text-decoration-color: var(--assistant-line);
+  text-underline-offset: 2px;
+}
+
+.assistant-md-link:hover {
+  text-decoration-color: rgb(var(--c-on-dark));
+}
+
+.assistant-tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* What the answer was built from reads as provenance, not achievement: quiet
+   chips at the badge voice, no glowing markers. */
+.assistant-tool-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 3px 9px;
+  color: var(--assistant-muted);
+  background: var(--assistant-fill);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A staged rule is a decision card, not a celebration: raised one fill step
+   with a hairline, labelled at the badge voice. */
+.assistant-proposal {
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--assistant-fill);
+}
+
+.assistant-proposal__label {
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.assistant-proposal__copy {
+  margin-top: 7px;
+  color: rgb(var(--c-on-dark));
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.assistant-proposal__result,
+.assistant-proposal__hint,
+.assistant-proposal__error {
+  margin-top: 8px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.assistant-proposal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Actions on the drawer invert the ink pill — the bright pill carrying dark
+   ink, exactly what the system's dark theme does to {colors.primary}. One CTA
+   colour story, still no saturated hue. */
+.assistant-confirm-button,
+.assistant-jump-button,
+.assistant-send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  color: rgb(var(--c-canvas-deep));
+  background: rgb(var(--c-on-dark));
+  transition:
+    background-color 150ms ease,
+    opacity 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.assistant-confirm-button:hover:not(:disabled),
+.assistant-jump-button:hover:not(:disabled),
+.assistant-send-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgb(0 0 0 / var(--shadow-lift));
+}
+
+.assistant-confirm-button:active:not(:disabled),
+.assistant-jump-button:active:not(:disabled),
+.assistant-send-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.assistant-confirm-button:disabled,
+.assistant-jump-button:disabled,
+.assistant-send-button:disabled {
+  cursor: not-allowed;
+  background: var(--assistant-fill-strong);
+  color: var(--assistant-muted);
+}
+
+.assistant-confirm-button {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.assistant-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 7px 12px;
+  color: var(--assistant-muted);
+  background: var(--assistant-fill);
+  font-size: 12px;
+}
+
+.assistant-thinking__avatar {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.assistant-thinking__copy {
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(
+    110deg,
+    rgb(var(--c-on-dark) / 0.58) 0%,
+    rgb(var(--c-on-dark) / 0.58) 38%,
+    rgb(var(--c-on-dark)) 50%,
+    rgb(var(--c-on-dark) / 0.58) 62%,
+    rgb(var(--c-on-dark) / 0.58) 100%
+  );
+  background-position: 100% 50%;
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: assistant-shimmer-text 2.4s ease-in-out infinite;
+}
+
+.assistant-jump-button {
+  position: sticky;
+  right: 0;
+  bottom: 8px;
+  align-self: flex-end;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assistant-composer {
+  border-top: 1px solid var(--assistant-line-soft);
+  padding: 14px 18px 16px;
+}
+
+/* The input is the drawer's one type-into control, so it takes the system's
+   field grammar translated to the dark ground: a hairline the eye can find,
+   and focus expressed as a brightened border plus an inset ring — never a
+   glow. */
+.assistant-composer-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  padding: 6px;
+  background: var(--assistant-fill);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.assistant-composer-field:focus-within {
+  border-color: rgb(var(--c-on-dark) / 0.38);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-on-dark) / 0.38);
+}
+
+.assistant-composer-input {
+  min-height: 36px;
+  max-height: 144px;
+  flex: 1;
+  resize: none;
+  border: 0;
+  padding: 8px 8px 6px;
+  color: rgb(var(--c-on-dark));
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.assistant-composer-input::placeholder {
+  color: var(--assistant-muted);
+}
+
+.assistant-send-button {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+
+.assistant-composer-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px 0;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.safe-area-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-thinking__copy {
+    color: var(--assistant-muted);
+    background: none;
+    animation: none;
+  }
+
+  .assistant-launcher,
+  .assistant-confirm-button,
+  .assistant-jump-button,
+  .assistant-send-button {
+    transition: none;
+  }
+}
+
+@keyframes assistant-shimmer-text {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  55%,
+  100% {
+    background-position: -20% 50%;
+  }
+}
+
 @media (pointer: coarse) {
   .btn,
   .btn-sm,
   .touch-target {
     min-height: 44px;
+  }
+
+  .touch-target {
+    min-width: 44px;
+  }
+
+  .assistant-header-action,
+  .assistant-confirm-button,
+  .assistant-jump-button {
+    min-height: 44px;
+  }
+
+  .assistant-send-button {
+    width: 44px;
+    height: 44px;
   }
 }
 

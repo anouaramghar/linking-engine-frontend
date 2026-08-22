@@ -33,6 +33,7 @@ interface Props {
   undoPending?: boolean;
   onRetry?: () => void;
   retryPending?: boolean;
+  retryLabel?: string;
 }
 
 export default function Notice({
@@ -42,6 +43,7 @@ export default function Notice({
   undoPending,
   onRetry,
   retryPending,
+  retryLabel = "Retry failed only",
 }: Props) {
   const canUndo =
     !!onUndo && (!!notice.undoIds?.length || !!notice.undoOperationId);
@@ -136,7 +138,7 @@ export default function Notice({
           type="button"
           onClick={onUndo}
           disabled={undoPending}
-          className="inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
+          className="touch-target inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
         >
           {undoPending ? "Undoing…" : "Undo"}
         </button>
@@ -146,16 +148,16 @@ export default function Notice({
           type="button"
           onClick={onRetry}
           disabled={retryPending}
-          className="inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
+          className="touch-target inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
         >
-          {retryPending ? "Retrying…" : "Retry failed only"}
+          {retryPending ? "Retrying…" : retryLabel}
         </button>
       )}
       <button
         type="button"
         aria-label="Dismiss message"
         onClick={onDismiss}
-        className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-pill text-body-md leading-none text-on-dark hover:bg-on-dark/15"
+        className="touch-target inline-flex h-8 w-8 flex-none items-center justify-center rounded-pill text-body-md leading-none text-on-dark hover:bg-on-dark/15"
       >
         &times;
       </button>

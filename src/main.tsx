@@ -7,6 +7,7 @@ import App from "./App";
 import { api } from "./api/client";
 import RequireSession from "./components/RequireSession";
 import { SESSION_QUERY_KEY } from "./hooks/useSession";
+import "@bible-strong/avatar-react/styles.css";
 import "./index.css";
 
 const queryClient = new QueryClient({

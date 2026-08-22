@@ -235,6 +235,8 @@ export default function NeonBorder(props: Props) {
     }, []);
 
     useEffect(() => {
+        if (speed <= 0) return;
+
         let raf = 0;
         let last = performance.now();
         let lap = 0;
@@ -242,6 +244,9 @@ export default function NeonBorder(props: Props) {
         let stepT = 0;
 
         const frame = (now: number) => {
+            raf = 0;
+            if (document.visibilityState === "hidden") return;
+
             const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
             last = now;
             const p = live.current;
@@ -290,10 +295,25 @@ export default function NeonBorder(props: Props) {
 
             raf = requestAnimationFrame(frame);
         };
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "hidden") {
+                cancelAnimationFrame(raf);
+                raf = 0;
+                return;
+            }
+            last = performance.now();
+            if (raf === 0) raf = requestAnimationFrame(frame);
+        };
+
+        document.addEventListener("visibilitychange", onVisibilityChange);
         raf = requestAnimationFrame(frame);
 
-        return () => cancelAnimationFrame(raf);
-    }, []);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+            cancelAnimationFrame(raf);
+        };
+    }, [speed]);
 
     const thick = Math.max(1, Math.min(10, thickness));
 

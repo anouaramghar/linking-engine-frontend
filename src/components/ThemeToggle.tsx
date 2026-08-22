@@ -100,11 +100,11 @@ export default function ThemeToggle({ preference, onChange, orientation = "horiz
               ref={(el) => {
                 pillRefs.current[theme] = el;
               }}
-              // The 28px pill is below the 44px touch minimum, so the control is
-              // kept to pointer-dense chrome — it sits in the sidebar footer and
-              // the mobile header bar, never in a form.
+              // Keep the visible control at the same 44px floor as the rest of
+              // the app. The theme picker appears in both the rail footer and
+              // the mobile header, where it still needs to be thumb-friendly.
               title={LABEL[theme]}
-              className="flex h-7 w-8 items-center justify-center rounded-pill text-muted
+              className="flex h-11 w-11 items-center justify-center rounded-pill text-muted
                 transition-colors hover:text-ink peer-checked:bg-primary
                 peer-checked:text-on-primary peer-focus-visible:outline
                 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2

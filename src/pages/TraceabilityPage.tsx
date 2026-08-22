@@ -81,6 +81,7 @@ export default function TraceabilityPage() {
   const [offset, setOffset] = usePageState("traceability.offset", 0);
   const [exporting, setExporting] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const query = useTraceEvents(filters, PAGE_SIZE, offset);
 
   const pageEnd = useMemo(
@@ -109,18 +110,31 @@ export default function TraceabilityPage() {
 
   const exportCsv = async () => {
     setExporting(true);
+    setActionError(null);
     try {
       const blob = await getTraceEventsCsv(filters);
       downloadBlob(blob, "linkmesh-traceability.csv");
+    } catch {
+      setActionError("The event CSV could not be exported. Please try again.");
     } finally {
       setExporting(false);
     }
   };
 
   const copyTrace = async (traceId: string) => {
-    await navigator.clipboard.writeText(traceId);
-    setCopied(traceId);
-    window.setTimeout(() => setCopied((current) => current === traceId ? null : current), 2000);
+    setActionError(null);
+    setCopied(null);
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(traceId);
+      setCopied(traceId);
+      window.setTimeout(
+        () => setCopied((current) => (current === traceId ? null : current)),
+        2000,
+      );
+    } catch {
+      setActionError("The trace ID could not be copied. Select it manually and try again.");
+    }
   };
 
   return (
@@ -178,6 +192,11 @@ export default function TraceabilityPage() {
               {exporting ? "Exporting…" : "Export full event CSV"}
             </button>
           </div>
+          {actionError && (
+            <p role="alert" className="mt-3 rounded-lg bg-error/10 px-3 py-2 text-caption text-error-ink">
+              {actionError}
+            </p>
+          )}
         </section>
 
         <div className="mt-4 flex items-center justify-between text-caption text-muted">

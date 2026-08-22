@@ -10,6 +10,7 @@ import {
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
+import AgentPanel from "./components/agent/AgentPanel";
 import RailTip from "./components/RailTip";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import ThemeToggle from "./components/ThemeToggle";
@@ -711,6 +712,8 @@ export default function App() {
             </Routes>
           </Suspense>
         </RouteErrorBoundary>
+        {/* Overlays every page; read-only by contract, so no route guards it. */}
+        <AgentPanel />
       </main>
           </div>
         </QueueWorkspaceProvider>

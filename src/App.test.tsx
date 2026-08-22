@@ -28,6 +28,22 @@ vi.mock("./hooks/useSession", () => ({
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+// The assistant panel hangs off every page; the shell tests assert on shell
+// behavior, not on the chat transcript, so it runs inert here.
+vi.mock("./hooks/useAgentChat", () => ({
+  useAgentChat: () => ({
+    messages: [],
+    pending: false,
+    error: null,
+    clearError: vi.fn(),
+    retry: vi.fn(),
+    clearConversation: vi.fn(),
+    send: vi.fn(),
+    configured: true,
+    model: "test-model",
+  }),
+}));
+
 vi.mock("./pages/ValidationPage", () => ({
   default: () => <div>Queue page</div>,
 }));
