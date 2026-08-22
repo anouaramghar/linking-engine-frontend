@@ -1,87 +1,56 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
-import { getTraceEventsCsv, type TraceEventFilters } from "../api/traceability";
+import { getTraceEventsCsv } from "../api/traceability";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
+import TraceabilityFilterForm from "../components/traceability/TraceabilityFilterForm";
+import { useCsvExport } from "../hooks/useCsvExport";
 import { usePageState } from "../hooks/usePageState";
 import { useSites } from "../hooks/useSites";
 import { useTraceEvents } from "../hooks/useTraceability";
-import { downloadBlob, formatCount } from "../lib/utils";
+import {
+  EMPTY_TRACEABILITY_FILTER_DRAFT,
+  normalizeTraceabilityDraft,
+  sameTraceabilityDraft,
+  traceabilitySearchParams,
+  traceabilityStateFromSearchParams,
+  type TraceabilityFilterDraft,
+} from "../lib/traceabilityFilters";
+import { eventLabel, statusLabel } from "../lib/auditLabels";
+import { formatCount } from "../lib/utils";
 
 const PAGE_SIZE = 50;
 
-// The documented lifecycle set, in docs/design/suggestion-traceability.md order.
-// `external_discovered` is the provenance event every accepted web-search
-// candidate gets in addition to `generated`; leaving it out of this list made
-// the one event that explains a paid external suggestion the only one an
-// operator could not filter for.
-const EVENT_TYPES = [
-  "generated",
-  "external_discovered",
-  "imported",
-  "reviewed",
-  "restored",
-  "publishing",
-  "publish_attempt_failed",
-  "applied",
-  "failed",
-  "expired",
-  "policy_expired",
-  "status_changed",
-];
-
-const STATUSES = ["pending", "approved", "rejected", "applying", "applied", "failed", "expired"];
-
-const EVENT_LABELS: Record<string, string> = {
-  generated: "Generated",
-  external_discovered: "External suggestion found",
-  imported: "Imported",
-  reviewed: "Reviewed",
-  restored: "Restored",
-  publishing: "Publishing",
-  publish_attempt_failed: "Publishing attempt failed",
-  applied: "Published",
-  failed: "Publishing failed",
-  expired: "Expired",
-  policy_expired: "Expired by policy",
-  status_changed: "Status changed",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  pending: "Pending review",
-  approved: "Selected for review",
-  rejected: "Rejected",
-  applying: "Publishing",
-  applied: "Published",
-  failed: "Publishing failed",
-  expired: "Expired",
-};
-
-const displayLabel = (value: string, labels: Record<string, string>) =>
-  labels[value] ?? value.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
-
-const isoStart = (value: string) => value ? new Date(`${value}T00:00:00`).toISOString() : undefined;
-const isoEnd = (value: string) => value ? new Date(`${value}T23:59:59.999`).toISOString() : undefined;
+const eventDateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 export default function TraceabilityPage() {
   const sites = useSites().data ?? [];
-  // The draft, what it was last applied as, and where in the results we had got
-  // to are one position in an investigation. Following a trace ID onto another
-  // page and coming back is part of that investigation, not the end of it.
-  const [draft, setDraft] = usePageState("traceability.draft", {
-    traceId: "",
-    actor: "",
-    eventType: "",
-    status: "",
-    siteId: 0,
-    dateFrom: "",
-    dateTo: "",
-  });
-  const [filters, setFilters] = usePageState<TraceEventFilters>("traceability.filters", {});
-  const [offset, setOffset] = usePageState("traceability.offset", 0);
-  const [exporting, setExporting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchKey = searchParams.toString();
+  const appliedState = useMemo(
+    () => traceabilityStateFromSearchParams(new URLSearchParams(searchKey)),
+    [searchKey],
+  );
+  const { filters, draft: appliedDraft, offset } = appliedState;
+  // Draft values survive a route change, while applied filters and pagination
+  // live in the URL so a trace investigation can be refreshed or shared.
+  const [draft, setDraft] = usePageState<TraceabilityFilterDraft>(
+    "traceability.draft",
+    appliedDraft,
+  );
   const [copied, setCopied] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState(false);
+  const filtersDirty = !sameTraceabilityDraft(draft, appliedDraft);
+  const dateRangeError = Boolean(draft.dateFrom && draft.dateTo && draft.dateFrom > draft.dateTo);
+  const exportRequest = useCallback(() => getTraceEventsCsv(filters), [filters]);
+  const { exportCsv, isExporting, status: exportStatus } = useCsvExport(
+    exportRequest,
+    "linkmesh-traceability.csv",
+  );
   const query = useTraceEvents(filters, PAGE_SIZE, offset);
 
   const pageEnd = useMemo(
@@ -90,42 +59,27 @@ export default function TraceabilityPage() {
   );
 
   const applyFilters = () => {
-    setFilters({
-      ...(draft.traceId.trim() ? { trace_id: draft.traceId.trim() } : {}),
-      ...(draft.actor.trim() ? { actor: draft.actor.trim() } : {}),
-      ...(draft.eventType ? { event_type: draft.eventType } : {}),
-      ...(draft.status ? { status: draft.status } : {}),
-      ...(draft.siteId ? { site_id: draft.siteId } : {}),
-      ...(draft.dateFrom ? { date_from: isoStart(draft.dateFrom) } : {}),
-      ...(draft.dateTo ? { date_to: isoEnd(draft.dateTo) } : {}),
-    });
-    setOffset(0);
+    if (dateRangeError) return;
+    const normalized = normalizeTraceabilityDraft(draft);
+    setDraft(normalized);
+    setSearchParams(traceabilitySearchParams(normalized), { replace: true });
   };
 
   const clearFilters = () => {
-    setDraft({ traceId: "", actor: "", eventType: "", status: "", siteId: 0, dateFrom: "", dateTo: "" });
-    setFilters({});
-    setOffset(0);
+    setDraft(EMPTY_TRACEABILITY_FILTER_DRAFT);
+    setSearchParams(new URLSearchParams(), { replace: true });
   };
 
-  const exportCsv = async () => {
-    setExporting(true);
-    setActionError(null);
-    try {
-      const blob = await getTraceEventsCsv(filters);
-      downloadBlob(blob, "linkmesh-traceability.csv");
-    } catch {
-      setActionError("The event CSV could not be exported. Please try again.");
-    } finally {
-      setExporting(false);
-    }
+  const updateOffset = (nextOffset: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (nextOffset > 0) next.set("offset", String(nextOffset));
+    else next.delete("offset");
+    setSearchParams(next, { replace: true });
   };
 
   const copyTrace = async (traceId: string) => {
-    setActionError(null);
-    setCopied(null);
+    setCopyError(false);
     try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(traceId);
       setCopied(traceId);
       window.setTimeout(
@@ -133,7 +87,8 @@ export default function TraceabilityPage() {
         2000,
       );
     } catch {
-      setActionError("The trace ID could not be copied. Select it manually and try again.");
+      setCopied(null);
+      setCopyError(true);
     }
   };
 
@@ -145,64 +100,34 @@ export default function TraceabilityPage() {
         badge="Audit"
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
-        <section className="card p-4 sm:p-5" aria-label="Traceability filters">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <label className="text-caption text-muted">
-              Trace ID
-              <input className="field mt-1" value={draft.traceId} onChange={(event) => setDraft({ ...draft, traceId: event.target.value })} placeholder="Paste a trace ID…" />
-            </label>
-            <label className="text-caption text-muted">
-              Actor
-              <input className="field mt-1" value={draft.actor} onChange={(event) => setDraft({ ...draft, actor: event.target.value })} placeholder="editor@example.com" />
-            </label>
-            <label className="text-caption text-muted">
-              Event
-              <select className="field mt-1" value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value })}>
-                <option value="">All events</option>
-                {EVENT_TYPES.map((value) => <option key={value} value={value}>{displayLabel(value, EVENT_LABELS)}</option>)}
-              </select>
-            </label>
-            <label className="text-caption text-muted">
-              Current status
-              <select className="field mt-1" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
-                <option value="">All statuses</option>
-                {STATUSES.map((value) => <option key={value} value={value}>{displayLabel(value, STATUS_LABELS)}</option>)}
-              </select>
-            </label>
-            <label className="text-caption text-muted">
-              Site
-              <select className="field mt-1" value={draft.siteId} onChange={(event) => setDraft({ ...draft, siteId: Number(event.target.value) })}>
-                <option value={0}>All sites</option>
-                {sites.filter((site) => site.platform !== "pool").map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-              </select>
-            </label>
-            <label className="text-caption text-muted">
-              From
-              <input className="field mt-1" type="date" value={draft.dateFrom} onChange={(event) => setDraft({ ...draft, dateFrom: event.target.value })} />
-            </label>
-            <label className="text-caption text-muted">
-              To
-              <input className="field mt-1" type="date" value={draft.dateTo} onChange={(event) => setDraft({ ...draft, dateTo: event.target.value })} />
-            </label>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" className="btn btn-primary btn-sm" onClick={applyFilters}>Apply filters</button>
-            <button type="button" className="btn btn-outline btn-sm" onClick={clearFilters}>Clear</button>
-            <button type="button" className="btn btn-outline btn-sm" disabled={exporting} onClick={() => void exportCsv()}>
-              {exporting ? "Exporting…" : "Export full event CSV"}
-            </button>
-          </div>
-          {actionError && (
-            <p role="alert" className="mt-3 rounded-lg bg-error/10 px-3 py-2 text-caption text-error-ink">
-              {actionError}
-            </p>
-          )}
-        </section>
+        <TraceabilityFilterForm
+          draft={draft}
+          setDraft={setDraft}
+          sites={sites}
+          filtersDirty={filtersDirty}
+          dateRangeError={dateRangeError}
+          hasAppliedFilters={Object.keys(filters).length > 0}
+          exportStatus={exportStatus}
+          exporting={isExporting}
+          onApply={applyFilters}
+          onClear={clearFilters}
+          onExport={() => void exportCsv()}
+        />
 
-        <div className="mt-4 flex items-center justify-between text-caption text-muted">
+        <div
+          className="mt-4 flex items-center justify-between text-caption text-muted"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <span>{formatCount(query.data?.total ?? 0)} events</span>
           {query.data && query.data.total > 0 && <span>{offset + 1}–{pageEnd}</span>}
         </div>
+        {copyError && (
+          <p role="alert" className="mt-2 text-caption text-error-ink">
+            Trace ID could not be copied. Select it manually and try again.
+          </p>
+        )}
 
         {query.isPending && <div className="mt-3"><SkeletonRows count={6} label="Loading trace events" /></div>}
         {query.isError && <div className="mt-3"><ErrorPanel title="Trace events could not be loaded" description="The requested trace history could not be returned." onRetry={() => void query.refetch()} retrying={query.isFetching} /></div>}
@@ -214,37 +139,54 @@ export default function TraceabilityPage() {
           </div>
         )}
 
-        <div className="mt-3 flex flex-col gap-3">
+        <ul className="mt-3 flex flex-col gap-3">
           {query.data?.items.map((event) => (
-            <article key={event.id} className="card p-4">
+            <li key={event.id}>
+              <article className="card p-4">
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="badge">{displayLabel(event.event_type, EVENT_LABELS)}</span>
-                    <span className="text-caption text-muted">{event.site_name}</span>
-                    <time className="text-caption text-muted" dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="badge">{eventLabel(event.event_type)}</span>
+                    <span className="break-words text-caption text-muted">{event.site_name}</span>
+                    <time className="text-caption text-muted" dateTime={event.created_at}>
+                      {eventDateFormatter.format(new Date(event.created_at))}
+                    </time>
                   </div>
-                  <h2 className="mt-2 text-body-sm font-medium text-ink">{event.source_title} → {event.target_title}</h2>
-                  <p className="mt-1 text-caption text-muted">Actor: <span className="text-body">{event.actor}</span> · Current status: <span className="text-body">{displayLabel(event.suggestion_status, STATUS_LABELS)}</span></p>
-                  {event.publish_error && <p className="mt-2 rounded-lg bg-error/10 px-3 py-2 text-caption text-error-ink">Publishing error: {event.publish_error}</p>}
+                  <h2 className="mt-2 break-words text-body-sm font-medium text-ink">
+                    {event.source_title} <span aria-hidden="true">→</span> {event.target_title}
+                  </h2>
+                  <p className="mt-1 break-words text-caption text-muted">
+                    Actor: <span className="text-body">{event.actor}</span> · Current status:{" "}
+                    <span className="text-body">{statusLabel(event.suggestion_status)}</span>
+                  </p>
+                  {event.publish_error && (
+                    <p className="mt-2 break-words rounded-lg bg-error/10 px-3 py-2 text-caption text-error-ink">
+                      Publishing error: {event.publish_error}
+                    </p>
+                  )}
                 </div>
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => void copyTrace(event.trace_id)}>
                   {copied === event.trace_id ? "Copied" : "Copy trace ID"}
                 </button>
               </div>
-              <p className="mt-2 break-all text-caption-sm text-muted">Trace ID: {event.trace_id}</p>
+              <p className="mt-2 break-all text-caption-sm text-muted" translate="no">
+                Trace ID: {event.trace_id}
+              </p>
               <details className="mt-3 rounded-lg bg-surface-strong px-3 py-2">
                 <summary className="cursor-pointer text-caption font-medium text-ink">Full event details</summary>
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-caption-sm text-body">{JSON.stringify(event.details, null, 2)}</pre>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-caption-sm text-body" translate="no">
+                  {JSON.stringify(event.details, null, 2)}
+                </pre>
               </details>
-            </article>
+              </article>
+            </li>
           ))}
-        </div>
+        </ul>
 
         {query.data && query.data.total > PAGE_SIZE && (
           <div className="mt-4 flex justify-end gap-2 pb-6">
-            <button type="button" className="btn btn-outline btn-sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</button>
-            <button type="button" className="btn btn-outline btn-sm" disabled={offset + PAGE_SIZE >= query.data.total} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</button>
+            <button type="button" className="btn btn-outline btn-sm" disabled={offset === 0} onClick={() => updateOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</button>
+            <button type="button" className="btn btn-outline btn-sm" disabled={offset + PAGE_SIZE >= query.data.total} onClick={() => updateOffset(offset + PAGE_SIZE)}>Next</button>
           </div>
         )}
       </div>

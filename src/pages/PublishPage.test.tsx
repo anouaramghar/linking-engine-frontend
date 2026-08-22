@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicationPlan } from "../api/publish";
+import { PageStateProvider } from "../hooks/usePageState";
 import PublishPage from "./PublishPage";
 
 const SITE = {
@@ -192,13 +193,15 @@ const preparedFor = (
  */
 const renderPublish = (entry = "/publish/1") =>
   render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route path="/queue" element={<div>Review queue</div>} />
-        <Route path="/publish" element={<PublishPage />} />
-        <Route path="/publish/:siteId" element={<PublishPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <PageStateProvider>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/queue" element={<div>Review queue</div>} />
+          <Route path="/publish" element={<PublishPage />} />
+          <Route path="/publish/:siteId" element={<PublishPage />} />
+        </Routes>
+      </MemoryRouter>
+    </PageStateProvider>,
   );
 
 beforeEach(() => {
@@ -319,6 +322,23 @@ describe("PublishPage site list", () => {
     await screen.findByText("1 of 2 selected");
   });
 
+  it("keeps reviewed articles reviewed when the operator walks away", async () => {
+    const user = userEvent.setup();
+    preparedFor(1);
+    preparedFor(2);
+    renderPublish("/publish/1");
+
+    await user.click(await screen.findByRole("button", { name: "Show the change" }));
+    expect(document.body.textContent).toContain("1 of 1 read");
+
+    await user.click(screen.getByRole("link", { name: "All sites waiting" }));
+    await user.click(screen.getAllByRole("link", { name: "Back to the edits" })[0]);
+
+    await screen.findByText(PLAN.source_url);
+    expect(document.body.textContent).toContain("1 of 1 read");
+    expect(screen.getByRole("button", { name: "Approve and queue 1 exact edit" })).not.toBeNull();
+  });
+
   it("prepares the next site after the previous site's job finished", async () => {
     const user = userEvent.setup();
     mocks.pendingPublication = [
@@ -433,6 +453,21 @@ describe("PublishPage approval", () => {
     await user.click(screen.getByRole("button", { name: "Read the next change" }));
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("1 of 2 read");
+  });
+
+  it("uses instant scrolling when reduced motion is requested", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const realMatchMedia = window.matchMedia;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as typeof window.matchMedia;
+    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
+    renderPublish();
+
+    await user.click(screen.getByRole("button", { name: "Read the next change" }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+    window.matchMedia = realMatchMedia;
   });
 
   it("keeps a reviewed article reviewed after it is closed", async () => {

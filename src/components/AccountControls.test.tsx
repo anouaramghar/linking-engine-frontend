@@ -40,6 +40,10 @@ describe("UserAvatar", () => {
     const img = screen.getByRole("img", { name: "Alex Doe" });
     expect(img).toBeTruthy();
     expect(img.getAttribute("src")).toBe("/api/v1/auth/users/1/avatar");
+    expect(img.getAttribute("width")).toBe("32");
+    expect(img.getAttribute("height")).toBe("32");
+    expect(img.getAttribute("loading")).toBe("eager");
+    expect(img.getAttribute("decoding")).toBe("async");
   });
 });
 

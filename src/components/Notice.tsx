@@ -130,7 +130,12 @@ export default function Notice({
         focused.current = false;
         if (!hovering.current) startAutoDismiss();
       }}
-      className={`mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5 text-caption ${TONE[notice.tone]}`}
+      // The banner drops in from the edge it is anchored to rather than
+      // appearing between two frames. It reports something that just happened —
+      // a batch approved, a publish rejected — and an outcome that materialises
+      // with no arrival is one an operator can miss entirely while looking at
+      // the row they were working on.
+      className={`mb-3 flex animate-noticeIn flex-wrap items-center gap-3 rounded-lg px-4 py-2.5 text-caption ${TONE[notice.tone]}`}
     >
       <span className="min-w-0 flex-1">{notice.message}</span>
       {canUndo && (

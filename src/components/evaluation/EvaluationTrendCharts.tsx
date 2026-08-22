@@ -106,7 +106,7 @@ export function AcceptanceTrend({ points }: { points: EvaluationTrendPoint[] }) 
         <div className="overflow-x-auto">
           <svg
             viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            className="min-w-[620px]"
+            className="min-w-chart"
             role="img"
             aria-label="Acceptance rate over time"
             aria-describedby="acceptance-trend-data"
@@ -224,7 +224,7 @@ export function OrphanTrend({ points }: { points: OrphanTrendPoint[] }) {
       <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="min-w-[620px]"
+          className="min-w-chart"
           role="img"
           aria-label="Orphan pages remaining over time"
           aria-describedby="orphan-trend-data"

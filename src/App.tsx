@@ -10,11 +10,14 @@ import {
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import AccountControls from "./components/AccountControls";
+import ActivityPanel from "./components/jobs/ActivityPanel";
 import AgentPanel from "./components/agent/AgentPanel";
+import NotificationBell from "./components/NotificationBell";
 import RailTip from "./components/RailTip";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
+import { useActiveJobs } from "./hooks/useJobs";
 import { PageStateProvider } from "./hooks/usePageState";
 import {
   QueueSearchContext,
@@ -185,7 +188,7 @@ const NavMark = ({ icon }: { icon: ReactNode }) => (
 
 function Brand({ markOnly = false }: { markOnly?: boolean }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className={`flex items-center gap-2 ${markOnly ? "w-full justify-center" : ""}`}>
       <svg
         aria-hidden="true"
         width="26"
@@ -494,31 +497,30 @@ function MobileNavigation({ counts }: { counts: Record<string, number | null> })
   );
 }
 
-/** Pushed to the rail's left edge, mirrored to point back out when collapsed. */
+/** Pushed to the rail's left edge.
+    The expanded toolbar has room for a full 32px control; the collapsed rail
+    keeps the compact 28px footprint that fits its narrow chrome. */
 function CollapseToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
       onClick={onToggle}
-      className="touch-target flex h-8 w-8 flex-none items-center justify-center rounded-pill
-        text-muted transition-colors hover:bg-surface-strong hover:text-ink"
+      className={`touch-target flex flex-none items-center justify-center rounded-pill text-muted
+        transition-colors hover:bg-surface-strong hover:text-ink ${collapsed ? "h-7 w-7" : "h-8 w-8"}`}
     >
       <svg
         aria-hidden="true"
         width="18"
         height="18"
-        viewBox="0 0 18 18"
+        viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className={`transition-transform duration-200 motion-reduce:transition-none ${
-          collapsed ? "rotate-180" : ""
-        }`}
       >
-        <path d="M11 5.5 L7.5 9 L11 12.5" />
-        <path d="M14 4.5 V13.5" />
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M9 3v18" />
       </svg>
       <span className="sr-only">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</span>
     </button>
@@ -543,6 +545,7 @@ export default function App() {
   const ownedSites = sites?.filter((site) => site.platform !== "pool");
   const ownedSiteCount = ownedSites?.length ?? null;
   const { data: counts } = useSuggestionCounts({});
+  const activeJobsQuery = useActiveJobs();
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.
@@ -619,23 +622,42 @@ export default function App() {
           tooltips with it. A rail toggled once a week does not need the frame. */}
       <aside
         className={`relative z-30 hidden h-full flex-none flex-col border-r border-hairline
-          bg-canvas-soft py-6 lg:flex ${collapsed ? "w-16 px-2.5" : "w-60 px-4"}`}
+          bg-canvas-soft py-6 lg:flex ${collapsed ? "w-16 px-2.5" : "w-56 px-4"}`}
       >
         {/* `px-2.5` matches the nav items' own inset, so the Brand mark and the
             four nav marks share one optical left edge instead of missing it by
             the two pixels that read as a wobble. */}
         <div
-          className={`flex items-center gap-2 pb-6 ${
-            collapsed ? "flex-col px-0" : "justify-between px-2.5"
+          className={`flex flex-col gap-1 pb-2 ${
+            collapsed ? "-mx-2.5 w-16 px-0" : "px-2.5"
           }`}
         >
           <Brand markOnly={collapsed} />
-          <CollapseToggle collapsed={collapsed} onToggle={toggle} />
+          <span aria-hidden="true" className="mx-auto h-px w-8 bg-hairline" />
+          {/* These utilities sit between the brand and the first workflow
+              destination. The expanded rail gives them one horizontal row;
+              the collapsed rail keeps its narrow vertical stack. */}
+          <div
+            className={`flex w-full flex-none items-center ${
+              collapsed ? "flex-col gap-1" : "justify-center gap-1"
+            }`}
+          >
+            <ActivityPanel
+              collapsed={collapsed}
+              jobs={activeJobsQuery.data ?? []}
+              sites={sites ?? []}
+              isPending={activeJobsQuery.isPending}
+              isError={activeJobsQuery.isError}
+            />
+            <NotificationBell collapsed={collapsed} iconOnly />
+            <CollapseToggle collapsed={collapsed} onToggle={toggle} />
+          </div>
+          <span aria-hidden="true" className="mx-auto h-px w-8 bg-hairline" />
         </div>
 
         <RailNavigation counts={navCounts} collapsed={collapsed} />
 
-        <footer className={`mt-auto ${collapsed ? "px-0" : "px-2"}`}>
+        <footer className={`mt-auto ${collapsed ? "px-0" : "px-2.5"}`}>
           {/* Engine down is not a caption. Nothing in this dashboard works while
               it is true, so the block takes a tinted ground and the error ink
               rather than reporting a failure in the same voice as success. */}
@@ -690,11 +712,32 @@ export default function App() {
       <main
         id="main"
         tabIndex={-1}
-        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none"
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
-        {/* Atmospheric orbs — the system's only colour moment, carrying no content. */}
-        <div className="pointer-events-none absolute -right-20 -top-32 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
-        <div className="pointer-events-none absolute -bottom-36 left-56 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
+        {/* Atmospheric orbs — the system's only colour moment, carrying no content.
+
+            `-z-10` is load-bearing, not tidying. These are positioned and the
+            routed page under them is not, and a positioned element paints above
+            a static one whatever the source order says — so the decoration was
+            drawing *over* the content: a lavender haze across the top-right and
+            a mint wash over the cards. `pointer-events-none` is why it went
+            unnoticed for so long; the orbs were never in the way of a click,
+            only of the words.
+
+            A negative index, and deliberately no stacking context on the
+            parent. Negative-z children paint below in-flow block backgrounds,
+            which is exactly the rung these want. Giving <main> its own stacking
+            context would fix the orbs too and break something worse: every
+            modal renders inside <main> at `z-50` with no portal, and the rail
+            beside it is `z-30`, so bounding "above" to <main> would drop each
+            dialog underneath the navigation.
+
+            The sibling pages solve this the other way, by making their content
+            positioned (LoginPage's panel, every text row in an Evaluation metric
+            card). That option is not open here: the content is <Routes>, and
+            each page owns its own root. */}
+        <div className="pointer-events-none absolute -right-20 -top-32 -z-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-lavender/35%),transparent_70%)]" />
+        <div className="pointer-events-none absolute -bottom-36 left-56 -z-10 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,theme(colors.orb-mint/28%),transparent_70%)]" />
         <RouteErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>

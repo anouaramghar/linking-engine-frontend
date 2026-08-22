@@ -7,10 +7,11 @@ import {
   type PublicationPlan,
   type PublicationPreparation,
 } from "../../api/publish";
-import type { GraphSimulation } from "../../types/graph";
+import type { GraphNetwork } from "../../types/graph";
 import Highlighted from "../Highlighted";
 import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import SelectionControl from "../SelectionControl";
+import GraphLens from "./GraphLens";
 
 const HtmlDiff = lazy(() => import("./HtmlDiff"));
 
@@ -50,6 +51,9 @@ interface Props {
   selectedIds: Set<number>;
   onToggle: (planId: number) => void;
   onToggleAll: (planIds: number[]) => void;
+  /** Plan ids the operator explicitly opened, held by the page across navigation. */
+  openedIds: Set<number>;
+  onOpened: (planId: number) => void;
   /** Suggestion whose removal is in flight, if any. */
   removingSuggestionId: number | null;
   onRemoveLink: (suggestionId: number) => void;
@@ -57,10 +61,10 @@ interface Props {
   /** Exactly the plans whose boxes are ticked — never the whole batch. */
   onApproveAndQueue: (plans: PublicationPlan[]) => void;
   onQueueOnly: () => void;
-  simulation?: GraphSimulation;
-  simulationLoading: boolean;
-  simulationError: boolean;
-  onSimulate: (suggestionIds: number[]) => void;
+  siteGraph?: GraphNetwork;
+  siteGraphLoading: boolean;
+  siteGraphError: boolean;
+  onOpenSiteGraph: () => void;
 }
 
 const outcomeLabel = {
@@ -290,15 +294,17 @@ export default function PublicationReview({
   selectedIds,
   onToggle,
   onToggleAll,
+  openedIds,
+  onOpened,
   removingSuggestionId,
   onRemoveLink,
   onRetry,
   onApproveAndQueue,
   onQueueOnly,
-  simulation,
-  simulationLoading,
-  simulationError,
-  onSimulate,
+  siteGraph,
+  siteGraphLoading,
+  siteGraphError,
+  onOpenSiteGraph,
 }: Props) {
   const plans = data?.plans ?? [];
   const planIds = plans.map((plan) => plan.id);
@@ -348,16 +354,19 @@ export default function PublicationReview({
    * reviewed state.
    */
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  const [opened, setOpened] = useState<Set<number>>(() => new Set());
   const isExpanded = (planId: number) => expanded[planId] ?? false;
-  const isRead = (planId: number) => opened.has(planId);
+  const isRead = (planId: number) => openedIds.has(planId);
 
   const openPlan = (planId: number, scroll = false) => {
     setExpanded((current) => ({ ...current, [planId]: true }));
-    setOpened((current) => (current.has(planId) ? current : new Set(current).add(planId)));
+    onOpened(planId);
     if (scroll) {
       document.getElementById(`publication-plan-${planId}`)?.scrollIntoView({
-        behavior: "smooth",
+        behavior:
+          typeof window !== "undefined" &&
+          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
         block: "start",
       });
     }
@@ -523,75 +532,32 @@ export default function PublicationReview({
               </div>
             )}
 
-            {selectedLinks.length > 0 && (
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
-                <div className="min-w-0">
-                  <div className="text-caption font-medium text-ink">Check site structure</div>
-                  <p className="mt-1 max-w-2xl text-caption-sm leading-normal text-muted">
-                    Preview orphan, underlinked, hub, and concentration changes before this
-                    batch is approved. This is read-only and does not publish anything.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onSimulate(selectedLinks.map((link) => link.suggestion_id))}
-                  disabled={busy || simulationLoading}
-                  className="btn btn-outline flex-none"
-                >
-                  {simulationLoading ? "Simulating…" : "Simulate structure"}
-                </button>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3">
+              <div className="min-w-0">
+                <div className="text-caption font-medium text-ink">See site structure</div>
+                <p className="mt-1 max-w-2xl text-caption-sm leading-normal text-muted">
+                  Open the complete active-site graph to understand how pages connect before you
+                  approve the prepared edits.
+                </p>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={onOpenSiteGraph}
+                disabled={busy || siteGraphLoading}
+                className="btn btn-primary flex-none"
+              >
+                {siteGraphLoading ? "Loading graph…" : "View full site graph"}
+              </button>
+            </div>
 
-            {simulationError && (
+            {siteGraphError && (
               <div role="alert" className="mt-3 text-caption text-error-ink">
-                The structural simulation could not be loaded. The exact edit review is still
-                available.
+                The site network could not be loaded. The exact edit review is still available.
               </div>
             )}
 
-            {simulation && (
-              <div className="mt-3 rounded-lg border border-hairline-strong bg-canvas-soft px-3 py-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <div className="text-caption font-medium text-ink">Structural preview</div>
-                  <div className="text-caption-sm text-muted">
-                    {simulation.applied_suggestion_ids.length} new internal links modeled
-                  </div>
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-3 text-caption-sm sm:grid-cols-4">
-                  <div>
-                    <div className="text-muted">Orphans</div>
-                    <div className="font-medium text-body">
-                      {simulation.before.orphan_count} → {simulation.after.orphan_count}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-muted">Underlinked</div>
-                    <div className="font-medium text-body">
-                      {simulation.before.underlinked_count} → {simulation.after.underlinked_count}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-muted">Links</div>
-                    <div className="font-medium text-body">
-                      {simulation.before.active_links} → {simulation.after.active_links}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-muted">Top-target share</div>
-                    <div className="font-medium text-body">
-                      {Math.round(simulation.target_concentration * 100)}%
-                    </div>
-                  </div>
-                </div>
-                {simulation.warnings.length > 0 && (
-                  <ul className="mt-3 list-disc space-y-1 pl-5 text-caption-sm text-body">
-                    {simulation.warnings.map((warning) => (
-                      <li key={warning}>{warning}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+            {siteGraph && (
+              <GraphLens data={siteGraph} />
             )}
           </div>
 

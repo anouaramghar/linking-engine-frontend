@@ -78,6 +78,22 @@ npm.cmd run test
 npm.cmd run build
 ```
 
+The browser E2E suite uses Playwright with a deterministic mocked API boundary.
+Install Chromium once, then run the suite:
+
+```powershell
+npx.cmd playwright install chromium
+npm.cmd run test:e2e
+```
+
+Playwright starts the Vite server itself on `127.0.0.1:4173`. The suite covers
+the anonymous Telegram challenge and invalid-code recovery; site connection,
+crawl and analysis queueing; Content Pool connection, approval and crawl;
+suggestion selection; exact-edit approval; publication queueing; the required
+unsafe-request marker; and SPA navigation. It does not contact Telegram, Tavily,
+WordPress, or the runtime database; real connector validation belongs in the
+staging pilot.
+
 The production build is written to `dist/`. Inter and EB Garamond are bundled by
 Fontsource, so the deployed dashboard does not contact Google Fonts.
 

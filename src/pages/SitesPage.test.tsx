@@ -3,13 +3,11 @@ import type { ReactElement } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatCount, timeAgo } from "../lib/utils";
 import SitesPage from "./SitesPage";
-
-const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router-dom")>()),
-  useNavigate: () => navigate,
 }));
 
 const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
@@ -74,7 +72,6 @@ vi.mock("../hooks/usePipeline", () => ({
 }));
 
 beforeEach(() => {
-  navigate.mockReset();
   Object.assign(mocks.sites, {
     data: [],
     isPending: false,
@@ -313,9 +310,14 @@ describe("SitesPage load states", () => {
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
-    // `formatCount`, which follows the operator's locale.
-    expect(document.body.textContent).toContain("3,914");
-    expect(document.body.textContent).toContain("2 hours ago");
+    // `formatCount`, which follows the operator's locale. Asserting a literal
+    // "3,914" would pin the suite to an en-US machine and fail on, say, a
+    // French one ("3 914"). Comparing against the helper keeps the assertion
+    // locale-independent; `not.toContain("3914")` is what still catches a
+    // count rendered raw, since every locale inserts a group separator here.
+    expect(document.body.textContent).toContain(formatCount(3914));
+    expect(document.body.textContent).not.toContain("3914");
+    expect(document.body.textContent).toContain(timeAgo(lastCrawl));
     expect(document.body.textContent).not.toContain("Soon");
   });
 });
@@ -421,7 +423,7 @@ describe("SitesPage crawled vs analysed", () => {
   });
 });
 
-describe("SitesPage Hybrid standard", () => {
+describe("SitesPage generation controls", () => {
   const site = {
     id: 42,
     name: "Docs",
@@ -436,11 +438,11 @@ describe("SitesPage Hybrid standard", () => {
     last_crawl_at: "2026-07-28T08:00:00Z",
   };
 
-  it("shows Hybrid as the managed generation method", () => {
+  it("does not show a generation-method badge", () => {
     mocks.sites.data = [site];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Hybrid");
+    expect(document.body.textContent).not.toContain("Hybrid");
 
     fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
@@ -528,13 +530,15 @@ describe("SitesPage publication", () => {
     expect(document.body.textContent).not.toContain("Publish approved");
   });
 
-  it("routes to the review that shows the exact edits instead", () => {
+  it("removes the publication review and article CSV actions", () => {
     ownedSite();
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
-    fireEvent.click(screen.getByText("Review publication changes"));
 
-    expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
+    expect(
+      screen.queryByRole("menuitem", { name: "Review publication changes" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Import article CSV" })).toBeNull();
   });
 });
 

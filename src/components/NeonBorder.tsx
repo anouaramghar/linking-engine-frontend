@@ -42,12 +42,13 @@ const DEFAULTS = {
 
 const EDGE_COPIES = 2;
 const GLOW_LAYERS = [
-    { blur: 8, opacity: 0.5, reach: 0.3 },
-    { blur: 15, opacity: 0.3, reach: 0.6 },
-    { blur: 57, opacity: 0.18, reach: 1 },
+    { blur: 8, opacity: 0.5, reach: 0.35 },
+    { blur: 15, opacity: 0.22, reach: 1 },
 ];
 const MAX_GLOW_BLUR = Math.max(...GLOW_LAYERS.map((l) => l.blur));
 const MAX_GLOW_REACH = 36;
+const MAX_ANIMATION_FPS = 30;
+const MIN_FRAME_INTERVAL_MS = 1000 / MAX_ANIMATION_FPS;
 
 function withAlpha(input: string, alpha: number) {
     const a = Math.max(0, Math.min(1, alpha));
@@ -243,75 +244,92 @@ export default function NeonBorder(props: Props) {
         let corner = 0;
         let stepT = 0;
 
-        const frame = (now: number) => {
+        function schedule() {
+            if (
+                document.visibilityState === "hidden" ||
+                live.current.speed <= 0
+            ) {
+                return;
+            }
+            raf = requestAnimationFrame(frame);
+        }
+
+        function frame(now: number) {
             raf = 0;
-            if (document.visibilityState === "hidden") return;
+            if (
+                document.visibilityState === "hidden" ||
+                live.current.speed <= 0
+            ) {
+                return;
+            }
+
+            if (now - last < MIN_FRAME_INTERVAL_MS) {
+                schedule();
+                return;
+            }
 
             const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
             last = now;
             const p = live.current;
             const s = Math.max(0, Math.min(20, p.speed));
+            const step = p.movement === "step";
+            const beat = step
+                ? SLOWEST_STEP +
+                  ((FASTEST_STEP - SLOWEST_STEP) * (s - 1)) / 19
+                : (SLOWEST_CYCLE +
+                      ((FASTEST_CYCLE - SLOWEST_CYCLE) * (s - 1)) / 19) /
+                  4;
 
-            if (s > 0) {
-                const step = p.movement === "step";
-                const beat = step
-                    ? SLOWEST_STEP +
-                      ((FASTEST_STEP - SLOWEST_STEP) * (s - 1)) / 19
-                    : (SLOWEST_CYCLE +
-                          ((FASTEST_CYCLE - SLOWEST_CYCLE) * (s - 1)) / 19) /
-                      4;
+            stepT += dt / beat;
+            while (stepT >= 1) {
+                stepT -= 1;
+                corner += 1;
+            }
+            const eased = step
+                ? stepEase(Math.min(1, stepT * 2))
+                : glideEase(stepT);
 
-                stepT += dt / beat;
-                while (stepT >= 1) {
-                    stepT -= 1;
-                    corner += 1;
-                }
-                const eased = step
-                    ? stepEase(Math.min(1, stepT * 2))
-                    : glideEase(stepT);
+            const { w, h } = sizeRef.current;
+            const fw = w > 0 ? w : 100;
+            const fh = h > 0 ? h : 100;
+            const from = cornerLap(corner, fw, fh);
+            const to = cornerLap(corner + 1, fw, fh);
+            lap = from + (to - from) * eased;
 
-                const { w, h } = sizeRef.current;
-                const fw = w > 0 ? w : 100;
-                const fh = h > 0 ? h : 100;
-                const from = cornerLap(corner, fw, fh);
-                const to = cornerLap(corner + 1, fw, fh);
-                lap = from + (to - from) * eased;
-
-                const a = groupARef.current;
-                if (a) {
-                    a.style.setProperty(
-                        "--arc",
-                        buildArc(lap, p.borderSize, w, h, p.color)
-                    );
-                }
-                const b = groupBRef.current;
-                if (b) {
-                    b.style.setProperty(
-                        "--arc",
-                        buildArc(lap + 0.5, p.borderSize, w, h, p.color)
-                    );
-                }
+            const a = groupARef.current;
+            if (a) {
+                a.style.setProperty(
+                    "--arc",
+                    buildArc(lap, p.borderSize, w, h, p.color)
+                );
+            }
+            const b = groupBRef.current;
+            if (b) {
+                b.style.setProperty(
+                    "--arc",
+                    buildArc(lap + 0.5, p.borderSize, w, h, p.color)
+                );
             }
 
-            raf = requestAnimationFrame(frame);
-        };
+            schedule();
+        }
 
         const onVisibilityChange = () => {
             if (document.visibilityState === "hidden") {
-                cancelAnimationFrame(raf);
+                if (raf) cancelAnimationFrame(raf);
                 raf = 0;
                 return;
             }
             last = performance.now();
-            if (raf === 0) raf = requestAnimationFrame(frame);
+            schedule();
         };
 
         document.addEventListener("visibilitychange", onVisibilityChange);
-        raf = requestAnimationFrame(frame);
+        schedule();
 
         return () => {
             document.removeEventListener("visibilitychange", onVisibilityChange);
-            cancelAnimationFrame(raf);
+            if (raf) cancelAnimationFrame(raf);
         };
     }, [speed]);
 
