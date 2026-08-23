@@ -14,6 +14,7 @@ import {
 } from "../../api/agent";
 import { useAgentChat, type AgentTurnResult } from "../../hooks/useAgentChat";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
+import type { ResolvedTheme } from "../../hooks/useTheme";
 import { useSession } from "../../hooks/useSession";
 import AgentAvatar from "./AgentAvatar";
 import AgentMarkdown from "./AgentMarkdown";
@@ -503,7 +504,12 @@ function McpActionCard({
  * Dashboard chat uses the read-only registry. Its proposal cards execute only
  * after a click; signed MCP links use the separate one-time receipt flow.
  */
-export default function AgentPanel() {
+interface AgentPanelProps {
+  /** The shell owns the theme hook so the beam follows explicit preferences. */
+  resolvedTheme?: ResolvedTheme;
+}
+
+export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps) {
   const { data: user } = useSession();
   const [mcpEnvelope, setMcpEnvelope] = useState<string | null>(actionEnvelopeFromFragment);
   const [open, setOpen] = useState(mcpEnvelope !== null);
@@ -705,7 +711,7 @@ export default function AgentPanel() {
               <div className="flex items-center gap-2.5">
                 {/* Same heading voice as every dialog in the app: the display
                     serif, light, at the dashboard's dialog size. */}
-                <h2 id={titleId} className="font-serif text-display-sm leading-none text-on-dark">
+                <h2 id={titleId} className="font-serif text-display-sm leading-none text-ink">
                   Mesh
                 </h2>
                 <span className="assistant-status-chip">
@@ -934,7 +940,7 @@ export default function AgentPanel() {
                   submit();
                 }}
               >
-                  <BorderBeam size="pulse-inner" theme="dark">
+                  <BorderBeam size="pulse-inner" theme={resolvedTheme}>
                     <div className="assistant-composer-field">
                       <textarea
                         aria-label="Message Mesh"

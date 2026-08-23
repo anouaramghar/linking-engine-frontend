@@ -549,7 +549,7 @@ export default function App() {
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.
-  const { preference, setTheme } = useTheme();
+  const { preference, resolved, setTheme } = useTheme();
   const { collapsed, toggle } = useRail();
   const pending = counts?.pending ?? null;
   const navCounts = { [QUEUE.to]: pending, [SELECTED.to]: counts?.approved ?? null };
@@ -756,7 +756,7 @@ export default function App() {
           </Suspense>
         </RouteErrorBoundary>
         {/* Overlays every page; read-only by contract, so no route guards it. */}
-        <AgentPanel />
+        <AgentPanel resolvedTheme={resolved} />
       </main>
           </div>
         </QueueWorkspaceProvider>
