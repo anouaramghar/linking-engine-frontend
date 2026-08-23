@@ -588,11 +588,11 @@ describe("streamAgentMessage", () => {
     respondWith({
       ok: false,
       status: 503,
-      json: async () => ({ detail: "the assistant is not configured on this deployment" }),
+      json: async () => ({ detail: "Mesh is not configured on this deployment" }),
     });
 
     await expect(streamAgentMessage("hi", [], handlers())).rejects.toThrow(
-      "the assistant is not configured on this deployment",
+      "Mesh is not configured on this deployment",
     );
   });
 
@@ -602,7 +602,7 @@ describe("streamAgentMessage", () => {
     respondWith(
       sse(
         'event: delta\ndata: {"text":"The queue "}\n\n',
-        'event: error\ndata: {"detail":"the assistant is temporarily unavailable"}\n\n',
+        'event: error\ndata: {"detail":"Mesh is temporarily unavailable"}\n\n',
       ),
     );
 
@@ -648,7 +648,7 @@ describe("streamAgentMessage", () => {
     respondWith(sse('event: delta\ndata: {"text":"The queue has "}\n\n'));
 
     await expect(streamAgentMessage("hi", [], handlers())).rejects.toThrow(
-      "stopped before it finished",
+      "Mesh stopped before finishing the answer.",
     );
   });
 });

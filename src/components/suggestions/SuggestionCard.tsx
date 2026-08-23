@@ -37,7 +37,6 @@ function SuggestionCard({
   showStatusBadge = true,
 }: Props) {
   const meta = STATUS_META[s.status];
-  const finalRank = s.final_rank ?? null;
 
   return (
     <li
@@ -54,11 +53,7 @@ function SuggestionCard({
         <button
           type="button"
           onClick={() => onOpen(s.id)}
-          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}${
-            finalRank === null
-              ? `; rank score ${pct(s.rank_score)}`
-              : `; final rank #${finalRank}; rank score ${pct(s.rank_score)}`
-          }`}
+          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}; rank score ${pct(s.rank_score)}`}
           className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
         >
           <span className="min-w-0 flex-1">
@@ -82,12 +77,7 @@ function SuggestionCard({
               )}
             </span>
           </span>
-          <span className="flex w-score flex-none flex-col items-end text-right sm:w-score-wide">
-            {finalRank !== null && (
-              <span className="block text-caption-sm font-medium text-ink">
-                Final rank #{finalRank}
-              </span>
-            )}
+          <span className="flex w-score flex-none flex-col items-end text-right">
             <span className="block tabular-nums text-body-md font-medium text-ink">
               {pct(s.rank_score)}
             </span>

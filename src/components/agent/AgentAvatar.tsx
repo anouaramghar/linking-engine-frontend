@@ -34,7 +34,7 @@ export default function AgentAvatar({
       {...(animation === undefined ? { defaultAnimation, autoplay } : { animation })}
       size={size}
       className={className}
-      ariaLabel="LinkMesh assistant avatar"
+      ariaLabel="Mesh avatar"
     />
   );
 }

@@ -643,16 +643,31 @@ input[type="number"] {
 
 /*
  * The assistant drawer is the one contained instrument surface: an always-dark
- * panel over either theme, built from the system's own dark-band tokens
- * ({colors.surface-dark}, {colors.on-dark}) rather than a second palette. In
- * light it is the pricing-tier-featured inversion; in dark the same tokens sit
- * one rung above the page, so the drawer reads raised in both. Every line and
- * fill on it is an overlay of {colors.on-dark} — the one text ground that does
- * not travel — so the alpha hairlines hold the same strength over both grounds,
- * and nothing here can drift into a second brand the way the previous purple
- * beam did.
+ * panel over either theme, using the light theme's dark-band palette so the
+ * drawer keeps the same visual identity in both modes. The fixed values are
+ * scoped to the scrim subtree: the rest of the dark dashboard still climbs its
+ * own stone ramp, while the drawer stays the pricing-tier-featured inversion.
+ * Every line and fill on it is an overlay of {colors.on-dark} — the one text
+ * ground that does not travel — so the alpha hairlines hold the same strength
+ * over both grounds, and nothing here can drift into a second brand the way the
+ * previous purple beam did.
  */
 .assistant-scrim {
+  /* The panel is intentionally theme-invariant. These local token overrides
+     mirror the light-mode dark band and also cover themed utility classes used
+     by Notice and the composer inside the drawer. */
+  --c-canvas-deep: 12 10 9;
+  --c-surface-dark: 12 10 9;
+  --c-surface-dark-elevated: 28 25 23;
+  --c-on-dark: 255 255 255;
+  --c-on-dark-soft: 168 162 158;
+  --c-success: 22 163 74;
+  --c-error: 220 38 38;
+  --c-error-active: 185 28 28;
+  --c-selection: 200 184 224;
+  --c-selection-ink: 12 10 9;
+  --shadow-lift: 0.08;
+  --shadow-drawer: 0.16;
   background: rgb(var(--c-canvas-deep) / 0.5);
 }
 
@@ -1101,6 +1116,10 @@ input[type="number"] {
   background: var(--assistant-fill);
 }
 
+.assistant-proposal--blocked {
+  background: var(--assistant-fill-strong);
+}
+
 .assistant-mcp-wrap {
   flex: none;
   padding: 14px 16px 0;
@@ -1131,6 +1150,10 @@ input[type="number"] {
   background: var(--assistant-fill-strong);
 }
 
+.assistant-secondary-button--link {
+  text-decoration: none;
+}
+
 .assistant-receipt__code {
   display: block;
   margin-top: 10px;
@@ -1159,6 +1182,13 @@ input[type="number"] {
   color: rgb(var(--c-on-dark));
   font-size: 14px;
   font-weight: 500;
+  line-height: 1.45;
+}
+
+.assistant-proposal__blocked-reason {
+  margin-top: 8px;
+  color: rgb(var(--c-on-dark));
+  font-size: 12px;
   line-height: 1.45;
 }
 

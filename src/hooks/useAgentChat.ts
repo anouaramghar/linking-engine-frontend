@@ -144,7 +144,7 @@ export function useAgentChat({ enabled = false }: UseAgentChatOptions = {}) {
         setError(
           cause instanceof AgentStreamError
             ? cause.detail
-            : "The assistant is unavailable right now.",
+            : "Mesh is unavailable right now.",
         );
         return { prompt: trimmed };
       } finally {

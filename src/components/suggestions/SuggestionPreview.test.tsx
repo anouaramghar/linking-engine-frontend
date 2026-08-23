@@ -187,7 +187,7 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
-  it("shows final delivery rank separately from the rank score", () => {
+  it("shows the rank score without repeating the final delivery rank", () => {
     render(
       <SuggestionCard
         suggestion={{ ...suggestion("pending"), score: 0.72, rank_score: 0.89, final_rank: 1 }}
@@ -200,7 +200,7 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Final rank #1")).not.toBeNull();
+    expect(screen.queryByText("Final rank #1")).toBeNull();
     expect(screen.getByText("89%")).not.toBeNull();
     expect(screen.getByText("Rank score")).not.toBeNull();
     // The cosine score is a different number and must not be mistaken for it.

@@ -85,7 +85,7 @@ beforeEach(() => {
 describe("AgentPanel", () => {
   it("offers a launcher only for a signed-in operator", async () => {
     renderPanel();
-    expect(await screen.findByRole("button", { name: "Open assistant" })).not.toBeNull();
+    expect(await screen.findByRole("button", { name: "Open Mesh" })).not.toBeNull();
     expect(agentApi.getAgentStatus).not.toHaveBeenCalled();
   });
 
@@ -103,9 +103,9 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
 
-    const input = await screen.findByLabelText("Message the assistant");
+    const input = await screen.findByLabelText("Message Mesh");
     await user.type(input, "How busy is the queue?{Enter}");
 
     await screen.findByText("The queue has 3 pending suggestions.");
@@ -138,12 +138,12 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     const { container } = renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    await user.type(await screen.findByLabelText("Message the assistant"), "queue?{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "queue?{Enter}");
 
     // The tool lands first, while the model is still deciding what to say.
     await screen.findByText("get_queue_counts");
-    expect(screen.getByRole("status").textContent).toContain("Assistant is working…");
+    expect(screen.getByRole("status").textContent).toContain("Mesh is working…");
 
     write?.("The queue has ");
     await screen.findByText(/The queue has/);
@@ -164,9 +164,9 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     const { container } = renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
 
-    const input = await screen.findByLabelText("Message the assistant");
+    const input = await screen.findByLabelText("Message Mesh");
     await user.type(input, "status of **my** queue?{Enter}");
 
     await waitFor(() => expect(container.querySelector(".assistant-md-li")).not.toBeNull());
@@ -192,13 +192,13 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    await user.type(await screen.findByLabelText("Message the assistant"), "check the queue{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "check the queue{Enter}");
 
-    const log = await screen.findByRole("log", { name: "Assistant conversation" });
+    const log = await screen.findByRole("log", { name: "Mesh conversation" });
     expect(log.getAttribute("tabindex")).toBe("0");
     expect(log.className).toContain("overscroll-contain");
-    expect(screen.getByRole("status").textContent).toContain("Assistant is thinking…");
+    expect(screen.getByRole("status").textContent).toContain("Mesh is thinking…");
 
     release?.();
     await screen.findByText("The queue is ready.");
@@ -222,11 +222,11 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    const launcher = await screen.findByRole("button", { name: "Open assistant" });
+    const launcher = await screen.findByRole("button", { name: "Open Mesh" });
     expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("idle");
     await user.click(launcher);
 
-    const input = await screen.findByLabelText("Message the assistant");
+    const input = await screen.findByLabelText("Message Mesh");
     await user.type(input, "check the queue");
     expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("listening");
 
@@ -243,7 +243,7 @@ describe("AgentPanel", () => {
 
     release?.();
     await screen.findByText("The queue is ready.");
-    await user.click(screen.getByRole("button", { name: "Close assistant" }));
+    await user.click(screen.getByRole("button", { name: "Close Mesh" }));
     await waitFor(() =>
       expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("happy"),
     );
@@ -252,17 +252,17 @@ describe("AgentPanel", () => {
 
   it("shows an error notice when the assistant is unavailable", async () => {
     vi.mocked(agentApi.streamAgentMessage).mockRejectedValue(
-      new agentApi.AgentStreamError("the assistant is not configured"),
+      new agentApi.AgentStreamError("Mesh is not configured"),
     );
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    await user.type(await screen.findByLabelText("Message the assistant"), "hi{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "hi{Enter}");
 
     await screen.findByRole("alert");
-    expect(screen.getByText("the assistant is not configured")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Close assistant" }));
+    expect(screen.getByText("Mesh is not configured")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close Mesh" }));
     await waitFor(() =>
       expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("surprised"),
     );
@@ -274,7 +274,7 @@ describe("AgentPanel", () => {
     vi.mocked(agentApi.streamAgentMessage)
       .mockImplementationOnce(async (_message, _history, handlers) => {
         handlers.onDelta("The queue has ");
-        throw new agentApi.AgentStreamError("the assistant is temporarily unavailable");
+        throw new agentApi.AgentStreamError("Mesh is temporarily unavailable");
       })
       .mockImplementationOnce(async (_message, _history, handlers) => {
         handlers.onDone({ reply: "The queue has 3 pending.", tools_used: [], proposals: [] });
@@ -282,10 +282,10 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    await user.type(await screen.findByLabelText("Message the assistant"), "queue?{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "queue?{Enter}");
 
-    await screen.findByText("the assistant is temporarily unavailable");
+    await screen.findByText("Mesh is temporarily unavailable");
     expect(screen.queryByText(/The queue has $/)).toBeNull();
     // The operator's own question goes back too, so Retry sends it once.
     expect(screen.queryByText("queue?")).toBeNull();
@@ -304,8 +304,8 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    await user.type(await screen.findByLabelText("Message the assistant"), "check the queue{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "check the queue{Enter}");
     await screen.findByText("Temporary outage");
 
     await user.click(screen.getByRole("button", { name: "Retry message" }));
@@ -319,8 +319,8 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    await user.type(await screen.findByLabelText("Message the assistant"), "queue status{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "queue status{Enter}");
     await screen.findByText("The queue is clear.");
 
     await user.click(screen.getByRole("button", { name: "Clear" }));
@@ -331,8 +331,8 @@ describe("AgentPanel", () => {
   it("announces itself as a labelled dialog once open", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
-    const dialog = await screen.findByRole("dialog", { name: "Assistant" });
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    const dialog = await screen.findByRole("dialog", { name: "Mesh" });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
   });
 
@@ -389,10 +389,10 @@ describe("AgentPanel", () => {
   it("restores focus to the launcher after the dialog closes", async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
     await user.keyboard("{Escape}");
 
-    const launcher = await screen.findByRole("button", { name: "Open assistant" });
+    const launcher = await screen.findByRole("button", { name: "Open Mesh" });
     expect(document.activeElement).toBe(launcher);
   });
 
@@ -423,9 +423,9 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
     await user.type(
-      await screen.findByLabelText("Message the assistant"),
+      await screen.findByLabelText("Message Mesh"),
       "approve everything strong on site 7{Enter}",
     );
     await screen.findByText("I can approve the strong ones when you are ready.");
@@ -445,7 +445,7 @@ describe("AgentPanel", () => {
     );
     // Confirmed once, gone: the card cannot fire twice.
     expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Close assistant" }));
+    await user.click(screen.getByRole("button", { name: "Close Mesh" }));
     await waitFor(() =>
       expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("celebrate"),
     );
@@ -475,9 +475,9 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
     await user.type(
-      await screen.findByLabelText("Message the assistant"),
+      await screen.findByLabelText("Message Mesh"),
       "reject suggestion 42 because it targets the wrong page{Enter}",
     );
 
@@ -695,6 +695,43 @@ describe("AgentPanel", () => {
     expect(screen.getByText(/may consume processing capacity/)).not.toBeNull();
   });
 
+  it("explains why analysis has no confirmation when suggestion capacity is full", async () => {
+    streams("The site is ready for analysis. Confirm in the dashboard to start.", {
+      tools: [
+        {
+          name: "preview_site_job",
+          arguments: { kind: "analysis" },
+          outcome: {
+            ready: false,
+            kind: "analysis",
+            site_id: 1,
+            site_name: "hipcollection",
+            active_suggestion_count: 171,
+            suggestion_capacity_slots_available: 0,
+            suggestion_capacity_at_capacity: true,
+            blocked_reason:
+              "the site's suggestion capacity is full; review or publish existing suggestions before generating more",
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "run analysis{Enter}");
+
+    expect(await screen.findByText("Suggestion capacity is full for hipcollection")).not.toBeNull();
+    expect(
+      screen.getByText(/No confirmation is available because this action was not staged/),
+    ).not.toBeNull();
+    expect(screen.getByText(/171 active suggestions and no open suggestion slots/)).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Review suggestions" }).getAttribute("href")).toBe(
+      "/queue?site=1",
+    );
+    expect(screen.queryByRole("button", { name: "Confirm sensitive change" })).toBeNull();
+  });
+
   it("explains that acknowledging an alert does not fix its cause", async () => {
     streams("This notification is still unread.", {
       proposals: [
@@ -865,9 +902,9 @@ describe("AgentPanel", () => {
 
     const user = userEvent.setup();
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
     await user.type(
-      await screen.findByLabelText("Message the assistant"),
+      await screen.findByLabelText("Message Mesh"),
       "do something unusual{Enter}",
     );
     await user.click(await screen.findByRole("button", { name: "Confirm" }));

@@ -144,7 +144,7 @@ const refusalDetail = async (response: Response): Promise<string> => {
   } catch {
     // A refusal from the proxy rather than the engine: no JSON body to read.
   }
-  return `The assistant failed with HTTP ${response.status}.`;
+  return `Mesh failed with HTTP ${response.status}.`;
 };
 
 /**
@@ -179,7 +179,7 @@ export const streamAgentMessage = async (
     signal,
   });
   if (!response.ok) throw new AgentStreamError(await refusalDetail(response));
-  if (!response.body) throw new AgentStreamError("The assistant sent no reply.");
+  if (!response.body) throw new AgentStreamError("Mesh sent no reply.");
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -236,8 +236,8 @@ export const streamAgentMessage = async (
     // Let go of the connection however this ended: finished, failed, or left.
     reader.cancel().catch(() => {});
   }
-  if (stalled) throw new AgentStreamError("The assistant stopped responding.");
-  if (!finished) throw new AgentStreamError("The assistant stopped before it finished answering.");
+  if (stalled) throw new AgentStreamError("Mesh stopped responding.");
+  if (!finished) throw new AgentStreamError("Mesh stopped before finishing the answer.");
 };
 
 /**

@@ -10,6 +10,7 @@ import {
   type AgentActionReceipt,
   type AgentProposal,
   type AgentProposalResult,
+  type AgentToolTrace,
 } from "../../api/agent";
 import { useAgentChat, type AgentTurnResult } from "../../hooks/useAgentChat";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
@@ -175,6 +176,124 @@ const sensitiveProposalWarning = (proposal: AgentProposal): string => {
   }
   return "Sensitive action: this queues connector or analysis work and may consume processing capacity.";
 };
+
+interface BlockedActionDetails {
+  title: string;
+  explanation: string;
+  nextStep: string;
+  href?: string;
+  hrefLabel?: string;
+}
+
+const displaySiteName = (outcome: Record<string, unknown>) =>
+  typeof outcome.site_name === "string" && outcome.site_name.trim()
+    ? outcome.site_name
+    : "this site";
+
+const displayBlockedReason = (reason: string) =>
+  `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${reason.endsWith(".") ? "" : "."}`;
+
+const siteQueueHref = (outcome: Record<string, unknown>) => {
+  const siteId = Number(outcome.site_id);
+  return Number.isInteger(siteId) && siteId > 0
+    ? `/queue?site=${encodeURIComponent(String(siteId))}`
+    : "/queue";
+};
+
+const blockedActionDetails = (tool: AgentToolTrace): BlockedActionDetails | null => {
+  const { outcome } = tool;
+  if (outcome.ready !== false || typeof outcome.blocked_reason !== "string") return null;
+
+  const siteName = displaySiteName(outcome);
+  const reason = displayBlockedReason(outcome.blocked_reason);
+
+  if (
+    (tool.name === "preview_site_job" && outcome.kind === "analysis") ||
+    tool.name === "preview_article_analysis"
+  ) {
+    const siteSlots = outcome.suggestion_capacity_slots_available;
+    const articleSlots = outcome.remaining_slots_for_article;
+    const capacityIsFull =
+      (siteSlots === 0 || articleSlots === 0) && /capacity/i.test(outcome.blocked_reason);
+    if (capacityIsFull) {
+      const activeSuggestions = outcome.active_suggestion_count;
+      const occupied =
+        Number.isInteger(activeSuggestions) && Number(activeSuggestions) >= 0
+          ? `The site has ${String(activeSuggestions)} active suggestions and no open suggestion slots.`
+          : "The site has no open suggestion slots.";
+      return {
+        title: `Suggestion capacity is full for ${siteName}`,
+        explanation: occupied,
+        nextStep:
+          "Reject pending suggestions or publish approved ones to free capacity, then run analysis again.",
+        href: siteQueueHref(outcome),
+        hrefLabel: "Review suggestions",
+      };
+    }
+  }
+
+  if (
+    tool.name === "preview_site_job" &&
+    outcome.kind === "analysis" &&
+    outcome.active_article_count === 0
+  ) {
+    return {
+      title: `No active articles in ${siteName}`,
+      explanation: reason,
+      nextStep: "Crawl the site first, then run analysis again.",
+      href: "/sites",
+      hrefLabel: "Open sites",
+    };
+  }
+
+  if (tool.name === "preview_site_job" && outcome.kind === "analysis") {
+    return {
+      title: `Analysis is not available for ${siteName}`,
+      explanation: reason,
+      nextStep: "Wait for the current analysis to finish, then run analysis again.",
+    };
+  }
+
+  if (tool.name === "preview_site_job" && outcome.kind === "ingestion") {
+    return {
+      title: `Crawl is not available for ${siteName}`,
+      explanation: reason,
+      nextStep: "Wait for the current crawl to finish, then try again.",
+    };
+  }
+
+  return {
+    title: "This action is not available yet",
+    explanation: reason,
+    nextStep: "Resolve the condition above, then ask Mesh to try again.",
+  };
+};
+
+function BlockedActionCard({ tool }: { tool: AgentToolTrace }) {
+  const details = blockedActionDetails(tool);
+  if (!details) return null;
+
+  return (
+    <section className="assistant-proposal assistant-proposal--blocked mt-3" role="status">
+      <div className="assistant-proposal__label">Action unavailable</div>
+      <p className="assistant-proposal__copy">{details.title}</p>
+      <p className="assistant-proposal__blocked-reason">{details.explanation}</p>
+      <p className="assistant-proposal__hint">
+        No confirmation is available because this action was not staged. {details.nextStep}
+      </p>
+      {details.href && details.hrefLabel && (
+        <div className="assistant-proposal__actions">
+          <a
+            href={details.href}
+            className="assistant-secondary-button assistant-secondary-button--link"
+          >
+            {details.hrefLabel}
+          </a>
+        </div>
+      )}
+    </section>
+  );
+}
 
 /**
  * One staged bulk rule. The Confirm button is the only writer in the whole
@@ -553,7 +672,7 @@ export default function AgentPanel() {
         type="button"
         onClick={openAssistant}
         ref={launcherRef}
-        aria-label="Open assistant"
+        aria-label="Open Mesh"
         aria-haspopup="dialog"
         className={`assistant-launcher fixed z-40 flex h-14 w-14
           items-center justify-center rounded-full ${
@@ -587,7 +706,7 @@ export default function AgentPanel() {
                 {/* Same heading voice as every dialog in the app: the display
                     serif, light, at the dashboard's dialog size. */}
                 <h2 id={titleId} className="font-serif text-display-sm leading-none text-on-dark">
-                  Assistant
+                  Mesh
                 </h2>
                 <span className="assistant-status-chip">
                   <span
@@ -620,7 +739,7 @@ export default function AgentPanel() {
                 type="button"
                 onClick={() => setOpen(false)}
                 data-modal-dismiss
-                aria-label="Close assistant"
+                aria-label="Close Mesh"
                 className="assistant-header-action"
               >
                 <svg
@@ -676,9 +795,9 @@ export default function AgentPanel() {
               <div aria-hidden="true" className="assistant-empty-mark">
                 <AgentAvatar animation={avatarAnimation} className="assistant-avatar-renderer" />
               </div>
-              <p className="assistant-empty-kicker">Agent offline</p>
+              <p className="assistant-empty-kicker">Mesh offline</p>
               <p className="assistant-empty-copy">
-                The assistant is not configured on this deployment. Ask an administrator to set
+                Mesh is not configured on this deployment. Ask an administrator to set
                 an OpenRouter API key.
               </p>
             </div>
@@ -691,7 +810,7 @@ export default function AgentPanel() {
               <div
                 ref={logRef}
                 role="log"
-                aria-label="Assistant conversation"
+                aria-label="Mesh conversation"
                 aria-live={streamingReply?.content ? "off" : "polite"}
                 aria-relevant="additions text"
                 aria-busy={pending}
@@ -712,7 +831,7 @@ export default function AgentPanel() {
                     <div aria-hidden="true" className="assistant-empty-mark">
                       <AgentAvatar animation={avatarAnimation} className="assistant-avatar-renderer" />
                     </div>
-                    <p className="assistant-empty-kicker">Ask the agent</p>
+                    <p className="assistant-empty-kicker">Ask Mesh</p>
                     <p className="assistant-empty-copy">
                       Ask about your sites, the review queue, running jobs, or evaluation metrics.
                       I can look things up — reviewing and publishing stay yours.
@@ -736,7 +855,7 @@ export default function AgentPanel() {
                     >
                       {message.role === "assistant" && (
                         <div className="assistant-message-label">
-                          Agent
+                          Mesh
                           {message.tools && message.tools.length > 0 && (
                             <span className="assistant-message-label__source">· sources consulted</span>
                           )}
@@ -767,6 +886,13 @@ export default function AgentPanel() {
                           onReaction={triggerAvatarReaction}
                         />
                       ))}
+                      {!message.streaming &&
+                        message.tools?.map((tool, toolIndex) => (
+                          <BlockedActionCard
+                            key={`blocked-${tool.name}-${toolIndex}`}
+                            tool={tool}
+                          />
+                        ))}
                     </div>
                   </div>
                 ))}
@@ -779,8 +905,8 @@ export default function AgentPanel() {
                     </span>
                     <span className="assistant-thinking__copy">
                       {avatarAnimation === "working"
-                        ? "Assistant is working…"
-                        : "Assistant is thinking…"}
+                        ? "Mesh is working…"
+                        : "Mesh is thinking…"}
                     </span>
                   </div>
                 )}
@@ -811,7 +937,7 @@ export default function AgentPanel() {
                   <BorderBeam size="pulse-inner" theme="dark">
                     <div className="assistant-composer-field">
                       <textarea
-                        aria-label="Message the assistant"
+                        aria-label="Message Mesh"
                         rows={1}
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
@@ -821,7 +947,7 @@ export default function AgentPanel() {
                             submit();
                           }
                         }}
-                        placeholder="Ask about your linking engine…"
+                        placeholder="Ask Mesh about your linking engine…"
                         className="assistant-composer-input"
                       />
                       <button

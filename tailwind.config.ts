@@ -185,9 +185,7 @@ export default {
         // The 4px-multiple scale is already Tailwind's. These named dashboard
         // geometry values keep the queue and chart widths from becoming
         // unreviewable arbitrary classes.
-        // Wide enough for the "Final rank #N" line that sits above the score.
         score: "96px",
-        "score-wide": "120px",
         meter: "3px",
         filter: "16rem",
         decision: "220px",
