@@ -16,7 +16,8 @@ export interface AgentToolTrace {
 export type AgentProposalKind =
   | "bulk_review"
   | "review_suggestion"
-  | "editorial_ranking_policy";
+  | "editorial_ranking_policy"
+  | "external_link_policy";
 export type AgentProposalRisk = "reversible" | "sensitive";
 
 /** A typed, allowlisted mutation awaiting the editor's confirmation. */
@@ -28,6 +29,11 @@ export interface AgentProposal {
   endpoint: string;
   payload: Record<string, unknown>;
   match_count?: number | null;
+  impact?: {
+    expiring_count: number;
+    pending_count: number;
+    approved_count: number;
+  };
 }
 
 export interface AgentProposalResult {
@@ -295,6 +301,62 @@ export const confirmProposal = async (
       .then((r) => r.data);
     return {
       message: `Applied: editorial ranking policy updated for site #${result.site_id}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const externalPolicy = path.match(/^\/sites\/(\d+)\/external-link-policy$/);
+  if (
+    proposal.tool === "preview_external_link_policy" &&
+    proposal.kind === "external_link_policy" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "PUT" &&
+    externalPolicy
+  ) {
+    const expected = proposal.payload.expected;
+    const expiringIds = proposal.payload.expected_expiring_suggestion_ids;
+    const enabled = proposal.payload.external_links_enabled;
+    const requireHttps = proposal.payload.require_https;
+    const minTrustScore = proposal.payload.min_trust_score;
+    const minDomainAgeDays = proposal.payload.min_domain_age_days;
+    const trustedTlds = proposal.payload.trusted_tlds;
+    const allowlist = proposal.payload.allowlist_domains;
+    const blocklist = proposal.payload.blocklist_domains;
+    const competitors = proposal.payload.competitor_domains;
+    const stringList = (value: unknown): value is string[] =>
+      Array.isArray(value) && value.every((item) => typeof item === "string");
+    if (
+      typeof expected !== "object" ||
+      expected === null ||
+      !Array.isArray(expiringIds) ||
+      !expiringIds.every((id) => Number.isInteger(id) && Number(id) > 0) ||
+      typeof enabled !== "boolean" ||
+      typeof requireHttps !== "boolean" ||
+      typeof minTrustScore !== "number" ||
+      typeof minDomainAgeDays !== "number" ||
+      !stringList(trustedTlds) ||
+      !stringList(allowlist) ||
+      !stringList(blocklist) ||
+      !stringList(competitors)
+    ) {
+      throw new Error("unsupported external-link policy payload");
+    }
+    const result = await api
+      .put<{ site_id: number; expired_suggestions: number }>(path, {
+        external_links_enabled: enabled,
+        require_https: requireHttps,
+        min_trust_score: minTrustScore,
+        min_domain_age_days: minDomainAgeDays,
+        trusted_tlds: trustedTlds,
+        allowlist_domains: allowlist,
+        blocklist_domains: blocklist,
+        competitor_domains: competitors,
+        expected,
+        expected_expiring_suggestion_ids: expiringIds,
+      })
+      .then((r) => r.data);
+    return {
+      message: `Applied: external-link policy updated for site #${result.site_id}; ${result.expired_suggestions} suggestions expired.`,
       undoAvailable: false,
     };
   }

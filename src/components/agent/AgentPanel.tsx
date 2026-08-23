@@ -58,6 +58,12 @@ function ToolTrace({ name, outcome }: { name: string; outcome: Record<string, un
 }
 
 const describeProposal = (proposal: AgentProposal): string => {
+  if (proposal.kind === "external_link_policy") {
+    const siteId = proposal.endpoint.match(/\/sites\/(\d+)\//)?.[1];
+    const pending = proposal.impact?.pending_count ?? 0;
+    const approved = proposal.impact?.approved_count ?? 0;
+    return `Update site #${siteId} external-link policy; ${pending} pending and ${approved} approved suggestions will expire`;
+  }
   if (proposal.kind === "editorial_ranking_policy") {
     const siteId = proposal.endpoint.match(/\/sites\/(\d+)\//)?.[1];
     const state = proposal.payload.enabled ? "enable" : "disable";
@@ -119,6 +125,12 @@ function ProposalCard({
     <div className="assistant-proposal mt-3">
       <div className="assistant-proposal__label">Staged action</div>
       <p className="assistant-proposal__copy">{describeProposal(proposal)}</p>
+      {proposal.risk === "sensitive" && result === null && (
+        <p className="assistant-proposal__hint" role="note">
+          Sensitive change: review the impact carefully. Expired suggestions are not restored by
+          changing the policy back.
+        </p>
+      )}
       {result !== null ? (
         <p className="assistant-proposal__result" role="status">
           {result.message}
@@ -132,7 +144,11 @@ function ProposalCard({
             disabled={confirming}
             className="assistant-confirm-button"
           >
-            {confirming ? "Applying…" : "Confirm"}
+            {confirming
+              ? "Applying…"
+              : proposal.risk === "sensitive"
+                ? "Confirm sensitive change"
+                : "Confirm"}
           </button>
           <span className="assistant-proposal__hint">Nothing happens until you confirm.</span>
         </div>

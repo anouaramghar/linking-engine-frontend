@@ -122,6 +122,49 @@ describe("confirmProposal", () => {
     expect(put).toHaveBeenCalledWith("/sites/8/editorial-ranking-policy", payload);
   });
 
+  it("puts a sensitive external-link policy with its exact impact snapshot", async () => {
+    put.mockResolvedValueOnce({ data: { site_id: 8, expired_suggestions: 2 } });
+    const expected = {
+      external_links_enabled: false,
+      require_https: true,
+      min_trust_score: 60,
+      min_domain_age_days: 0,
+      trusted_tlds: [],
+      allowlist_domains: [],
+      blocklist_domains: [],
+      competitor_domains: [],
+    };
+    const payload = {
+      external_links_enabled: true,
+      require_https: true,
+      min_trust_score: 0,
+      min_domain_age_days: 0,
+      trusted_tlds: [],
+      allowlist_domains: [],
+      blocklist_domains: [],
+      competitor_domains: ["competitor.example"],
+      expected,
+      expected_expiring_suggestion_ids: [41, 42],
+    };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_external_link_policy",
+        kind: "external_link_policy",
+        risk: "sensitive",
+        method: "PUT",
+        endpoint: "/api/v1/sites/8/external-link-policy",
+        payload,
+        impact: { expiring_count: 2, pending_count: 1, approved_count: 1 },
+      }),
+    ).resolves.toEqual({
+      message: "Applied: external-link policy updated for site #8; 2 suggestions expired.",
+      undoAvailable: false,
+    });
+
+    expect(put).toHaveBeenCalledWith("/sites/8/external-link-policy", payload);
+  });
+
   it("refuses any other endpoint a proposal might name", async () => {
     await expect(
       confirmProposal({
@@ -179,6 +222,31 @@ describe("confirmProposal", () => {
         },
       }),
     ).rejects.toThrow("unsupported editorial ranking policy payload");
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("refuses an external-link policy without an exact impact snapshot", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_external_link_policy",
+        kind: "external_link_policy",
+        risk: "sensitive",
+        method: "PUT",
+        endpoint: "/api/v1/sites/8/external-link-policy",
+        payload: {
+          external_links_enabled: true,
+          require_https: true,
+          min_trust_score: 0,
+          min_domain_age_days: 0,
+          trusted_tlds: [],
+          allowlist_domains: [],
+          blocklist_domains: [],
+          competitor_domains: [],
+          expected: {},
+        },
+      }),
+    ).rejects.toThrow("unsupported external-link policy payload");
 
     expect(put).not.toHaveBeenCalled();
   });

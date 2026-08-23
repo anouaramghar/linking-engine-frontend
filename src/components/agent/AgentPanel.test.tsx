@@ -486,6 +486,66 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("requires a distinct confirmation for sensitive external-policy impact", async () => {
+    streams("Two suggestions would be expired by this policy.", {
+      proposals: [
+        {
+          tool: "preview_external_link_policy",
+          kind: "external_link_policy",
+          risk: "sensitive",
+          method: "PUT",
+          endpoint: "/api/v1/sites/8/external-link-policy",
+          payload: {
+            external_links_enabled: true,
+            require_https: true,
+            min_trust_score: 0,
+            min_domain_age_days: 0,
+            trusted_tlds: [],
+            allowlist_domains: [],
+            blocklist_domains: [],
+            competitor_domains: ["competitor.example"],
+            expected: {
+              external_links_enabled: false,
+              require_https: true,
+              min_trust_score: 60,
+              min_domain_age_days: 0,
+              trusted_tlds: [],
+              allowlist_domains: [],
+              blocklist_domains: [],
+              competitor_domains: [],
+            },
+            expected_expiring_suggestion_ids: [41, 42],
+          },
+          impact: { expiring_count: 2, pending_count: 1, approved_count: 1 },
+        },
+      ],
+    });
+    const confirm = vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Applied: external-link policy updated for site #8; 2 suggestions expired.",
+      undoAvailable: false,
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(
+      await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }),
+    );
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "block competitor.example for site 8{Enter}",
+    );
+
+    expect(
+      await screen.findByText(/1 pending and 1 approved suggestions will expire/),
+    ).not.toBeNull();
+    expect(screen.getByText(/Expired suggestions are not restored/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm sensitive change" }));
+    expect(await screen.findByText(/2 suggestions expired/)).not.toBeNull();
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "external_link_policy", risk: "sensitive" }),
+    );
+  });
+
   it("surfaces a failed proposal without losing the conversation", async () => {
     streams("", {
       proposals: [
