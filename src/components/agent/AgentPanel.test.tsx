@@ -546,6 +546,66 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("shows the exact scope before confirming a pipeline cancellation", async () => {
+    streams("The active batch can be stopped.", {
+      proposals: [
+        {
+          tool: "preview_pipeline_cancel",
+          kind: "pipeline_cancel",
+          risk: "sensitive",
+          method: "POST",
+          endpoint: "/api/v1/pipelines/batches/9/cancel",
+          payload: {
+            expected_batch_status: "running",
+            expected_sites: [
+              {
+                site_id: 7,
+                status: "ingestion_running",
+                stage: "ingestion",
+                ingestion_job_run_id: 41,
+                analysis_job_run_id: null,
+              },
+              {
+                site_id: 8,
+                status: "analysis_running",
+                stage: "analysis",
+                ingestion_job_run_id: 42,
+                analysis_job_run_id: 43,
+              },
+            ],
+          },
+          impact: {
+            site_count: 2,
+            ingestion_stage_count: 1,
+            analysis_stage_count: 1,
+          },
+        },
+      ],
+    });
+    const confirm = vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Cancelled: pipeline batch #9 across 2 unfinished sites.",
+      undoAvailable: false,
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(
+      await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }),
+    );
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "cancel batch 9{Enter}",
+    );
+
+    expect(await screen.findByText(/Cancel batch #9 for 2 unfinished sites/)).not.toBeNull();
+    expect(screen.getByText(/unfinished work will stop/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm sensitive change" }));
+    expect(await screen.findByText(/batch #9 across 2 unfinished sites/)).not.toBeNull();
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "pipeline_cancel", risk: "sensitive" }),
+    );
+  });
+
   it("surfaces a failed proposal without losing the conversation", async () => {
     streams("", {
       proposals: [

@@ -17,7 +17,11 @@ export type AgentProposalKind =
   | "bulk_review"
   | "review_suggestion"
   | "editorial_ranking_policy"
-  | "external_link_policy";
+  | "external_link_policy"
+  | "site_job_start"
+  | "pipeline_batch_start"
+  | "pipeline_retry"
+  | "pipeline_cancel";
 export type AgentProposalRisk = "reversible" | "sensitive";
 
 /** A typed, allowlisted mutation awaiting the editor's confirmation. */
@@ -29,11 +33,7 @@ export interface AgentProposal {
   endpoint: string;
   payload: Record<string, unknown>;
   match_count?: number | null;
-  impact?: {
-    expiring_count: number;
-    pending_count: number;
-    approved_count: number;
-  };
+  impact?: Record<string, number>;
 }
 
 export interface AgentProposalResult {
@@ -218,6 +218,11 @@ export const confirmProposal = async (
   proposal: AgentProposal,
 ): Promise<AgentProposalResult> => {
   const path = proposal.endpoint.replace(/^\/api\/v1/, "");
+  const positiveIntegerList = (value: unknown): value is number[] =>
+    Array.isArray(value) && value.every((item) => Number.isInteger(item) && Number(item) > 0);
+  const sortedUniqueIntegerList = (value: unknown): value is number[] =>
+    positiveIntegerList(value) &&
+    value.every((item, index) => index === 0 || Number(value[index - 1]) < item);
   if (
     proposal.tool === "preview_bulk_review" &&
     proposal.kind === "bulk_review" &&
@@ -240,6 +245,127 @@ export const confirmProposal = async (
         result.skipped > 0 ? `, ${result.skipped} skipped` : ""
       }.`,
       undoAvailable: Boolean(result.undo_operation_id),
+    };
+  }
+
+  const siteIngestion = path.match(/^\/sites\/(\d+)\/ingest$/);
+  const siteAnalysis = path.match(/^\/suggestions\/(\d+)$/);
+  if (
+    proposal.tool === "preview_site_job" &&
+    proposal.kind === "site_job_start" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    (siteIngestion || siteAnalysis)
+  ) {
+    const expectedIds = proposal.payload.expected_active_job_run_ids;
+    if (!Array.isArray(expectedIds) || !sortedUniqueIntegerList(expectedIds)) {
+      // An empty snapshot is valid and is what a ready preview normally binds.
+      if (!Array.isArray(expectedIds) || expectedIds.length !== 0) {
+        throw new Error("unsupported site job payload");
+      }
+    }
+    const result = await api
+      .post<{ job_run_id: number | null }>(path, proposal.payload)
+      .then((r) => r.data);
+    const label = siteIngestion ? "crawl" : "analysis";
+    return {
+      message: `Started: ${label} job #${String(result.job_run_id)}.`,
+      undoAvailable: false,
+    };
+  }
+
+  if (
+    proposal.tool === "preview_pipeline_batch" &&
+    proposal.kind === "pipeline_batch_start" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    path === "/pipelines/batches"
+  ) {
+    const siteIds = proposal.payload.site_ids;
+    const expectedIds = proposal.payload.expected_active_job_run_ids;
+    if (
+      !sortedUniqueIntegerList(siteIds) ||
+      siteIds.length === 0 ||
+      (!sortedUniqueIntegerList(expectedIds) &&
+        !(Array.isArray(expectedIds) && expectedIds.length === 0))
+    ) {
+      throw new Error("unsupported pipeline batch payload");
+    }
+    const result = await api
+      .post<{ id: number }>(path, proposal.payload)
+      .then((r) => r.data);
+    return {
+      message: `Started: pipeline batch #${result.id} for ${siteIds.length} site${siteIds.length === 1 ? "" : "s"}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const pipelineRetry = path.match(/^\/pipelines\/batches\/(\d+)\/sites\/(\d+)\/retry$/);
+  if (
+    proposal.tool === "preview_pipeline_retry" &&
+    proposal.kind === "pipeline_retry" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    pipelineRetry
+  ) {
+    const retryCount = proposal.payload.expected_retry_count;
+    const stage = proposal.payload.expected_stage;
+    if (
+      typeof proposal.payload.expected_batch_status !== "string" ||
+      proposal.payload.expected_site_status !== "failed" ||
+      (stage !== "ingestion" && stage !== "analysis") ||
+      !Number.isInteger(retryCount) ||
+      Number(retryCount) < 0
+    ) {
+      throw new Error("unsupported pipeline retry payload");
+    }
+    await api.post(path, proposal.payload);
+    return {
+      message: `Started: ${stage} retry for site #${pipelineRetry[2]} in batch #${pipelineRetry[1]}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const pipelineCancel = path.match(/^\/pipelines\/batches\/(\d+)\/cancel$/);
+  if (
+    proposal.tool === "preview_pipeline_cancel" &&
+    proposal.kind === "pipeline_cancel" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    pipelineCancel
+  ) {
+    const status = proposal.payload.expected_batch_status;
+    const expectedSites = proposal.payload.expected_sites;
+    const validSiteState = (value: unknown): value is Record<string, unknown> => {
+      if (typeof value !== "object" || value === null) return false;
+      const state = value as Record<string, unknown>;
+      return (
+        Number.isInteger(state.site_id) &&
+        Number(state.site_id) > 0 &&
+        ["queued", "ingestion_running", "analysis_queued", "analysis_running"].includes(
+          String(state.status),
+        ) &&
+        (state.stage === "ingestion" || state.stage === "analysis") &&
+        (state.ingestion_job_run_id === null ||
+          (Number.isInteger(state.ingestion_job_run_id) &&
+            Number(state.ingestion_job_run_id) > 0)) &&
+        (state.analysis_job_run_id === null ||
+          (Number.isInteger(state.analysis_job_run_id) && Number(state.analysis_job_run_id) > 0))
+      );
+    };
+    if (
+      (status !== "queued" && status !== "running") ||
+      !Array.isArray(expectedSites) ||
+      expectedSites.length === 0 ||
+      !expectedSites.every(validSiteState) ||
+      !sortedUniqueIntegerList(expectedSites.map((state) => Number(state.site_id)))
+    ) {
+      throw new Error("unsupported pipeline cancellation payload");
+    }
+    await api.post(path, proposal.payload);
+    return {
+      message: `Cancelled: pipeline batch #${pipelineCancel[1]} across ${expectedSites.length} unfinished site${expectedSites.length === 1 ? "" : "s"}.`,
+      undoAvailable: false,
     };
   }
 

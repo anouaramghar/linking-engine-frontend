@@ -165,6 +165,113 @@ describe("confirmProposal", () => {
     expect(put).toHaveBeenCalledWith("/sites/8/external-link-policy", payload);
   });
 
+  it("starts a staged site job only with its idle-job snapshot", async () => {
+    post.mockResolvedValueOnce({ data: { job_run_id: 51 } });
+    const payload = { expected_active_job_run_ids: [] };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_site_job",
+        kind: "site_job_start",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/suggestions/8",
+        payload,
+      }),
+    ).resolves.toEqual({
+      message: "Started: analysis job #51.",
+      undoAvailable: false,
+    });
+
+    expect(post).toHaveBeenCalledWith("/suggestions/8", payload);
+  });
+
+  it("starts a staged pipeline with exact sites and idle-job snapshot", async () => {
+    post.mockResolvedValueOnce({ data: { id: 31 } });
+    const payload = { site_ids: [7, 8], expected_active_job_run_ids: [] };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_pipeline_batch",
+        kind: "pipeline_batch_start",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/pipelines/batches",
+        payload,
+      }),
+    ).resolves.toEqual({
+      message: "Started: pipeline batch #31 for 2 sites.",
+      undoAvailable: false,
+    });
+
+    expect(post).toHaveBeenCalledWith("/pipelines/batches", payload);
+  });
+
+  it("retries and cancels pipelines only through their state-bound routes", async () => {
+    const retryPayload = {
+      expected_batch_status: "failed",
+      expected_site_status: "failed",
+      expected_stage: "analysis",
+      expected_retry_count: 1,
+    };
+    await confirmProposal({
+      tool: "preview_pipeline_retry",
+      kind: "pipeline_retry",
+      risk: "sensitive",
+      method: "POST",
+      endpoint: "/api/v1/pipelines/batches/4/sites/8/retry",
+      payload: retryPayload,
+    });
+    expect(post).toHaveBeenCalledWith(
+      "/pipelines/batches/4/sites/8/retry",
+      retryPayload,
+    );
+
+    const cancelPayload = {
+      expected_batch_status: "running",
+      expected_sites: [
+        {
+          site_id: 7,
+          status: "ingestion_running",
+          stage: "ingestion",
+          ingestion_job_run_id: 41,
+          analysis_job_run_id: null,
+        },
+        {
+          site_id: 8,
+          status: "analysis_running",
+          stage: "analysis",
+          ingestion_job_run_id: 42,
+          analysis_job_run_id: 43,
+        },
+      ],
+    };
+    await confirmProposal({
+      tool: "preview_pipeline_cancel",
+      kind: "pipeline_cancel",
+      risk: "sensitive",
+      method: "POST",
+      endpoint: "/api/v1/pipelines/batches/4/cancel",
+      payload: cancelPayload,
+    });
+    expect(post).toHaveBeenCalledWith("/pipelines/batches/4/cancel", cancelPayload);
+  });
+
+  it("refuses a site job proposal without the previewed active-job snapshot", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_site_job",
+        kind: "site_job_start",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/sites/8/ingest",
+        payload: {},
+      }),
+    ).rejects.toThrow("unsupported site job payload");
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("refuses any other endpoint a proposal might name", async () => {
     await expect(
       confirmProposal({

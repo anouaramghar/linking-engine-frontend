@@ -79,6 +79,26 @@ const describeProposal = (proposal: AgentProposal): string => {
         : "";
     return `${verb} suggestion #${suggestionId}${reason}`;
   }
+  if (proposal.kind === "site_job_start") {
+    const ingestion = /\/sites\/\d+\/ingest$/.test(proposal.endpoint);
+    const siteId = proposal.endpoint.match(/\/(?:sites|suggestions)\/(\d+)/)?.[1];
+    const articles = proposal.impact?.active_article_count ?? 0;
+    return `${ingestion ? "Crawl" : "Analyze"} site #${siteId}; current scope is ${articles} active article${articles === 1 ? "" : "s"}`;
+  }
+  if (proposal.kind === "pipeline_batch_start") {
+    const sites = proposal.impact?.site_count ?? 0;
+    const articles = proposal.impact?.active_article_count ?? 0;
+    return `Start crawl-then-analysis pipeline for ${sites} site${sites === 1 ? "" : "s"}, currently covering ${articles} active article${articles === 1 ? "" : "s"}`;
+  }
+  if (proposal.kind === "pipeline_retry") {
+    const match = proposal.endpoint.match(/\/batches\/(\d+)\/sites\/(\d+)\/retry$/);
+    return `Retry the failed ${String(proposal.payload.expected_stage)} stage for site #${match?.[2]} in batch #${match?.[1]}`;
+  }
+  if (proposal.kind === "pipeline_cancel") {
+    const batchId = proposal.endpoint.match(/\/batches\/(\d+)\/cancel$/)?.[1];
+    const sites = proposal.impact?.site_count ?? 0;
+    return `Cancel batch #${batchId} for ${sites} unfinished site${sites === 1 ? "" : "s"}`;
+  }
   const rule = proposal.payload;
   const verb = rule.status === "approved" ? "Approve" : "Reject";
   const direction = rule.status === "approved" ? "at or above" : "below";
@@ -86,6 +106,16 @@ const describeProposal = (proposal: AgentProposal): string => {
   const count =
     typeof proposal.match_count === "number" ? ` (${proposal.match_count} pending)` : "";
   return `${verb} pending suggestions ${direction} ${String(rule.threshold_percent)}% on ${scope}${count}`;
+};
+
+const sensitiveProposalWarning = (proposal: AgentProposal): string => {
+  if (proposal.kind === "external_link_policy") {
+    return "Sensitive change: review the impact carefully. Expired suggestions are not restored by changing the policy back.";
+  }
+  if (proposal.kind === "pipeline_cancel") {
+    return "Sensitive action: unfinished work will stop. Completed site runs stay completed.";
+  }
+  return "Sensitive action: this queues connector or analysis work and may consume processing capacity.";
 };
 
 /**
@@ -127,8 +157,7 @@ function ProposalCard({
       <p className="assistant-proposal__copy">{describeProposal(proposal)}</p>
       {proposal.risk === "sensitive" && result === null && (
         <p className="assistant-proposal__hint" role="note">
-          Sensitive change: review the impact carefully. Expired suggestions are not restored by
-          changing the policy back.
+          {sensitiveProposalWarning(proposal)}
         </p>
       )}
       {result !== null ? (
