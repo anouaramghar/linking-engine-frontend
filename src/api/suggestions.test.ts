@@ -267,7 +267,10 @@ describe("current suggestion mutations", () => {
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
     expect(api.post).toHaveBeenNthCalledWith(3, "/suggestions/3/compare");
-    expect(api.post).toHaveBeenNthCalledWith(4, "/articles/42/suggestions");
+    expect(api.post).toHaveBeenNthCalledWith(4, "/articles/42/suggestions", {
+      expected_active_job_run_ids: [],
+      expected_article_is_active: true,
+    });
   });
 });
 

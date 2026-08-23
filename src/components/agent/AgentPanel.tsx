@@ -94,6 +94,13 @@ const describeProposal = (proposal: AgentProposal): string => {
     const articles = proposal.impact?.active_article_count ?? 0;
     return `${ingestion ? "Crawl" : "Analyze"} site #${siteId}; current scope is ${articles} active article${articles === 1 ? "" : "s"}`;
   }
+  if (proposal.kind === "article_analysis_start") {
+    const articleId = proposal.context?.article_id;
+    const title = proposal.context?.article_title;
+    const site = proposal.context?.site_name;
+    const remaining = proposal.impact?.remaining_slots_for_article ?? 0;
+    return `Generate suggestions for ${String(title)} (article #${String(articleId)}) on ${String(site)}; up to ${remaining} slot${remaining === 1 ? "" : "s"} remain`;
+  }
   if (proposal.kind === "pipeline_batch_start") {
     const sites = proposal.impact?.site_count ?? 0;
     const articles = proposal.impact?.active_article_count ?? 0;

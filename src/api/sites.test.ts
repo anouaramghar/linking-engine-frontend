@@ -9,6 +9,7 @@ import {
   ingestPoolSourceBatch,
   listExternalSourceEvaluations,
   listPoolAuditEvents,
+  listSiteArticles,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
@@ -73,6 +74,17 @@ describe("listSites", () => {
     expect(sites).toEqual(page);
     expect(get).toHaveBeenCalledWith("/sites", {
       params: { limit: 1000, offset: 1000, search: "docs" },
+    });
+  });
+});
+describe("listSiteArticles", () => {
+  it("loads a bounded page of active articles for one site", async () => {
+    const page = [{ id: 42, title: "Install", url: "https://docs.example.com/install" }];
+    get.mockResolvedValue({ data: page });
+
+    await expect(listSiteArticles(8, 1000)).resolves.toEqual(page);
+    expect(get).toHaveBeenCalledWith("/sites/8/articles", {
+      params: { limit: 1000, offset: 1000 },
     });
   });
 });

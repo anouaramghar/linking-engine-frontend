@@ -84,6 +84,7 @@ interface TrackedJob {
 
 const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
 const BulkImportModal = lazy(() => import("../components/sites/BulkImportModal"));
+const ArticleAnalysisModal = lazy(() => import("../components/sites/ArticleAnalysisModal"));
 const BatchPipelinePanel = lazy(() => import("../components/sites/BatchPipelinePanel"));
 const EditorialRankingPolicyModal = lazy(
   () => import("../components/sites/EditorialRankingPolicyModal"),
@@ -256,6 +257,7 @@ export default function SitesPage() {
   const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [policySite, setPolicySite] = useState<Site | null>(null);
   const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
+  const [articleAnalysisSite, setArticleAnalysisSite] = useState<Site | null>(null);
   // A batch is assembled by hand across a long list. Leaving to check one site's
   // credentials before running the rest is part of assembling it, and used to
   // throw the whole selection away.
@@ -770,6 +772,14 @@ export default function SitesPage() {
                               ),
                           },
                           {
+                            label: "Generate for one article",
+                            disabled:
+                              site.suggestion_slots_available === 0 ||
+                              jobStatusUnavailable ||
+                              hasActiveJob(site.id, "analysis"),
+                            onSelect: () => setArticleAnalysisSite(site),
+                          },
+                          {
                             label: "External link policy",
                             onSelect: () => setPolicySite(site),
                           },
@@ -867,6 +877,13 @@ export default function SitesPage() {
       <Suspense fallback={null}>
         {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
         {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
+        {articleAnalysisSite && (
+          <ArticleAnalysisModal
+            site={articleAnalysisSite}
+            onClose={() => setArticleAnalysisSite(null)}
+            onQueued={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
         {credentialsFor && (
           <SiteCredentialsModal
             site={credentialsFor}

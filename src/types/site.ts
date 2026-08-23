@@ -172,6 +172,13 @@ export interface ArticleImportResult {
   diagnostic_summary: Record<string, number>;
 }
 
+export interface SiteArticle {
+  id: number;
+  external_id: string | null;
+  url: string;
+  title: string;
+}
+
 export interface PoolSourceValidationResult {
   base_url: string | null;
   valid: boolean;

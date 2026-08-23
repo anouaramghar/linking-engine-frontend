@@ -17,6 +17,7 @@ import {
   ingestPoolSourceBatch,
   listPoolAuditEvents,
   listExternalSourceEvaluations,
+  listSiteArticles,
   POOL_AUDIT_PAGE_SIZE,
   listSites,
   setWordPressCredentials,
@@ -42,6 +43,21 @@ export const useSites = (search = "") =>
       lastPage.length === SITE_PAGE_SIZE ? pages.length * SITE_PAGE_SIZE : undefined,
     select: (data) => data.pages.flat(),
   });
+
+export const useSiteArticles = (siteId: number | null) => {
+  const query = useInfiniteQuery({
+    queryKey: ["sites", siteId, "articles"],
+    queryFn: ({ pageParam }) => listSiteArticles(siteId!, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === SITE_PAGE_SIZE ? pages.length * SITE_PAGE_SIZE : undefined,
+    enabled: siteId !== null,
+  });
+  return {
+    ...query,
+    articles: query.data?.pages.flatMap((page) => page) ?? [],
+  };
+};
 
 const invalidateSiteDependencies = (qc: ReturnType<typeof useQueryClient>) =>
   Promise.all([

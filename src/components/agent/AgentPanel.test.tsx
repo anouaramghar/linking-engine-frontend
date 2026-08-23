@@ -591,6 +591,55 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("shows the exact article and remaining capacity before analysis", async () => {
+    streams("This source article can receive more suggestions.", {
+      proposals: [
+        {
+          tool: "preview_article_analysis",
+          kind: "article_analysis_start",
+          risk: "sensitive",
+          method: "POST",
+          endpoint: "/api/v1/articles/42/suggestions",
+          payload: {
+            expected_active_job_run_ids: [],
+            expected_article_is_active: true,
+          },
+          context: {
+            site_id: 8,
+            site_name: "Docs",
+            article_id: 42,
+            article_title: "Install LinkMesh",
+            article_url: "https://docs.example.com/install",
+          },
+          impact: {
+            site_count: 1,
+            source_article_count: 1,
+            site_active_article_count: 20,
+            remaining_slots_for_article: 2,
+          },
+        },
+      ],
+    });
+    vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Started: analysis job #52 for article #42.",
+      undoAvailable: false,
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }));
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "generate suggestions for article 42{Enter}",
+    );
+
+    expect(
+      await screen.findByText(/Generate suggestions for Install LinkMesh \(article #42\) on Docs/),
+    ).not.toBeNull();
+    expect(screen.getByText(/up to 2 slots remain/)).not.toBeNull();
+    expect(screen.getByText(/may consume processing capacity/)).not.toBeNull();
+  });
+
   it("shows the exact scope before confirming a pipeline cancellation", async () => {
     streams("The active batch can be stopped.", {
       proposals: [

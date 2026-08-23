@@ -310,7 +310,12 @@ export const triggerAnalysis = (siteId: number) =>
 
 /** Generate the same ranked suggestions for one source article only. */
 export const triggerArticleAnalysis = (articleId: number) =>
-  api.post<JobAccepted>(`/articles/${articleId}/suggestions`).then((r) => r.data);
+  api
+    .post<JobAccepted>(`/articles/${articleId}/suggestions`, {
+      expected_active_job_run_ids: [],
+      expected_article_is_active: true,
+    })
+    .then((r) => r.data);
 
 export const triggerComparison = (siteId: number) =>
   api.post<JobAccepted>(`/suggestions/${siteId}/compare`).then((r) => r.data);

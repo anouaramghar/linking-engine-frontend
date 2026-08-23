@@ -12,6 +12,7 @@ import type {
   EditorialRankingPolicyUpdate,
   ArticleImportResult,
   ArticleImportRow,
+  SiteArticle,
 } from "../types/site";
 import type { JobAccepted } from "../types/job";
 import { ENGINE_PAGE_LIMIT } from "./engineLimits";
@@ -22,6 +23,13 @@ export const listSites = (offset = 0, search = "") =>
   api
     .get<Site[]>("/sites", {
       params: { limit: SITE_PAGE_SIZE, offset, search: search.trim() || undefined },
+    })
+    .then((response) => response.data);
+
+export const listSiteArticles = (siteId: number, offset = 0) =>
+  api
+    .get<SiteArticle[]>(`/sites/${siteId}/articles`, {
+      params: { limit: ENGINE_PAGE_LIMIT, offset },
     })
     .then((response) => response.data);
 

@@ -13,6 +13,9 @@ interface Props {
   collapsed: boolean;
   onToggle: () => void;
   onShowMore: () => void;
+  onGenerateSuggestions?: () => void;
+  generationPending?: boolean;
+  generationDisabled?: boolean;
   itemLabel?: string;
   children: ReactNode;
 }
@@ -30,6 +33,9 @@ export default function SuggestionGroup({
   collapsed,
   onToggle,
   onShowMore,
+  onGenerateSuggestions,
+  generationPending = false,
+  generationDisabled = false,
   itemLabel = "suggestion",
   children,
 }: Props) {
@@ -84,6 +90,17 @@ export default function SuggestionGroup({
             </span>
           </button>
         </h2>
+        {onGenerateSuggestions && (
+          <button
+            type="button"
+            onClick={onGenerateSuggestions}
+            disabled={generationDisabled || generationPending}
+            aria-label={`Generate suggestions for ${sourceArticle.title}`}
+            className="btn btn-outline btn-sm flex-none self-start"
+          >
+            {generationPending ? "Queueing…" : "Generate for article"}
+          </button>
+        )}
         <span className="badge flex-none self-start">
           {count} {itemCountLabel}
         </span>

@@ -446,6 +446,7 @@ describe("SitesPage generation controls", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Generate for one article" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Compare methods/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Suggestion method/ })).toBeNull();
   });
@@ -459,6 +460,10 @@ describe("SitesPage generation controls", () => {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
     expect(generate.disabled).toBe(true);
+    expect(
+      (screen.getByRole("menuitem", { name: "Generate for one article" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });
 

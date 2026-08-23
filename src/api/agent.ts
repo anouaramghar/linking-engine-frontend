@@ -23,7 +23,8 @@ export type AgentProposalKind =
   | "pipeline_retry"
   | "pipeline_cancel"
   | "site_create"
-  | "site_bulk_create";
+  | "site_bulk_create"
+  | "article_analysis_start";
 export type AgentProposalRisk = "reversible" | "sensitive";
 
 /** A typed, allowlisted mutation awaiting the editor's confirmation. */
@@ -35,6 +36,7 @@ export interface AgentProposal {
   endpoint: string;
   payload: Record<string, unknown>;
   match_count?: number | null;
+  context?: Record<string, string | number>;
   impact?: Record<string, number>;
 }
 
@@ -365,6 +367,44 @@ export const confirmProposal = async (
     const label = siteIngestion ? "crawl" : "analysis";
     return {
       message: `Started: ${label} job #${String(result.job_run_id)}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const articleAnalysis = path.match(/^\/articles\/(\d+)\/suggestions$/);
+  if (
+    proposal.tool === "preview_article_analysis" &&
+    proposal.kind === "article_analysis_start" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    articleAnalysis
+  ) {
+    const expectedIds = proposal.payload.expected_active_job_run_ids;
+    const context = proposal.context;
+    if (
+      !hasOnlyKeys(proposal.payload, [
+        "expected_active_job_run_ids",
+        "expected_article_is_active",
+      ]) ||
+      ((!sortedUniqueIntegerList(expectedIds) &&
+        !(Array.isArray(expectedIds) && expectedIds.length === 0))) ||
+      proposal.payload.expected_article_is_active !== true ||
+      !context ||
+      Number(context.article_id) !== Number(articleAnalysis[1]) ||
+      !Number.isInteger(context.site_id) ||
+      Number(context.site_id) <= 0 ||
+      typeof context.article_title !== "string" ||
+      !context.article_title.trim() ||
+      typeof context.site_name !== "string" ||
+      !context.site_name.trim()
+    ) {
+      throw new Error("unsupported article analysis proposal");
+    }
+    const result = await api
+      .post<{ job_run_id: number | null }>(path, proposal.payload)
+      .then((response) => response.data);
+    return {
+      message: `Started: analysis job #${String(result.job_run_id)} for article #${articleAnalysis[1]}.`,
       undoAvailable: false,
     };
   }

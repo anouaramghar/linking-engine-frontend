@@ -186,6 +186,61 @@ describe("confirmProposal", () => {
     expect(post).toHaveBeenCalledWith("/suggestions/8", payload);
   });
 
+  it("starts one exact active article analysis through its guarded proposal", async () => {
+    post.mockResolvedValueOnce({ data: { job_run_id: 52 } });
+    const payload = {
+      expected_active_job_run_ids: [],
+      expected_article_is_active: true,
+    };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_article_analysis",
+        kind: "article_analysis_start",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/articles/42/suggestions",
+        payload,
+        context: {
+          site_id: 8,
+          site_name: "Docs",
+          article_id: 42,
+          article_title: "Install LinkMesh",
+          article_url: "https://docs.example.com/install",
+        },
+      }),
+    ).resolves.toEqual({
+      message: "Started: analysis job #52 for article #42.",
+      undoAvailable: false,
+    });
+
+    expect(post).toHaveBeenCalledWith("/articles/42/suggestions", payload);
+  });
+
+  it("refuses an article-analysis proposal whose displayed article does not match", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_article_analysis",
+        kind: "article_analysis_start",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/articles/42/suggestions",
+        payload: {
+          expected_active_job_run_ids: [],
+          expected_article_is_active: true,
+        },
+        context: {
+          site_id: 8,
+          site_name: "Docs",
+          article_id: 43,
+          article_title: "A different article",
+        },
+      }),
+    ).rejects.toThrow("unsupported article analysis proposal");
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("connects one credential-free managed site through its exact proposal", async () => {
     post.mockResolvedValueOnce({ data: { id: 61, name: "Docs" } });
     const payload = {
