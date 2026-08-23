@@ -13,7 +13,10 @@ export interface AgentToolTrace {
   outcome: Record<string, unknown>;
 }
 
-export type AgentProposalKind = "bulk_review" | "review_suggestion";
+export type AgentProposalKind =
+  | "bulk_review"
+  | "review_suggestion"
+  | "editorial_ranking_policy";
 export type AgentProposalRisk = "reversible" | "sensitive";
 
 /** A typed, allowlisted mutation awaiting the editor's confirmation. */
@@ -255,6 +258,44 @@ export const confirmProposal = async (
     return {
       message: `Applied: suggestion #${result.id} is ${result.status}.`,
       undoAvailable: true,
+    };
+  }
+
+  const rankingPolicy = path.match(/^\/sites\/(\d+)\/editorial-ranking-policy$/);
+  if (
+    proposal.tool === "preview_editorial_ranking_policy" &&
+    proposal.kind === "editorial_ranking_policy" &&
+    proposal.risk === "reversible" &&
+    proposal.method === "PUT" &&
+    rankingPolicy
+  ) {
+    const expected = proposal.payload.expected;
+    const enabled = proposal.payload.enabled;
+    const minScore = proposal.payload.min_score_percent;
+    const weight = proposal.payload.feedback_weight;
+    const minSamples = proposal.payload.min_samples;
+    if (
+      typeof expected !== "object" ||
+      expected === null ||
+      typeof enabled !== "boolean" ||
+      typeof minScore !== "number" ||
+      typeof weight !== "number" ||
+      typeof minSamples !== "number"
+    ) {
+      throw new Error("unsupported editorial ranking policy payload");
+    }
+    const result = await api
+      .put<{ site_id: number }>(path, {
+        enabled,
+        min_score_percent: minScore,
+        feedback_weight: weight,
+        min_samples: minSamples,
+        expected,
+      })
+      .then((r) => r.data);
+    return {
+      message: `Applied: editorial ranking policy updated for site #${result.site_id}.`,
+      undoAvailable: false,
     };
   }
 

@@ -434,6 +434,58 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("shows and confirms an editorial ranking policy change", async () => {
+    streams("The complete policy change is ready for review.", {
+      proposals: [
+        {
+          tool: "preview_editorial_ranking_policy",
+          kind: "editorial_ranking_policy",
+          risk: "reversible",
+          method: "PUT",
+          endpoint: "/api/v1/sites/8/editorial-ranking-policy",
+          payload: {
+            enabled: true,
+            min_score_percent: 70,
+            feedback_weight: 0.35,
+            min_samples: 25,
+            expected: {
+              enabled: false,
+              min_score_percent: 0,
+              feedback_weight: 0.2,
+              min_samples: 10,
+            },
+          },
+        },
+      ],
+    });
+    const confirm = vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Applied: editorial ranking policy updated for site #8.",
+      undoAvailable: false,
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(
+      await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }),
+    );
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "enable editorial feedback for site 8 at 35 percent{Enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        /site #8 ranking policy: enable editorial feedback, minimum score 70%, 35% feedback weight, after 25 decisions/,
+      ),
+    ).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(await screen.findByText(/ranking policy updated for site #8/)).not.toBeNull();
+    expect(screen.queryByText(/Undo is available/)).toBeNull();
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "editorial_ranking_policy", method: "PUT" }),
+    );
+  });
+
   it("surfaces a failed proposal without losing the conversation", async () => {
     streams("", {
       proposals: [

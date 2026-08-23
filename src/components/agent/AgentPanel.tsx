@@ -58,6 +58,12 @@ function ToolTrace({ name, outcome }: { name: string; outcome: Record<string, un
 }
 
 const describeProposal = (proposal: AgentProposal): string => {
+  if (proposal.kind === "editorial_ranking_policy") {
+    const siteId = proposal.endpoint.match(/\/sites\/(\d+)\//)?.[1];
+    const state = proposal.payload.enabled ? "enable" : "disable";
+    const weight = Math.round(Number(proposal.payload.feedback_weight) * 100);
+    return `Update site #${siteId} ranking policy: ${state} editorial feedback, minimum score ${String(proposal.payload.min_score_percent)}%, ${weight}% feedback weight, after ${String(proposal.payload.min_samples)} decisions`;
+  }
   if (proposal.kind === "review_suggestion") {
     const verb = proposal.payload.status === "approved" ? "Approve" : "Reject";
     const suggestionId = proposal.endpoint.split("/").pop();

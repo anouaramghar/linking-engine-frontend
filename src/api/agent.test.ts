@@ -89,6 +89,39 @@ describe("confirmProposal", () => {
     expect(put).toHaveBeenCalledWith("/suggestions/7", payload);
   });
 
+  it("puts a ranking policy with its expected snapshot", async () => {
+    put.mockResolvedValueOnce({ data: { site_id: 8 } });
+    const expected = {
+      enabled: false,
+      min_score_percent: 0,
+      feedback_weight: 0.2,
+      min_samples: 10,
+    };
+    const payload = {
+      enabled: true,
+      min_score_percent: 70,
+      feedback_weight: 0.35,
+      min_samples: 25,
+      expected,
+    };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_editorial_ranking_policy",
+        kind: "editorial_ranking_policy",
+        risk: "reversible",
+        method: "PUT",
+        endpoint: "/api/v1/sites/8/editorial-ranking-policy",
+        payload,
+      }),
+    ).resolves.toEqual({
+      message: "Applied: editorial ranking policy updated for site #8.",
+      undoAvailable: false,
+    });
+
+    expect(put).toHaveBeenCalledWith("/sites/8/editorial-ranking-policy", payload);
+  });
+
   it("refuses any other endpoint a proposal might name", async () => {
     await expect(
       confirmProposal({
@@ -126,6 +159,26 @@ describe("confirmProposal", () => {
         payload: { status: "approved" },
       }),
     ).rejects.toThrow("unsupported suggestion review status");
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("refuses a ranking policy proposal without its expected snapshot", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_editorial_ranking_policy",
+        kind: "editorial_ranking_policy",
+        risk: "reversible",
+        method: "PUT",
+        endpoint: "/api/v1/sites/8/editorial-ranking-policy",
+        payload: {
+          enabled: true,
+          min_score_percent: 70,
+          feedback_weight: 0.35,
+          min_samples: 25,
+        },
+      }),
+    ).rejects.toThrow("unsupported editorial ranking policy payload");
 
     expect(put).not.toHaveBeenCalled();
   });
