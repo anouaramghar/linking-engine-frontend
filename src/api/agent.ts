@@ -24,7 +24,9 @@ export type AgentProposalKind =
   | "pipeline_cancel"
   | "site_create"
   | "site_bulk_create"
-  | "article_analysis_start";
+  | "article_analysis_start"
+  | "alert_acknowledgement"
+  | "pool_source_action";
 export type AgentProposalRisk = "reversible" | "sensitive";
 
 /** A typed, allowlisted mutation awaiting the editor's confirmation. */
@@ -32,11 +34,11 @@ export interface AgentProposal {
   tool: string;
   kind: AgentProposalKind;
   risk: AgentProposalRisk;
-  method: "POST" | "PUT";
+  method: "POST" | "PUT" | "DELETE";
   endpoint: string;
   payload: Record<string, unknown>;
   match_count?: number | null;
-  context?: Record<string, string | number>;
+  context?: Record<string, string | number | boolean | null>;
   impact?: Record<string, number>;
 }
 
@@ -229,6 +231,8 @@ export const confirmProposal = async (
     value.every((item, index) => index === 0 || Number(value[index - 1]) < item);
   const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]) =>
     Object.keys(value).every((key) => allowed.includes(key));
+  const isIsoTimestamp = (value: unknown): value is string =>
+    typeof value === "string" && value.trim() !== "" && !Number.isNaN(Date.parse(value));
   const validManagedSite = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
     const site = value as Record<string, unknown>;
@@ -300,6 +304,104 @@ export const confirmProposal = async (
       .then((response) => response.data);
     return {
       message: `Connected: ${result.name} as site #${result.id}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const alertAcknowledgement = path.match(/^\/alerts\/(\d+)\/acknowledge$/);
+  if (
+    proposal.tool === "preview_alert_acknowledgement" &&
+    proposal.kind === "alert_acknowledgement" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    alertAcknowledgement
+  ) {
+    const context = proposal.context;
+    if (
+      !hasOnlyKeys(proposal.payload, [
+        "expected_unacknowledged",
+        "expected_occurrences",
+        "expected_last_seen_at",
+      ]) ||
+      proposal.payload.expected_unacknowledged !== true ||
+      !Number.isInteger(proposal.payload.expected_occurrences) ||
+      Number(proposal.payload.expected_occurrences) < 1 ||
+      !isIsoTimestamp(proposal.payload.expected_last_seen_at) ||
+      !context ||
+      Number(context.alert_id) !== Number(alertAcknowledgement[1]) ||
+      typeof context.alert_subject !== "string" ||
+      !context.alert_subject.trim()
+    ) {
+      throw new Error("unsupported alert acknowledgement proposal");
+    }
+    const result = await api
+      .post<{ id: number; subject: string }>(path, proposal.payload)
+      .then((response) => response.data);
+    return {
+      message: `Acknowledged: alert #${result.id} — ${result.subject}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const poolApproval = path.match(/^\/sites\/(\d+)\/pool-source\/approval$/);
+  const poolReactivation = path.match(/^\/sites\/(\d+)\/pool-source\/reactivate$/);
+  if (
+    proposal.tool === "preview_pool_source_action" &&
+    proposal.kind === "pool_source_action" &&
+    proposal.risk === "sensitive" &&
+    (poolApproval || poolReactivation)
+  ) {
+    const context = proposal.context;
+    const action = context?.action;
+    const expected = proposal.payload.expected;
+    const expiringIds = proposal.payload.expected_expiring_suggestion_ids;
+    const expectedRecord =
+      typeof expected === "object" && expected !== null && !Array.isArray(expected)
+        ? (expected as Record<string, unknown>)
+        : null;
+    const expectedKeys = ["approved", "quarantined", "consecutive_failures", "quarantined_at"];
+    const actionMatchesRoute =
+      (action === "approve" && proposal.method === "POST" && Boolean(poolApproval)) ||
+      (action === "revoke" && proposal.method === "DELETE" && Boolean(poolApproval)) ||
+      (action === "reactivate" && proposal.method === "POST" && Boolean(poolReactivation));
+    const endpointSiteId = Number((poolApproval ?? poolReactivation)?.[1]);
+    const impactMatchesAction =
+      action === "revoke"
+        ? sortedUniqueIntegerList(expiringIds) || (Array.isArray(expiringIds) && expiringIds.length === 0)
+        : expiringIds === undefined;
+    if (
+      !actionMatchesRoute ||
+      !hasOnlyKeys(proposal.payload, ["expected", "expected_expiring_suggestion_ids"]) ||
+      !expectedRecord ||
+      !hasOnlyKeys(expectedRecord, expectedKeys) ||
+      Object.keys(expectedRecord).length !== expectedKeys.length ||
+      typeof expectedRecord.approved !== "boolean" ||
+      typeof expectedRecord.quarantined !== "boolean" ||
+      !Number.isInteger(expectedRecord.consecutive_failures) ||
+      Number(expectedRecord.consecutive_failures) < 0 ||
+      !(
+        expectedRecord.quarantined_at === null ||
+        isIsoTimestamp(expectedRecord.quarantined_at)
+      ) ||
+      !impactMatchesAction ||
+      !context ||
+      Number(context.site_id) !== endpointSiteId ||
+      typeof context.site_name !== "string" ||
+      !context.site_name.trim()
+    ) {
+      throw new Error("unsupported content-pool action proposal");
+    }
+    const result =
+      proposal.method === "DELETE"
+        ? await api
+            .delete<{ id: number; name: string }>(path, { data: proposal.payload })
+            .then((response) => response.data)
+        : await api
+            .post<{ id: number; name: string }>(path, proposal.payload)
+            .then((response) => response.data);
+    const verb = action === "approve" ? "Approved" : action === "revoke" ? "Revoked" : "Reactivated";
+    return {
+      message: `${verb}: ${result.name} (site #${result.id}).`,
       undoAvailable: false,
     };
   }

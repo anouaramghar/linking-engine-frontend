@@ -101,6 +101,27 @@ const describeProposal = (proposal: AgentProposal): string => {
     const remaining = proposal.impact?.remaining_slots_for_article ?? 0;
     return `Generate suggestions for ${String(title)} (article #${String(articleId)}) on ${String(site)}; up to ${remaining} slot${remaining === 1 ? "" : "s"} remain`;
   }
+  if (proposal.kind === "alert_acknowledgement") {
+    const alertId = proposal.context?.alert_id;
+    const subject = proposal.context?.alert_subject;
+    const site = proposal.context?.site_name;
+    const occurrences = proposal.impact?.occurrence_count ?? 1;
+    const siteScope = site ? ` for ${String(site)}` : "";
+    return `Acknowledge “${String(subject)}” (alert #${String(alertId)})${siteScope}; ${occurrences} occurrence${occurrences === 1 ? "" : "s"} through ${String(proposal.payload.expected_last_seen_at)}`;
+  }
+  if (proposal.kind === "pool_source_action") {
+    const action = String(proposal.context?.action);
+    const site = proposal.context?.site_name;
+    const siteId = proposal.context?.site_id;
+    const label = action === "approve" ? "Approve" : action === "revoke" ? "Revoke" : "Reactivate";
+    const pending = proposal.impact?.pending_count ?? 0;
+    const approved = proposal.impact?.approved_count ?? 0;
+    const impact =
+      action === "revoke"
+        ? `; ${pending} pending and ${approved} approved suggestions will expire`
+        : "";
+    return `${label} content-pool source ${String(site)} (site #${String(siteId)})${impact}`;
+  }
   if (proposal.kind === "pipeline_batch_start") {
     const sites = proposal.impact?.site_count ?? 0;
     const articles = proposal.impact?.active_article_count ?? 0;
@@ -133,6 +154,15 @@ const sensitiveProposalWarning = (proposal: AgentProposal): string => {
   }
   if (proposal.kind === "site_create" || proposal.kind === "site_bulk_create") {
     return "Sensitive action: this registers external site URLs. No credentials are attached and no crawl starts until separately confirmed.";
+  }
+  if (proposal.kind === "alert_acknowledgement") {
+    return "This marks the notification read; it does not fix the underlying issue. A newer occurrence will block this confirmation.";
+  }
+  if (proposal.kind === "pool_source_action") {
+    if (proposal.context?.action === "revoke") {
+      return "Sensitive action: affected pending and approved suggestions will expire and are not restored by approving the source again.";
+    }
+    return "Sensitive action: this changes whether a shared content source may participate in future ingestion and linking work; it does not start a crawl.";
   }
   return "Sensitive action: this queues connector or analysis work and may consume processing capacity.";
 };

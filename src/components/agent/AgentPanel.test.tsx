@@ -640,6 +640,95 @@ describe("AgentPanel", () => {
     expect(screen.getByText(/may consume processing capacity/)).not.toBeNull();
   });
 
+  it("explains that acknowledging an alert does not fix its cause", async () => {
+    streams("This notification is still unread.", {
+      proposals: [
+        {
+          tool: "preview_alert_acknowledgement",
+          kind: "alert_acknowledgement",
+          risk: "sensitive",
+          method: "POST",
+          endpoint: "/api/v1/alerts/17/acknowledge",
+          payload: {
+            expected_unacknowledged: true,
+            expected_occurrences: 3,
+            expected_last_seen_at: "2026-08-23T17:30:00Z",
+          },
+          context: {
+            alert_id: 17,
+            alert_subject: "Analysis failed",
+            alert_kind: "job_failed",
+            site_id: 8,
+            site_name: "Docs",
+          },
+          impact: { alert_count: 1, occurrence_count: 3 },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }));
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "acknowledge alert 17{Enter}",
+    );
+
+    expect(await screen.findByText(/Acknowledge “Analysis failed” \(alert #17\) for Docs/)).not.toBeNull();
+    expect(screen.getByText(/3 occurrences through/)).not.toBeNull();
+    expect(screen.getByText(/does not fix the underlying issue/)).not.toBeNull();
+  });
+
+  it("names the exact suggestion impact before pool revocation", async () => {
+    streams("The shared source can be revoked.", {
+      proposals: [
+        {
+          tool: "preview_pool_source_action",
+          kind: "pool_source_action",
+          risk: "sensitive",
+          method: "DELETE",
+          endpoint: "/api/v1/sites/9/pool-source/approval",
+          payload: {
+            expected: {
+              approved: true,
+              quarantined: false,
+              consecutive_failures: 0,
+              quarantined_at: null,
+            },
+            expected_expiring_suggestion_ids: [41, 42],
+          },
+          context: {
+            site_id: 9,
+            site_name: "Reference pool",
+            site_url: "https://reference.example/feed",
+            action: "revoke",
+          },
+          impact: {
+            site_count: 1,
+            expiring_suggestion_count: 2,
+            pending_count: 1,
+            approved_count: 1,
+            consecutive_failure_count: 0,
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }));
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "revoke pool source 9{Enter}",
+    );
+
+    expect(
+      await screen.findByText(/Revoke content-pool source Reference pool \(site #9\)/),
+    ).not.toBeNull();
+    expect(screen.getByText(/1 pending and 1 approved suggestions will expire/)).not.toBeNull();
+    expect(screen.getByText(/are not restored by approving the source again/)).not.toBeNull();
+  });
+
   it("shows the exact scope before confirming a pipeline cancellation", async () => {
     streams("The active batch can be stopped.", {
       proposals: [
