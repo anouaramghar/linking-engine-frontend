@@ -16,6 +16,7 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.9,
+  rank_score: 0.9,
   status,
   anchor_text: "anchor",
   created_at: "2026-07-16T10:00:00Z",
@@ -186,10 +187,10 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
-  it("shows final delivery rank separately from semantic similarity", () => {
+  it("shows final delivery rank separately from the rank score", () => {
     render(
       <SuggestionCard
-        suggestion={{ ...suggestion("pending"), score: 0.89, final_rank: 1 }}
+        suggestion={{ ...suggestion("pending"), score: 0.72, rank_score: 0.89, final_rank: 1 }}
         siteName="Example site"
         selected={false}
         onOpen={vi.fn()}
@@ -201,7 +202,9 @@ describe("SuggestionPreview publication state", () => {
 
     expect(screen.getByText("Final rank #1")).not.toBeNull();
     expect(screen.getByText("89%")).not.toBeNull();
-    expect(screen.getByText("Semantic match")).not.toBeNull();
+    expect(screen.getByText("Rank score")).not.toBeNull();
+    // The cosine score is a different number and must not be mistaken for it.
+    expect(screen.queryByText("72%")).toBeNull();
   });
 
   it("identifies a content-pool target as an external link", () => {

@@ -52,6 +52,8 @@ interface SuggestionFixture {
   target_site_name: string;
   method: "hybrid_bm25";
   score: number;
+  /** What the queue orders on and the card shows; see the Suggestion type. */
+  rank_score: number;
   status: "pending" | "approved" | "applying";
   anchor_text: string;
   created_at: string;
@@ -453,6 +455,7 @@ test("an operator selects a suggestion, approves its exact edit, and queues publ
     target_site_name: "Editorial E2E",
     method: "hybrid_bm25",
     score: 0.86,
+    rank_score: 0.72,
     status: "pending",
     anchor_text: "internal linking guide",
     created_at: "2026-08-14T09:03:00Z",
@@ -461,6 +464,13 @@ test("an operator selects a suggestion, approves its exact edit, and queues publ
   await page.goto("/queue");
 
   await expect(page.getByRole("heading", { name: "Link suggestions", level: 1 })).toBeVisible();
+
+  // The card leads with the rank score, not the cosine similarity: on a real
+  // corpus cosine sits in a band a few points wide and separates almost nothing.
+  await expect(page.getByText("72%")).toBeVisible();
+  await expect(page.getByText("Rank score")).toBeVisible();
+  await expect(page.getByText("86%")).toBeHidden();
+
   await page
     .getByRole("button", {
       name: "Select suggestion from Editorial E2E: Source article to Target article",

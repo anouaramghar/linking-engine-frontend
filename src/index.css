@@ -984,6 +984,23 @@ input[type="number"] {
   margin: 0;
 }
 
+/* The reply is written into the log as the model writes it, and a pause between
+   fragments looks exactly like a finished answer — which is how a half-sentence
+   about the queue gets read as the whole of it. The caret marks the edge of what
+   has arrived. It is the login screen's caret, on the last block of the reply so
+   it sits at the end of the sentence rather than on a line of its own. */
+.assistant-message--streaming .assistant-md > .assistant-md-p:last-child::after,
+.assistant-message--streaming .assistant-md > :last-child .assistant-md-li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.06em;
+  height: 0.85em;
+  margin-left: 0.12em;
+  background: currentColor;
+  vertical-align: -0.08em;
+  animation: typewriter-caret 0.9s steps(2, end) infinite;
+}
+
 .assistant-md-ul,
 .assistant-md-ol {
   margin: 0;
@@ -1285,6 +1302,13 @@ input[type="number"] {
   .assistant-thinking__copy {
     color: var(--assistant-muted);
     background: none;
+    animation: none;
+  }
+
+  /* Still shown, no longer blinking: the caret says where the text has got to,
+     which is information, and the blink is only decoration on top of it. */
+  .assistant-message--streaming .assistant-md > .assistant-md-p:last-child::after,
+  .assistant-message--streaming .assistant-md > :last-child .assistant-md-li:last-child::after {
     animation: none;
   }
 

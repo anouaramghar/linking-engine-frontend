@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The client module is mocked so no axios instance is built; the post spy is
 // what the guard below must argue with.
@@ -6,13 +6,20 @@ const post = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { reviewed: 1 } }),
 );
 vi.mock("./client", () => ({
-  api: { post },
+  api: { post, defaults: { baseURL: "/api/v1" } },
   AGENT_CHAT_TIMEOUT_MS: 120_000,
+  AGENT_STREAM_IDLE_MS: 120_000,
   LINKMESH_CLIENT_HEADER: "X-LinkMesh-Client",
   LINKMESH_CLIENT_VALUE: "dashboard",
 }));
 
-import { confirmProposal, postAgentMessage } from "./agent";
+import {
+  AgentStreamError,
+  confirmProposal,
+  postAgentMessage,
+  streamAgentMessage,
+  type AgentStreamHandlers,
+} from "./agent";
 
 describe("postAgentMessage", () => {
   beforeEach(() => {
@@ -74,5 +81,155 @@ describe("confirmProposal", () => {
     ).rejects.toThrow("unsupported proposal endpoint");
 
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("streamAgentMessage", () => {
+  /** A response that hands the body over in the chunks it is given. */
+  const sse = (...chunks: string[]) => ({
+    ok: true,
+    status: 200,
+    body: {
+      getReader() {
+        let at = 0;
+        return {
+          read: async () =>
+            at < chunks.length
+              ? { done: false, value: new TextEncoder().encode(chunks[at++]) }
+              : { done: true, value: undefined },
+          cancel: async () => {},
+        };
+      },
+    },
+  });
+
+  const handlers = (): AgentStreamHandlers & { seen: string[] } => {
+    const seen: string[] = [];
+    return {
+      seen,
+      onDelta: (text) => seen.push(`delta:${text}`),
+      onTool: (tool) => seen.push(`tool:${tool.name}`),
+      onDone: (response) => seen.push(`done:${response.reply}`),
+    };
+  };
+
+  const respondWith = (response: unknown) => {
+    const fetching = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetching);
+    return fetching;
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("reports each event as it arrives, whatever the chunks were", async () => {
+    // Frames are split across reads on purpose: a chunk boundary falls wherever
+    // the network puts it, including the middle of one event.
+    respondWith(
+      sse(
+        ': open\n\nevent: tool\ndata: {"name":"get_queue_counts","arguments":{},"outcome":{"total":3}}\n\nevent: del',
+        'ta\ndata: {"text":"The queue "}\n\nevent: delta\ndata: {"text":"has 3."}\n\n',
+        'event: done\ndata: {"reply":"The queue has 3.","tools_used":[],"proposals":[]}\n\n',
+      ),
+    );
+
+    const report = handlers();
+    await streamAgentMessage("how busy?", [], report);
+
+    expect(report.seen).toEqual([
+      "tool:get_queue_counts",
+      "delta:The queue ",
+      "delta:has 3.",
+      "done:The queue has 3.",
+    ]);
+  });
+
+  it("sends the marker the proxy requires on an unsafe method", async () => {
+    // Without it nginx answers 403 before the engine is reached: a browser
+    // form cannot set a custom header, which is what makes it a CSRF guard.
+    const fetching = respondWith(
+      sse('event: done\ndata: {"reply":"ok","tools_used":[],"proposals":[]}\n\n'),
+    );
+
+    await streamAgentMessage("hi", [{ role: "user", content: "earlier" }], handlers());
+
+    const [url, init] = fetching.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/v1/agent/chat/stream");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["X-LinkMesh-Client"]).toBe("dashboard");
+    expect(JSON.parse(String(init.body))).toEqual({
+      message: "hi",
+      history: [{ role: "user", content: "earlier" }],
+    });
+  });
+
+  it("carries the engine's own words out of a refusal", async () => {
+    respondWith({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "the assistant is not configured on this deployment" }),
+    });
+
+    await expect(streamAgentMessage("hi", [], handlers())).rejects.toThrow(
+      "the assistant is not configured on this deployment",
+    );
+  });
+
+  it("treats an error event as the failure it is", async () => {
+    // The status line was spent on the 200 that opened the stream, so this is
+    // the only way a provider failure mid-turn can be told.
+    respondWith(
+      sse(
+        'event: delta\ndata: {"text":"The queue "}\n\n',
+        'event: error\ndata: {"detail":"the assistant is temporarily unavailable"}\n\n',
+      ),
+    );
+
+    const report = handlers();
+    await expect(streamAgentMessage("hi", [], report)).rejects.toBeInstanceOf(AgentStreamError);
+    expect(report.seen).toEqual(["delta:The queue "]);
+  });
+
+  it("gives up on a connection that has gone silent", async () => {
+    // The old whole-request timeout does not translate: a reply that keeps
+    // arriving is not a stall. What is timed is the gap between fragments.
+    vi.useFakeTimers();
+    let pending: ((result: { done: boolean; value?: Uint8Array }) => void) | undefined;
+    respondWith({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          // Opens, then says nothing — until the read is cancelled, which is
+          // how a real reader ends a read that is still in flight.
+          read: () =>
+            new Promise<{ done: boolean; value?: Uint8Array }>((resolve) => {
+              pending = resolve;
+            }),
+          cancel: async () => pending?.({ done: true }),
+        }),
+      },
+    });
+
+    // The assertion is attached before the clock moves: the rejection lands
+    // during the advance, and a promise nobody is holding at that moment is an
+    // unhandled rejection.
+    const turn = expect(streamAgentMessage("hi", [], handlers())).rejects.toThrow(
+      "stopped responding",
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    await turn;
+  });
+
+  it("refuses to call a turn that never finished an answer", async () => {
+    // A cut connection leaves a half-written reply on screen. Without this it
+    // would settle there and read as the whole answer.
+    respondWith(sse('event: delta\ndata: {"text":"The queue has "}\n\n'));
+
+    await expect(streamAgentMessage("hi", [], handlers())).rejects.toThrow(
+      "stopped before it finished",
+    );
   });
 });

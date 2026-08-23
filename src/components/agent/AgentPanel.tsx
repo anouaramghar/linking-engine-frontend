@@ -24,7 +24,6 @@ type AssistantAvatarAnimation =
 type AvatarReaction = Exclude<AssistantAvatarAnimation, "idle" | "listening" | "thinking" | "working">;
 
 const AVATAR_REACTION_DURATION_MS = 2600;
-const AVATAR_WORKING_DELAY_MS = 1200;
 const RANDOM_AVATAR_REACTIONS: readonly AvatarReaction[] = ["curious", "happy", "surprised"];
 const RANDOM_AVATAR_MIN_DELAY_MS = 8000;
 const RANDOM_AVATAR_MAX_DELAY_MS = 16000;
@@ -141,7 +140,7 @@ export default function AgentPanel() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const [avatarOverride, setAvatarOverride] = useState<AssistantAvatarAnimation | null>(null);
+  const [avatarOverride, setAvatarOverride] = useState<AvatarReaction | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -151,6 +150,12 @@ export default function AgentPanel() {
   const titleId = useId();
   const { messages, pending, error, clearError, retry, clearConversation, send, configured } =
     useAgentChat({ enabled: open && !!user });
+
+  // The turn currently being written, if any. It is always the last message:
+  // the operator cannot send another while one is in flight.
+  const lastMessage = messages[messages.length - 1];
+  const streamingReply =
+    lastMessage?.role === "assistant" && lastMessage.streaming ? lastMessage : null;
 
   const clearAvatarOverride = useCallback(() => {
     if (avatarReactionTimer.current !== null) {
@@ -197,15 +202,6 @@ export default function AgentPanel() {
     };
   }, [open, triggerAvatarReaction, user]);
 
-  // A longer request gets a distinct working rhythm after the initial thinking
-  // beat. The API returns tool traces only after completion, so the delay is a
-  // truthful visual distinction without pretending the client has a stream.
-  useEffect(() => {
-    if (!pending) return;
-    const workingTimer = setTimeout(() => setAvatarOverride("working"), AVATAR_WORKING_DELAY_MS);
-    return () => clearTimeout(workingTimer);
-  }, [pending]);
-
   const handleAvatarTurnResult = useCallback(
     (result: AgentTurnResult | null) => {
       if (!result) return;
@@ -220,15 +216,16 @@ export default function AgentPanel() {
     [triggerAvatarReaction],
   );
 
-  const avatarAnimation: AnimationKey =
-    pending
-      ? avatarOverride === "working"
-        ? "working"
-        : "thinking"
-      : draft.trim()
-        ? "listening"
-        : avatarOverride ?? "idle"
-  ;
+  // Working, rather than thinking, is something the panel can now know instead
+  // of timing: the engine reports each tool as it returns, so the rhythm
+  // changes when the assistant actually goes and looks something up.
+  const avatarAnimation: AnimationKey = pending
+    ? (streamingReply?.tools?.length ?? 0) > 0
+      ? "working"
+      : "thinking"
+    : draft.trim()
+      ? "listening"
+      : avatarOverride ?? "idle";
 
   const handleClearConversation = () => {
     clearConversation();
@@ -400,11 +397,15 @@ export default function AgentPanel() {
             </div>
           ) : (
             <>
+              {/* aria-live: a reply arrives a few characters at a time, and a
+                  polite region would announce every one of them. The log goes
+                  quiet while the words are landing and speaks again for the
+                  finished turn, which is the announcement worth hearing. */}
               <div
                 ref={logRef}
                 role="log"
                 aria-label="Assistant conversation"
-                aria-live="polite"
+                aria-live={streamingReply?.content ? "off" : "polite"}
                 aria-relevant="additions text"
                 aria-busy={pending}
                 tabIndex={0}
@@ -444,7 +445,7 @@ export default function AgentPanel() {
                     <div
                       className={`assistant-message ${
                         message.role === "user" ? "assistant-message--user" : "assistant-message--agent"
-                      }`}
+                      }${message.streaming && message.content ? " assistant-message--streaming" : ""}`}
                     >
                       {message.role === "assistant" && (
                         <div className="assistant-message-label">
@@ -482,7 +483,9 @@ export default function AgentPanel() {
                     </div>
                   </div>
                 ))}
-                {pending && (
+                {/* Only until the reply starts landing: once words are
+                    arriving, they say what this line was standing in for. */}
+                {pending && !streamingReply?.content && (
                   <div role="status" className="assistant-thinking">
                     <span aria-hidden="true" className="assistant-thinking__avatar">
                       <AgentAvatar animation={avatarAnimation} size={28} />

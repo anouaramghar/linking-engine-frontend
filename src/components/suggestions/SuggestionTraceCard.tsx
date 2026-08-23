@@ -158,8 +158,8 @@ function RankingEvidence({ suggestion }: { suggestion: Suggestion }) {
       </div>
       <p className="mt-1 text-caption-sm leading-normal text-body">
         {components?.final_order === "bm25_512"
-          ? "BM25-512 decides the delivered order after dense and lexical retrieval widen the candidate pool. Semantic match remains the separate cosine similarity shown above."
-          : `The delivered order uses ${finalOrder}. Semantic match remains the separate similarity score shown above.`}
+          ? "BM25-512 decides the delivered order after dense and lexical retrieval widen the candidate pool. BM25 has no ceiling, so this row's rank score falls back to its cosine similarity."
+          : `The delivered order uses ${finalOrder}. The rank score is that number as a share of the highest it could have reached; semantic match below is the separate cosine similarity.`}
       </p>
 
       <details className="mt-2">
@@ -291,6 +291,16 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
         role="group"
         className="mt-2 grid grid-cols-2 gap-2"
       >
+        <div className="rounded-lg bg-surface-strong px-3 py-2">
+          <dt className="text-caption-sm text-muted">Rank score</dt>
+          <dd className="mt-0.5 text-body-sm font-medium text-ink">
+            {pct(suggestion.rank_score)}
+          </dd>
+        </div>
+        {/* Kept beside the rank score rather than replaced by it. The two
+            disagree often — a row can be first in both retrieval pools and
+            still be an ordinary cosine match — and an editor deciding whether
+            to publish is entitled to see both readings. */}
         <div className="rounded-lg bg-surface-strong px-3 py-2">
           <dt className="text-caption-sm text-muted">Semantic match</dt>
           <dd className="mt-0.5 text-body-sm font-medium text-ink">

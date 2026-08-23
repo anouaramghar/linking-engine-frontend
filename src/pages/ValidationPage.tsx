@@ -140,7 +140,9 @@ const resolveCounts = (
     const status = overrides[suggestion.id];
     if (!status || status === suggestion.status) return;
     if (filters.siteId !== undefined && suggestion.site_id !== filters.siteId) return;
-    const percent = scorePercent(suggestion.score);
+    // The same column the API filters on, or a locally-decided row would be
+    // counted into a band the server would not have matched it to.
+    const percent = scorePercent(suggestion.rank_score);
     if (filters.minPercent !== undefined && percent < filters.minPercent) return;
     if (filters.maxPercent !== undefined && percent >= filters.maxPercent) return;
 

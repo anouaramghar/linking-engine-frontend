@@ -103,6 +103,7 @@ const suggestion = (
   target_site_name: siteId === 1 ? SITE.name : SECOND_SITE.name,
   method: "baseline_cosine",
   score: 0.8,
+  rank_score: 0.8,
   status,
   anchor_text: "anchor",
   created_at: "2026-08-13T10:00:00Z",

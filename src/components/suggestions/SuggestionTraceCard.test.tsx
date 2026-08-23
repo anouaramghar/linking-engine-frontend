@@ -19,6 +19,7 @@ const suggestion: Suggestion = {
   target_site_name: "Example",
   method: "hybrid_bm25",
   score: 0.84,
+  rank_score: 0.61,
   score_components: { bm25_score: 12.4 },
   status: "approved",
   anchor_text: "anchor",
@@ -120,7 +121,7 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("How the rank was decided")).not.toBeNull();
     expect(screen.getByText("Final rank #1")).not.toBeNull();
     expect(document.body.textContent).toContain(
-      "Semantic match remains the separate cosine similarity shown above.",
+      "BM25 has no ceiling, so this row's rank score falls back to its cosine similarity.",
     );
 
     const details = screen.getByText("Show ranking details").closest("details");

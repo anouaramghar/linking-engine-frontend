@@ -5,13 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPanel from "./AgentPanel";
 import * as agentApi from "../../api/agent";
+import type { AgentProposal, AgentToolTrace } from "../../api/agent";
 
 afterEach(cleanup);
 
 vi.mock("../../api/agent", () => ({
   getAgentStatus: vi.fn().mockResolvedValue({ configured: true, model: "test-model" }),
-  postAgentMessage: vi.fn(),
+  streamAgentMessage: vi.fn(),
   confirmProposal: vi.fn(),
+  // The hook tells an engine refusal from a transport failure with
+  // `instanceof`, so the class it imports has to be the one thrown here.
+  AgentStreamError: class AgentStreamError extends Error {
+    constructor(readonly detail: string) {
+      super(detail);
+    }
+  },
 }));
 
 const getSession = vi.hoisted(() => vi.fn());
@@ -27,6 +35,30 @@ vi.mock("./AgentAvatar", () => ({
   }) => <div data-testid="agent-avatar" data-animation={animation} className={className} />,
 }));
 
+/**
+ * Play one turn the way the engine sends it: tools as they return, then the
+ * text, then the finished body. Whole-turn delivery is the common case in these
+ * tests; the ones about what a half-written turn looks like script it by hand.
+ */
+const streams = (
+  reply: string,
+  extras: { tools?: AgentToolTrace[]; proposals?: AgentProposal[] } = {},
+) =>
+  vi
+    .mocked(agentApi.streamAgentMessage)
+    .mockImplementation(async (_message, _history, handlers) => {
+      extras.tools?.forEach(handlers.onTool);
+      handlers.onDelta(reply);
+      handlers.onDone({
+        reply,
+        tools_used: extras.tools ?? [],
+        proposals: extras.proposals ?? [],
+      });
+    });
+
+/** The message and the transcript it was sent with, without the plumbing. */
+const asked = (call: unknown[] | undefined) => call?.slice(0, 2);
+
 const renderPanel = () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -40,7 +72,7 @@ const renderPanel = () => {
 
 beforeEach(() => {
   vi.mocked(agentApi.getAgentStatus).mockClear();
-  vi.mocked(agentApi.postAgentMessage).mockReset();
+  vi.mocked(agentApi.streamAgentMessage).mockReset();
   vi.mocked(agentApi.confirmProposal).mockReset();
   getSession.mockResolvedValue({ telegram_id: 42, is_staff: true });
 });
@@ -60,16 +92,8 @@ describe("AgentPanel", () => {
   });
 
   it("sends a message and shows the reply with the tools consulted", async () => {
-    const post = vi.mocked(agentApi.postAgentMessage).mockResolvedValue({
-      reply: "The queue has 3 pending suggestions.",
-      tools_used: [
-        {
-          name: "get_queue_counts",
-          arguments: {},
-          outcome: { total: 3 },
-        },
-      ],
-      proposals: [],
+    const stream = streams("The queue has 3 pending suggestions.", {
+      tools: [{ name: "get_queue_counts", arguments: {}, outcome: { total: 3 } }],
     });
 
     const user = userEvent.setup();
@@ -80,20 +104,58 @@ describe("AgentPanel", () => {
     await user.type(input, "How busy is the queue?{Enter}");
 
     await screen.findByText("The queue has 3 pending suggestions.");
-    expect(post).toHaveBeenCalledWith(
-      "How busy is the queue?",
-      [],
-    );
+    expect(asked(stream.mock.calls[0])).toEqual(["How busy is the queue?", []]);
     // The tool trace names what the answer was built from.
     expect(screen.getByText("get_queue_counts")).not.toBeNull();
   });
 
+  it("shows the reply as it arrives, before the turn has finished", async () => {
+    // The whole point of streaming: half an answer on screen beats a spinner
+    // over a finished one nobody can see yet.
+    let write: ((text: string) => void) | undefined;
+    let finish: (() => void) | undefined;
+    vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+      (_message, _history, handlers) =>
+        new Promise((resolve) => {
+          write = handlers.onDelta;
+          handlers.onTool({ name: "get_queue_counts", arguments: {}, outcome: { total: 3 } });
+          finish = () => {
+            handlers.onDelta("3 pending suggestions.");
+            handlers.onDone({
+              reply: "The queue has 3 pending suggestions.",
+              tools_used: [{ name: "get_queue_counts", arguments: {}, outcome: { total: 3 } }],
+              proposals: [],
+            });
+            resolve();
+          };
+        }),
+    );
+
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.type(await screen.findByLabelText("Message the assistant"), "queue?{Enter}");
+
+    // The tool lands first, while the model is still deciding what to say.
+    await screen.findByText("get_queue_counts");
+    expect(screen.getByRole("status").textContent).toContain("Assistant is working…");
+
+    write?.("The queue has ");
+    await screen.findByText(/The queue has/);
+    // The waiting line is gone the moment there are words in its place, and the
+    // turn is marked as still being written.
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(container.querySelector(".assistant-message--streaming")).not.toBeNull();
+
+    finish?.();
+    await waitFor(() =>
+      expect(container.querySelector(".assistant-message--streaming")).toBeNull(),
+    );
+    expect(screen.getByText("The queue has 3 pending suggestions.")).not.toBeNull();
+  });
+
   it("renders the reply's Markdown as structure, and the operator's own words as typed", async () => {
-    vi.mocked(agentApi.postAgentMessage).mockResolvedValue({
-      reply: "**Review queue**\n* pending: 146\n* approved: 1",
-      tools_used: [],
-      proposals: [],
-    });
+    streams("**Review queue**\n* pending: 146\n* approved: 1");
 
     const user = userEvent.setup();
     const { container } = renderPanel();
@@ -113,15 +175,13 @@ describe("AgentPanel", () => {
 
   it("keeps the conversation log directly scrollable while a reply is pending", async () => {
     let release: (() => void) | undefined;
-    const post = vi.mocked(agentApi.postAgentMessage).mockImplementation(
-      () =>
+    const stream = vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+      (_message, _history, handlers) =>
         new Promise((resolve) => {
-          release = () =>
-            resolve({
-              reply: "The queue is ready.",
-              tools_used: [],
-              proposals: [],
-            });
+          release = () => {
+            handlers.onDone({ reply: "The queue is ready.", tools_used: [], proposals: [] });
+            resolve();
+          };
         }),
     );
 
@@ -137,20 +197,21 @@ describe("AgentPanel", () => {
 
     release?.();
     await screen.findByText("The queue is ready.");
-    expect(post).toHaveBeenCalledWith("check the queue", []);
+    expect(asked(stream.mock.calls[0])).toEqual(["check the queue", []]);
   });
 
-  it("maps typing, longer requests, and successful replies to avatar reactions", async () => {
+  it("maps typing, consulting a tool, and successful replies to avatar reactions", async () => {
+    let consult: (() => void) | undefined;
     let release: (() => void) | undefined;
-    const post = vi.mocked(agentApi.postAgentMessage).mockImplementation(
-      () =>
+    const stream = vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+      (_message, _history, handlers) =>
         new Promise((resolve) => {
-          release = () =>
-            resolve({
-              reply: "The queue is ready.",
-              tools_used: [],
-              proposals: [],
-            });
+          consult = () =>
+            handlers.onTool({ name: "get_queue_counts", arguments: {}, outcome: { total: 0 } });
+          release = () => {
+            handlers.onDone({ reply: "The queue is ready.", tools_used: [], proposals: [] });
+            resolve();
+          };
         }),
     );
 
@@ -168,8 +229,12 @@ describe("AgentPanel", () => {
     await waitFor(() =>
       expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("thinking"),
     );
-    await new Promise((resolve) => setTimeout(resolve, 1250));
-    expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("working");
+
+    // Working is reported, not timed: the engine says when a tool ran.
+    consult?.();
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("working"),
+    );
 
     release?.();
     await screen.findByText("The queue is ready.");
@@ -177,13 +242,13 @@ describe("AgentPanel", () => {
     await waitFor(() =>
       expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("happy"),
     );
-    expect(post).toHaveBeenCalledWith("check the queue", []);
+    expect(asked(stream.mock.calls[0])).toEqual(["check the queue", []]);
   });
 
   it("shows an error notice when the assistant is unavailable", async () => {
-    vi.mocked(agentApi.postAgentMessage).mockRejectedValue({
-      response: { status: 503, data: { detail: "the assistant is not configured" } },
-    });
+    vi.mocked(agentApi.streamAgentMessage).mockRejectedValue(
+      new agentApi.AgentStreamError("the assistant is not configured"),
+    );
 
     const user = userEvent.setup();
     renderPanel();
@@ -198,14 +263,38 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("takes a half-written reply back when the stream fails part way", async () => {
+    // Half an answer with a retry button beside it reads as an answer, and the
+    // half that is missing is the half with the number in it.
+    vi.mocked(agentApi.streamAgentMessage)
+      .mockImplementationOnce(async (_message, _history, handlers) => {
+        handlers.onDelta("The queue has ");
+        throw new agentApi.AgentStreamError("the assistant is temporarily unavailable");
+      })
+      .mockImplementationOnce(async (_message, _history, handlers) => {
+        handlers.onDone({ reply: "The queue has 3 pending.", tools_used: [], proposals: [] });
+      });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.type(await screen.findByLabelText("Message the assistant"), "queue?{Enter}");
+
+    await screen.findByText("the assistant is temporarily unavailable");
+    expect(screen.queryByText(/The queue has $/)).toBeNull();
+    // The operator's own question goes back too, so Retry sends it once.
+    expect(screen.queryByText("queue?")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Retry message" }));
+    await screen.findByText("The queue has 3 pending.");
+  });
+
   it("retries the exact failed message instead of only dismissing the error", async () => {
-    const post = vi
-      .mocked(agentApi.postAgentMessage)
-      .mockRejectedValueOnce({ response: { status: 503, data: { detail: "Temporary outage" } } })
-      .mockResolvedValueOnce({
-        reply: "Recovered after retry.",
-        tools_used: [],
-        proposals: [],
+    const stream = vi
+      .mocked(agentApi.streamAgentMessage)
+      .mockRejectedValueOnce(new agentApi.AgentStreamError("Temporary outage"))
+      .mockImplementationOnce(async (_message, _history, handlers) => {
+        handlers.onDone({ reply: "Recovered after retry.", tools_used: [], proposals: [] });
       });
 
     const user = userEvent.setup();
@@ -216,16 +305,12 @@ describe("AgentPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Retry message" }));
     await screen.findByText("Recovered after retry.");
-    expect(post).toHaveBeenCalledTimes(2);
-    expect(post.mock.calls[1]).toEqual(["check the queue", []]);
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(asked(stream.mock.calls[1])).toEqual(["check the queue", []]);
   });
 
   it("clears the local conversation on request", async () => {
-    vi.mocked(agentApi.postAgentMessage).mockResolvedValue({
-      reply: "The queue is clear.",
-      tools_used: [],
-      proposals: [],
-    });
+    streams("The queue is clear.");
 
     const user = userEvent.setup();
     renderPanel();
@@ -257,9 +342,7 @@ describe("AgentPanel", () => {
   });
 
   it("stages a bulk rule behind an explicit confirm, then reports the result", async () => {
-    vi.mocked(agentApi.postAgentMessage).mockResolvedValue({
-      reply: "I can approve the strong ones when you are ready.",
-      tools_used: [],
+    streams("I can approve the strong ones when you are ready.", {
       proposals: [
         {
           tool: "preview_bulk_review",
@@ -314,9 +397,7 @@ describe("AgentPanel", () => {
   });
 
   it("surfaces a failed proposal without losing the conversation", async () => {
-    vi.mocked(agentApi.postAgentMessage).mockResolvedValue({
-      reply: "",
-      tools_used: [],
+    streams("", {
       proposals: [
         {
           tool: "preview_bulk_review",

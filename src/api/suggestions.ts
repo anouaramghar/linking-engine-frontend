@@ -20,7 +20,7 @@ import { ENGINE_PAGE_LIMIT } from "./engineLimits";
 export const SUGGESTION_PAGE_SIZE = ENGINE_PAGE_LIMIT;
 
 export interface SuggestionCursor {
-  score: number;
+  rank_score: number;
   id: number;
 }
 
@@ -66,7 +66,7 @@ export const listSuggestionPage = (
         ...queueParams(filters),
         ...(cursor === null
           ? {}
-          : { after_score: cursor.score, after_id: cursor.id }),
+          : { after_rank_score: cursor.rank_score, after_id: cursor.id }),
         limit: SUGGESTION_PAGE_SIZE,
       },
     })
@@ -147,7 +147,7 @@ export const listAllSuggestionIds = async (filters: SuggestionQueueFilters) => {
     ids.push(...page.items.map((suggestion) => suggestion.id));
     cursor = page.next_cursor;
     if (cursor) {
-      const key = `${cursor.score}:${cursor.id}`;
+      const key = `${cursor.rank_score}:${cursor.id}`;
       if (seenCursors.has(key)) {
         throw new Error("The suggestion cursor repeated while selecting all filtered results.");
       }
