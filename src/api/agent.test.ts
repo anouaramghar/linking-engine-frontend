@@ -186,6 +186,95 @@ describe("confirmProposal", () => {
     expect(post).toHaveBeenCalledWith("/suggestions/8", payload);
   });
 
+  it("connects one credential-free managed site through its exact proposal", async () => {
+    post.mockResolvedValueOnce({ data: { id: 61, name: "Docs" } });
+    const payload = {
+      name: "Docs",
+      base_url: "https://docs.example.com",
+      platform: "wordpress",
+      expected_absent: true,
+    };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_site_creation",
+        kind: "site_create",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/sites",
+        payload,
+      }),
+    ).resolves.toEqual({
+      message: "Connected: Docs as site #61.",
+      undoAvailable: false,
+    });
+
+    expect(post).toHaveBeenCalledWith("/sites", payload);
+  });
+
+  it("connects an exact guarded set of managed sites", async () => {
+    post.mockResolvedValueOnce({
+      data: { created: [{ id: 61 }, { id: 62 }], skipped: [], rejected: [] },
+    });
+    const payload = {
+      sites: [
+        { name: "Docs", base_url: "https://docs.example.com", platform: "wordpress" },
+        { name: "Help", base_url: "https://help.example.com", platform: "html" },
+      ],
+      expected_absent_base_urls: ["https://docs.example.com", "https://help.example.com"],
+    };
+
+    await expect(
+      confirmProposal({
+        tool: "preview_site_creation",
+        kind: "site_bulk_create",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/sites/bulk",
+        payload,
+      }),
+    ).resolves.toEqual({ message: "Connected: 2 sites.", undoAvailable: false });
+
+    expect(post).toHaveBeenCalledWith("/sites/bulk", payload);
+  });
+
+  it("refuses site creation containing credentials or a content-pool source", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_site_creation",
+        kind: "site_create",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/sites",
+        payload: {
+          name: "Docs",
+          base_url: "https://docs.example.com",
+          platform: "wordpress",
+          wp_username: "editor",
+          expected_absent: true,
+        },
+      }),
+    ).rejects.toThrow("unsupported site creation payload");
+
+    await expect(
+      confirmProposal({
+        tool: "preview_site_creation",
+        kind: "site_create",
+        risk: "sensitive",
+        method: "POST",
+        endpoint: "/api/v1/sites",
+        payload: {
+          name: "Pool",
+          base_url: "https://feed.example.com",
+          platform: "pool",
+          expected_absent: true,
+        },
+      }),
+    ).rejects.toThrow("unsupported site creation payload");
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("starts a staged pipeline with exact sites and idle-job snapshot", async () => {
     post.mockResolvedValueOnce({ data: { id: 31 } });
     const payload = { site_ids: [7, 8], expected_active_job_run_ids: [] };

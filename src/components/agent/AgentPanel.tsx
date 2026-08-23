@@ -79,6 +79,15 @@ const describeProposal = (proposal: AgentProposal): string => {
         : "";
     return `${verb} suggestion #${suggestionId}${reason}`;
   }
+  if (proposal.kind === "site_create") {
+    return `Connect ${String(proposal.payload.name)} at ${String(proposal.payload.base_url)} as ${String(proposal.payload.platform)}`;
+  }
+  if (proposal.kind === "site_bulk_create") {
+    const sites = proposal.impact?.site_count ?? 0;
+    const wordpress = proposal.impact?.wordpress_count ?? 0;
+    const html = proposal.impact?.html_count ?? 0;
+    return `Connect ${sites} managed sites: ${wordpress} WordPress and ${html} HTML`;
+  }
   if (proposal.kind === "site_job_start") {
     const ingestion = /\/sites\/\d+\/ingest$/.test(proposal.endpoint);
     const siteId = proposal.endpoint.match(/\/(?:sites|suggestions)\/(\d+)/)?.[1];
@@ -114,6 +123,9 @@ const sensitiveProposalWarning = (proposal: AgentProposal): string => {
   }
   if (proposal.kind === "pipeline_cancel") {
     return "Sensitive action: unfinished work will stop. Completed site runs stay completed.";
+  }
+  if (proposal.kind === "site_create" || proposal.kind === "site_bulk_create") {
+    return "Sensitive action: this registers external site URLs. No credentials are attached and no crawl starts until separately confirmed.";
   }
   return "Sensitive action: this queues connector or analysis work and may consume processing capacity.";
 };

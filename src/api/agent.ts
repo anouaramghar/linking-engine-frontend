@@ -21,7 +21,9 @@ export type AgentProposalKind =
   | "site_job_start"
   | "pipeline_batch_start"
   | "pipeline_retry"
-  | "pipeline_cancel";
+  | "pipeline_cancel"
+  | "site_create"
+  | "site_bulk_create";
 export type AgentProposalRisk = "reversible" | "sensitive";
 
 /** A typed, allowlisted mutation awaiting the editor's confirmation. */
@@ -223,6 +225,29 @@ export const confirmProposal = async (
   const sortedUniqueIntegerList = (value: unknown): value is number[] =>
     positiveIntegerList(value) &&
     value.every((item, index) => index === 0 || Number(value[index - 1]) < item);
+  const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]) =>
+    Object.keys(value).every((key) => allowed.includes(key));
+  const validManagedSite = (value: unknown): value is Record<string, unknown> => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const site = value as Record<string, unknown>;
+    if (
+      !hasOnlyKeys(site, ["name", "base_url", "platform"]) ||
+      typeof site.name !== "string" ||
+      !site.name.trim() ||
+      site.name.length > 255 ||
+      typeof site.base_url !== "string" ||
+      (site.platform !== "wordpress" && site.platform !== "html")
+    ) {
+      return false;
+    }
+    try {
+      const parsed = new URL(site.base_url);
+      return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        !site.base_url.endsWith("/");
+    } catch {
+      return false;
+    }
+  };
   if (
     proposal.tool === "preview_bulk_review" &&
     proposal.kind === "bulk_review" &&
@@ -245,6 +270,76 @@ export const confirmProposal = async (
         result.skipped > 0 ? `, ${result.skipped} skipped` : ""
       }.`,
       undoAvailable: Boolean(result.undo_operation_id),
+    };
+  }
+
+  if (
+    proposal.tool === "preview_site_creation" &&
+    proposal.kind === "site_create" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    path === "/sites"
+  ) {
+    const payload = proposal.payload;
+    const site = {
+      name: payload.name,
+      base_url: payload.base_url,
+      platform: payload.platform,
+    };
+    if (
+      !hasOnlyKeys(payload, ["name", "base_url", "platform", "expected_absent"]) ||
+      payload.expected_absent !== true ||
+      !validManagedSite(site)
+    ) {
+      throw new Error("unsupported site creation payload");
+    }
+    const result = await api
+      .post<{ id: number; name: string }>(path, payload)
+      .then((response) => response.data);
+    return {
+      message: `Connected: ${result.name} as site #${result.id}.`,
+      undoAvailable: false,
+    };
+  }
+
+  if (
+    proposal.tool === "preview_site_creation" &&
+    proposal.kind === "site_bulk_create" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "POST" &&
+    path === "/sites/bulk"
+  ) {
+    const sites = proposal.payload.sites;
+    const expectedUrls = proposal.payload.expected_absent_base_urls;
+    const sortedUniqueStrings = (value: unknown): value is string[] =>
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((item) => typeof item === "string") &&
+      value.every((item, index) => index === 0 || String(value[index - 1]) < item);
+    if (
+      !hasOnlyKeys(proposal.payload, ["sites", "expected_absent_base_urls"]) ||
+      !Array.isArray(sites) ||
+      sites.length < 2 ||
+      sites.length > 100 ||
+      !sites.every(validManagedSite) ||
+      !sortedUniqueStrings(expectedUrls) ||
+      JSON.stringify([...sites].map((site) => String(site.base_url)).sort()) !==
+        JSON.stringify(expectedUrls)
+    ) {
+      throw new Error("unsupported bulk site creation payload");
+    }
+    const result = await api
+      .post<{ created: unknown[]; skipped: unknown[]; rejected: unknown[] }>(
+        path,
+        proposal.payload,
+      )
+      .then((response) => response.data);
+    if (result.skipped.length || result.rejected.length || result.created.length !== sites.length) {
+      throw new Error("guarded bulk site creation returned a partial result");
+    }
+    return {
+      message: `Connected: ${result.created.length} sites.`,
+      undoAvailable: false,
     };
   }
 

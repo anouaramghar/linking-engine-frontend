@@ -546,6 +546,51 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("shows the exact URL and platform before connecting a site", async () => {
+    streams("The managed site is ready to connect.", {
+      proposals: [
+        {
+          tool: "preview_site_creation",
+          kind: "site_create",
+          risk: "sensitive",
+          method: "POST",
+          endpoint: "/api/v1/sites",
+          payload: {
+            name: "Docs",
+            base_url: "https://docs.example.com",
+            platform: "wordpress",
+            expected_absent: true,
+          },
+          impact: { site_count: 1, wordpress_count: 1, html_count: 0 },
+        },
+      ],
+    });
+    const confirm = vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Connected: Docs as site #61.",
+      undoAvailable: false,
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(
+      await screen.findByRole("button", { name: /Open (assistant|Mesh)/ }),
+    );
+    await user.type(
+      await screen.findByLabelText(/Message (the assistant|Mesh)/),
+      "connect docs{Enter}",
+    );
+
+    expect(
+      await screen.findByText(/Connect Docs at https:\/\/docs.example.com as wordpress/),
+    ).not.toBeNull();
+    expect(screen.getByText(/No credentials are attached/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm sensitive change" }));
+    expect(await screen.findByText(/Connected: Docs as site #61/)).not.toBeNull();
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "site_create", risk: "sensitive" }),
+    );
+  });
+
   it("shows the exact scope before confirming a pipeline cancellation", async () => {
     streams("The active batch can be stopped.", {
       proposals: [
