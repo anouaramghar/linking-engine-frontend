@@ -13,12 +13,23 @@ export interface AgentToolTrace {
   outcome: Record<string, unknown>;
 }
 
-/** A staged bulk rule awaiting the operator's confirm in the panel. */
+export type AgentProposalKind = "bulk_review" | "review_suggestion";
+export type AgentProposalRisk = "reversible" | "sensitive";
+
+/** A typed, allowlisted mutation awaiting the editor's confirmation. */
 export interface AgentProposal {
   tool: string;
+  kind: AgentProposalKind;
+  risk: AgentProposalRisk;
+  method: "POST" | "PUT";
   endpoint: string;
   payload: Record<string, unknown>;
   match_count?: number | null;
+}
+
+export interface AgentProposalResult {
+  message: string;
+  undoAvailable: boolean;
 }
 
 export interface AgentChatResponse {
@@ -190,18 +201,62 @@ export const streamAgentMessage = async (
 /**
  * Execute a staged proposal against the audited REST endpoint it names.
  *
- * The path is pinned server-side to the one bulk-review route on purpose: a
- * proposal is data the panel received from a model's tool call, so the panel
- * never `POST`s anywhere the engine did not stage.
+ * Proposal data came through a model turn, so both the action kind and exact
+ * REST shape are allowlisted here. The model cannot turn an endpoint string
+ * into an arbitrary authenticated dashboard request.
  */
-export const confirmProposal = (proposal: AgentProposal) => {
+export const confirmProposal = async (
+  proposal: AgentProposal,
+): Promise<AgentProposalResult> => {
   const path = proposal.endpoint.replace(/^\/api\/v1/, "");
-  if (path !== "/suggestions/bulk-review-by-filter") {
-    return Promise.reject(
-      new Error(`unsupported proposal endpoint: ${proposal.endpoint}`),
-    );
+  if (
+    proposal.tool === "preview_bulk_review" &&
+    proposal.kind === "bulk_review" &&
+    proposal.risk === "reversible" &&
+    proposal.method === "POST" &&
+    path === "/suggestions/bulk-review-by-filter"
+  ) {
+    const status = proposal.payload.status;
+    if (
+      (status !== "approved" && status !== "rejected") ||
+      proposal.payload.match_status !== "pending"
+    ) {
+      throw new Error("unsupported bulk review payload");
+    }
+    const result = await api
+      .post<FilteredBulkReviewResult>(path, proposal.payload)
+      .then((r) => r.data);
+    return {
+      message: `Applied: ${result.reviewed} reviewed${
+        result.skipped > 0 ? `, ${result.skipped} skipped` : ""
+      }.`,
+      undoAvailable: Boolean(result.undo_operation_id),
+    };
   }
-  return api
-    .post<FilteredBulkReviewResult>(path, proposal.payload)
-    .then((r) => r.data);
+
+  const singleReview = path.match(/^\/suggestions\/(\d+)$/);
+  if (
+    proposal.tool === "preview_suggestion_review" &&
+    proposal.kind === "review_suggestion" &&
+    proposal.risk === "reversible" &&
+    proposal.method === "PUT" &&
+    singleReview
+  ) {
+    const status = proposal.payload.status;
+    if (
+      (status !== "approved" && status !== "rejected") ||
+      proposal.payload.expected_status !== "pending"
+    ) {
+      throw new Error("unsupported suggestion review status");
+    }
+    const result = await api
+      .put<{ id: number; status: string }>(path, proposal.payload)
+      .then((r) => r.data);
+    return {
+      message: `Applied: suggestion #${result.id} is ${result.status}.`,
+      undoAvailable: true,
+    };
+  }
+
+  throw new Error(`unsupported proposal endpoint: ${proposal.endpoint}`);
 };

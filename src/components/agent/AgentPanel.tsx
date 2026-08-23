@@ -2,8 +2,11 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { BorderBeam } from "border-beam";
 import type { AnimationKey } from "@bible-strong/avatar-core";
-import { confirmProposal, type AgentProposal } from "../../api/agent";
-import type { FilteredBulkReviewResult } from "../../api/suggestions";
+import {
+  confirmProposal,
+  type AgentProposal,
+  type AgentProposalResult,
+} from "../../api/agent";
 import { useAgentChat, type AgentTurnResult } from "../../hooks/useAgentChat";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useSession } from "../../hooks/useSession";
@@ -55,6 +58,15 @@ function ToolTrace({ name, outcome }: { name: string; outcome: Record<string, un
 }
 
 const describeProposal = (proposal: AgentProposal): string => {
+  if (proposal.kind === "review_suggestion") {
+    const verb = proposal.payload.status === "approved" ? "Approve" : "Reject";
+    const suggestionId = proposal.endpoint.split("/").pop();
+    const reason =
+      proposal.payload.status === "rejected" && proposal.payload.rejection_reason
+        ? ` (${String(proposal.payload.rejection_reason).replaceAll("_", " ")})`
+        : "";
+    return `${verb} suggestion #${suggestionId}${reason}`;
+  }
   const rule = proposal.payload;
   const verb = rule.status === "approved" ? "Approve" : "Reject";
   const direction = rule.status === "approved" ? "at or above" : "below";
@@ -77,7 +89,7 @@ function ProposalCard({
   onReaction?: (reaction: AvatarReaction) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [result, setResult] = useState<FilteredBulkReviewResult | null>(null);
+  const [result, setResult] = useState<AgentProposalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const confirm = async () => {
@@ -103,8 +115,8 @@ function ProposalCard({
       <p className="assistant-proposal__copy">{describeProposal(proposal)}</p>
       {result !== null ? (
         <p className="assistant-proposal__result" role="status">
-          Applied: {result.reviewed} reviewed
-          {result.skipped > 0 ? `, ${result.skipped} skipped` : ""}. Undo is available in the queue.
+          {result.message}
+          {result.undoAvailable ? " Undo is available in the queue." : ""}
         </p>
       ) : (
         <div className="assistant-proposal__actions">

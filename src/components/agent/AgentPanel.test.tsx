@@ -346,6 +346,9 @@ describe("AgentPanel", () => {
       proposals: [
         {
           tool: "preview_bulk_review",
+          kind: "bulk_review",
+          risk: "reversible",
+          method: "POST",
           endpoint: "/api/v1/suggestions/bulk-review-by-filter",
           payload: {
             status: "approved",
@@ -359,11 +362,8 @@ describe("AgentPanel", () => {
       ],
     });
     const confirm = vi.mocked(agentApi.confirmProposal).mockResolvedValue({
-      reviewed: 12,
-      skipped: 0,
-      reviewed_ids: [1, 2, 3],
-      undo_operation_id: "op-1",
-      status: "approved",
+      message: "Applied: 12 reviewed.",
+      undoAvailable: true,
     });
 
     const user = userEvent.setup();
@@ -396,11 +396,52 @@ describe("AgentPanel", () => {
     );
   });
 
+  it("confirms one suggestion review through the typed proposal path", async () => {
+    streams("I staged the decision for you.", {
+      proposals: [
+        {
+          tool: "preview_suggestion_review",
+          kind: "review_suggestion",
+          risk: "reversible",
+          method: "PUT",
+          endpoint: "/api/v1/suggestions/42",
+          payload: {
+            status: "rejected",
+            expected_status: "pending",
+            rejection_reason: "wrong_target",
+          },
+        },
+      ],
+    });
+    const confirm = vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Applied: suggestion #42 is rejected.",
+      undoAvailable: true,
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open assistant" }));
+    await user.type(
+      await screen.findByLabelText("Message the assistant"),
+      "reject suggestion 42 because it targets the wrong page{Enter}",
+    );
+
+    expect(await screen.findByText(/Reject suggestion #42 \(wrong target\)/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(await screen.findByText(/suggestion #42 is rejected/)).not.toBeNull();
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "review_suggestion", method: "PUT" }),
+    );
+  });
+
   it("surfaces a failed proposal without losing the conversation", async () => {
     streams("", {
       proposals: [
         {
           tool: "preview_bulk_review",
+          kind: "bulk_review",
+          risk: "reversible",
+          method: "POST",
           endpoint: "/api/v1/sites/7",
           payload: {},
           match_count: 1,

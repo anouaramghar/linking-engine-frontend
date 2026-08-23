@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const post = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { reviewed: 1 } }),
 );
+const put = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ data: { id: 7, status: "approved" } }),
+);
 vi.mock("./client", () => ({
-  api: { post, defaults: { baseURL: "/api/v1" } },
+  api: { post, put, defaults: { baseURL: "/api/v1" } },
   AGENT_CHAT_TIMEOUT_MS: 120_000,
   AGENT_STREAM_IDLE_MS: 120_000,
   LINKMESH_CLIENT_HEADER: "X-LinkMesh-Client",
@@ -46,13 +49,22 @@ describe("postAgentMessage", () => {
 describe("confirmProposal", () => {
   beforeEach(() => {
     post.mockClear();
+    put.mockClear();
     post.mockResolvedValue({ data: { reviewed: 1 } });
   });
 
   it("posts the staged payload verbatim to the one allowed endpoint", async () => {
-    const payload = { status: "approved", threshold_percent: 85, site_id: 7 };
+    const payload = {
+      status: "approved",
+      match_status: "pending",
+      threshold_percent: 85,
+      site_id: 7,
+    };
     await confirmProposal({
       tool: "preview_bulk_review",
+      kind: "bulk_review",
+      risk: "reversible",
+      method: "POST",
       endpoint: "/api/v1/suggestions/bulk-review-by-filter",
       payload,
     });
@@ -63,10 +75,27 @@ describe("confirmProposal", () => {
     );
   });
 
+  it("puts a single review only to its exact suggestion route", async () => {
+    const payload = { status: "approved", expected_status: "pending" };
+    await confirmProposal({
+      tool: "preview_suggestion_review",
+      kind: "review_suggestion",
+      risk: "reversible",
+      method: "PUT",
+      endpoint: "/api/v1/suggestions/7",
+      payload,
+    });
+
+    expect(put).toHaveBeenCalledWith("/suggestions/7", payload);
+  });
+
   it("refuses any other endpoint a proposal might name", async () => {
     await expect(
       confirmProposal({
         tool: "preview_bulk_review",
+        kind: "bulk_review",
+        risk: "reversible",
+        method: "POST",
         endpoint: "/api/v1/sites/7",
         payload: {},
       }),
@@ -75,12 +104,30 @@ describe("confirmProposal", () => {
     await expect(
       confirmProposal({
         tool: "preview_bulk_review",
+        kind: "bulk_review",
+        risk: "reversible",
+        method: "POST",
         endpoint: "/api/v1/suggestions/bulk-review",
         payload: {},
       }),
     ).rejects.toThrow("unsupported proposal endpoint");
 
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it("refuses a write proposal without its race-safety precondition", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_suggestion_review",
+        kind: "review_suggestion",
+        risk: "reversible",
+        method: "PUT",
+        endpoint: "/api/v1/suggestions/7",
+        payload: { status: "approved" },
+      }),
+    ).rejects.toThrow("unsupported suggestion review status");
+
+    expect(put).not.toHaveBeenCalled();
   });
 });
 
