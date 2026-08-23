@@ -47,6 +47,33 @@ export interface AgentProposalResult {
   undoAvailable: boolean;
 }
 
+export interface AgentActionPreview {
+  proposal: AgentProposal;
+  proposal_hash: string;
+  envelope_expires_at: string;
+  originating_scope: string;
+  requires_admin: boolean;
+}
+
+export interface AgentActionReceipt {
+  receipt: string;
+  expires_at: string;
+  proposal_hash: string;
+}
+
+export const previewMcpAction = (envelope: string) =>
+  api
+    .post<AgentActionPreview>("/agent-actions/preview", { envelope })
+    .then((response) => response.data);
+
+export const issueMcpActionReceipt = (envelope: string, expectedProposalHash: string) =>
+  api
+    .post<AgentActionReceipt>("/agent-actions/receipts", {
+      envelope,
+      expected_proposal_hash: expectedProposalHash,
+    })
+    .then((response) => response.data);
+
 export interface AgentChatResponse {
   reply: string;
   tools_used: AgentToolTrace[];

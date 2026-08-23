@@ -4,6 +4,10 @@ import { BorderBeam } from "border-beam";
 import type { AnimationKey } from "@bible-strong/avatar-core";
 import {
   confirmProposal,
+  issueMcpActionReceipt,
+  previewMcpAction,
+  type AgentActionPreview,
+  type AgentActionReceipt,
   type AgentProposal,
   type AgentProposalResult,
 } from "../../api/agent";
@@ -34,6 +38,11 @@ const RANDOM_AVATAR_MAX_DELAY_MS = 16000;
 const randomAvatarDelay = () =>
   RANDOM_AVATAR_MIN_DELAY_MS +
   Math.floor(Math.random() * (RANDOM_AVATAR_MAX_DELAY_MS - RANDOM_AVATAR_MIN_DELAY_MS + 1));
+
+const actionEnvelopeFromFragment = () => {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return params.get("mcp-action");
+};
 
 const looksLikeQuestion = (text: string) => {
   const normalized = text.trim();
@@ -240,19 +249,151 @@ function ProposalCard({
   );
 }
 
+function McpActionCard({
+  envelope,
+  preview,
+  loading,
+  loadError,
+  onDismiss,
+  onReaction,
+}: {
+  envelope: string;
+  preview: AgentActionPreview | null;
+  loading: boolean;
+  loadError: string | null;
+  onDismiss: () => void;
+  onReaction: (reaction: AvatarReaction) => void;
+}) {
+  const [issuing, setIssuing] = useState(false);
+  const [receipt, setReceipt] = useState<AgentActionReceipt | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const issue = async () => {
+    if (!preview) return;
+    setIssuing(true);
+    setError(null);
+    try {
+      setReceipt(await issueMcpActionReceipt(envelope, preview.proposal_hash));
+      onReaction("celebrate");
+    } catch (cause) {
+      onReaction("surprised");
+      setError(
+        (cause as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
+          "Mesh could not issue the receipt. Preview the action again from your MCP client.",
+      );
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  return (
+    <section className="assistant-proposal assistant-mcp-action" aria-label="MCP action review">
+      <div className="assistant-proposal__label">MCP action review</div>
+      {loading && (
+        <p className="assistant-proposal__copy" role="status">
+          Checking the signed preview…
+        </p>
+      )}
+      {loadError && (
+        <p className="assistant-proposal__error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {preview && !receipt && (
+        <>
+          <p className="assistant-proposal__copy">{describeProposal(preview.proposal)}</p>
+          <p className="assistant-proposal__hint">
+            Requested by {preview.originating_scope}. The receipt works only for that exact MCP
+            identity and expires shortly after issuance.
+          </p>
+          {preview.proposal.risk === "sensitive" && (
+            <p className="assistant-proposal__hint" role="note">
+              {sensitiveProposalWarning(preview.proposal)}
+            </p>
+          )}
+          <div className="assistant-proposal__actions">
+            <button
+              type="button"
+              onClick={() => void issue()}
+              disabled={issuing}
+              className="assistant-confirm-button"
+            >
+              {issuing ? "Issuing…" : "Confirm and issue receipt"}
+            </button>
+            <button type="button" onClick={onDismiss} className="assistant-secondary-button">
+              Decline
+            </button>
+          </div>
+        </>
+      )}
+      {receipt && (
+        <div className="assistant-receipt" role="status">
+          <p className="assistant-proposal__copy">Receipt ready</p>
+          <p className="assistant-proposal__hint">
+            Copy it back to your MCP client. It can be used once and expires at{" "}
+            {new Date(receipt.expires_at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}.
+          </p>
+          <code className="assistant-receipt__code">{receipt.receipt}</code>
+          <div className="assistant-proposal__actions">
+            <button
+              type="button"
+              className="assistant-confirm-button"
+              onClick={() => {
+                setError(null);
+                if (!navigator.clipboard) {
+                  setError("Clipboard access is unavailable. Select and copy the receipt above.");
+                  return;
+                }
+                void navigator.clipboard
+                  .writeText(receipt.receipt)
+                  .then(() => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  })
+                  .catch(() => {
+                    setError(
+                      "The browser blocked clipboard access. Select and copy the receipt above.",
+                    );
+                  });
+              }}
+            >
+              {copied ? "Copied" : "Copy receipt"}
+            </button>
+            <button type="button" onClick={onDismiss} className="assistant-secondary-button">
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="assistant-proposal__error">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /**
  * The operator assistant: a slide-in panel over any page.
  *
- * Read-only by contract with the backend (`app/agent_tools.py`): the assistant
- * can look at the queue, sites, jobs, graph, and metrics — it cannot approve,
- * publish, or crawl, so nothing here needs the review workflow's guards.
+ * Dashboard chat uses the read-only registry. Its proposal cards execute only
+ * after a click; signed MCP links use the separate one-time receipt flow.
  */
 export default function AgentPanel() {
   const { data: user } = useSession();
-  const [open, setOpen] = useState(false);
+  const [mcpEnvelope, setMcpEnvelope] = useState<string | null>(actionEnvelopeFromFragment);
+  const [open, setOpen] = useState(mcpEnvelope !== null);
   const [draft, setDraft] = useState("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [avatarOverride, setAvatarOverride] = useState<AvatarReaction | null>(null);
+  const [mcpPreview, setMcpPreview] = useState<AgentActionPreview | null>(null);
+  const [mcpLoading, setMcpLoading] = useState(mcpEnvelope !== null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -291,6 +432,23 @@ export default function AgentPanel() {
       if (avatarReactionTimer.current !== null) clearTimeout(avatarReactionTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !mcpEnvelope) return;
+
+    // Fragments never reach the server or referrer, and removing it here keeps
+    // browser history and screenshots from retaining staged action material.
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    void previewMcpAction(mcpEnvelope)
+      .then(setMcpPreview)
+      .catch((cause) => {
+        setMcpError(
+          (cause as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
+            "Mesh could not verify this action link. Ask the MCP client for a fresh preview.",
+        );
+      })
+      .finally(() => setMcpLoading(false));
+  }, [mcpEnvelope, user]);
 
   // When the launcher is idle, give it occasional personality without turning
   // it into a notification. The loop stops as soon as the panel opens and is
@@ -445,7 +603,7 @@ export default function AgentPanel() {
                   {configured === false ? "Offline" : configured === null ? "Checking" : "Ready"}
                 </span>
               </div>
-              <p className="assistant-panel-meta">Read-only · LinkMesh</p>
+              <p className="assistant-panel-meta">Review &amp; operations · LinkMesh</p>
             </div>
             <div className="flex items-center gap-1">
               {messages.length > 0 && (
@@ -492,6 +650,23 @@ export default function AgentPanel() {
                 }}
                 retryPending={pending}
                 retryLabel="Retry message"
+              />
+            </div>
+          )}
+
+          {mcpEnvelope && (
+            <div className="assistant-mcp-wrap">
+              <McpActionCard
+                envelope={mcpEnvelope}
+                preview={mcpPreview}
+                loading={mcpLoading}
+                loadError={mcpError}
+                onReaction={triggerAvatarReaction}
+                onDismiss={() => {
+                  setMcpEnvelope(null);
+                  setMcpPreview(null);
+                  setMcpError(null);
+                }}
               />
             </div>
           )}

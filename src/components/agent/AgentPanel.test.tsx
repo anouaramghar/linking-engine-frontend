@@ -13,6 +13,8 @@ vi.mock("../../api/agent", () => ({
   getAgentStatus: vi.fn().mockResolvedValue({ configured: true, model: "test-model" }),
   streamAgentMessage: vi.fn(),
   confirmProposal: vi.fn(),
+  previewMcpAction: vi.fn(),
+  issueMcpActionReceipt: vi.fn(),
   // The hook tells an engine refusal from a transport failure with
   // `instanceof`, so the class it imports has to be the one thrown here.
   AgentStreamError: class AgentStreamError extends Error {
@@ -74,6 +76,9 @@ beforeEach(() => {
   vi.mocked(agentApi.getAgentStatus).mockClear();
   vi.mocked(agentApi.streamAgentMessage).mockReset();
   vi.mocked(agentApi.confirmProposal).mockReset();
+  vi.mocked(agentApi.previewMcpAction).mockReset();
+  vi.mocked(agentApi.issueMcpActionReceipt).mockReset();
+  window.history.replaceState(null, "", "/");
   getSession.mockResolvedValue({ telegram_id: 42, is_staff: true });
 });
 
@@ -329,6 +334,56 @@ describe("AgentPanel", () => {
     await user.click(await screen.findByRole("button", { name: "Open assistant" }));
     const dialog = await screen.findByRole("dialog", { name: "Assistant" });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
+  });
+
+  it("reviews a signed MCP action and reveals its one-time receipt only after confirmation", async () => {
+    const proposal: AgentProposal = {
+      tool: "preview_article_analysis",
+      kind: "article_analysis_start",
+      risk: "sensitive",
+      method: "POST",
+      endpoint: "/api/v1/articles/42/suggestions",
+      payload: {
+        expected_active_job_run_ids: [],
+        expected_article_is_active: true,
+      },
+      context: {
+        article_id: 42,
+        article_title: "A careful title",
+        site_id: 7,
+        site_name: "Journal",
+      },
+      impact: { remaining_slots_for_article: 2 },
+    };
+    vi.mocked(agentApi.previewMcpAction).mockResolvedValue({
+      proposal,
+      proposal_hash: "a".repeat(64),
+      envelope_expires_at: "2026-08-23T18:00:00Z",
+      originating_scope: "API key #12",
+      requires_admin: false,
+    });
+    vi.mocked(agentApi.issueMcpActionReceipt).mockResolvedValue({
+      receipt: "lmar_one_time_value",
+      expires_at: "2026-08-23T18:05:00Z",
+      proposal_hash: "a".repeat(64),
+    });
+    window.history.replaceState(null, "", "/sites#mcp-action=signed-envelope");
+
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(await screen.findByRole("dialog")).not.toBeNull();
+    expect(await screen.findByText(/Generate suggestions for A careful title/)).not.toBeNull();
+    expect(screen.getByText(/Requested by API key #12/)).not.toBeNull();
+    expect(window.location.hash).toBe("");
+    expect(screen.queryByText("lmar_one_time_value")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Confirm and issue receipt" }));
+    expect(await screen.findByText("lmar_one_time_value")).not.toBeNull();
+    expect(agentApi.issueMcpActionReceipt).toHaveBeenCalledWith(
+      "signed-envelope",
+      "a".repeat(64),
+    );
   });
 
   it("restores focus to the launcher after the dialog closes", async () => {

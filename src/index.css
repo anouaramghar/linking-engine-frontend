@@ -1101,6 +1101,50 @@ input[type="number"] {
   background: var(--assistant-fill);
 }
 
+.assistant-mcp-wrap {
+  flex: none;
+  padding: 14px 16px 0;
+}
+
+.assistant-mcp-action {
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-secondary-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--assistant-line);
+  border-radius: 9999px;
+  padding: 7px 14px;
+  color: rgb(var(--c-on-dark));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assistant-secondary-button:hover {
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-receipt__code {
+  display: block;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--assistant-line);
+  border-radius: 8px;
+  padding: 10px;
+  color: rgb(var(--c-on-dark));
+  background: rgb(var(--c-canvas-deep) / 0.5);
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: all;
+}
+
 .assistant-proposal__label {
   color: var(--assistant-muted);
   font-size: 12px;
