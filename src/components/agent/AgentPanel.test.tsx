@@ -167,7 +167,10 @@ describe("AgentPanel", () => {
     await user.type(await screen.findByLabelText("Message Mesh"), "take your time{Enter}");
     await screen.findByText("Partial answer");
 
-    await user.click(screen.getByRole("button", { name: "Stop generating" }));
+    const stopButton = screen.getByRole("button", { name: "Stop generating" });
+    expect(stopButton.textContent).toBe("");
+    expect(stopButton.querySelector("svg")).not.toBeNull();
+    await user.click(stopButton);
 
     expect(await screen.findByText("Stopped before Mesh finished the answer.")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Stop generating" })).toBeNull();

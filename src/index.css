@@ -1497,14 +1497,14 @@ input[type="number"] {
 }
 
 .assistant-stop-button {
+  width: 36px;
+  height: 36px;
   min-height: 36px;
   flex: none;
   border-color: var(--assistant-line);
-  padding: 0 12px;
+  padding: 0;
   color: rgb(var(--assistant-ink));
   background: transparent;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .assistant-stop-button:hover:not(:disabled) {
@@ -1602,6 +1602,8 @@ input[type="number"] {
   }
 
   .assistant-stop-button {
+    width: 44px;
+    height: 44px;
     min-height: 44px;
   }
 }

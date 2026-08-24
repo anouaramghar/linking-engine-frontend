@@ -1118,10 +1118,19 @@ export default function AgentPanel({
                         <button
                           type="button"
                           aria-label="Stop generating"
+                          title="Stop generating"
                           onClick={stopGenerating}
                           className="assistant-stop-button"
                         >
-                          Stop
+                          <svg
+                            aria-hidden="true"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                          >
+                            <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" />
+                          </svg>
                         </button>
                       ) : (
                         <button
