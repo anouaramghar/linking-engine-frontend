@@ -5,6 +5,7 @@ import {
   bulkCreateSites,
   deleteSite,
   getExternalLinkPolicy,
+  getSiteSchedule,
   importArticleRows,
   ingestPoolSourceBatch,
   listExternalSourceEvaluations,
@@ -13,6 +14,8 @@ import {
   listSites,
   reactivatePoolSource,
   revokePoolSource,
+  runSiteScheduleNow,
+  updateSiteSchedule,
   updateExternalLinkPolicy,
   validatePoolSources,
 } from "./sites";
@@ -64,6 +67,53 @@ describe("external-link policy", () => {
     expect(get).toHaveBeenCalledWith("/sites/8/external-link-policy/sources");
   });
 });
+
+describe("site automation schedule", () => {
+  it("reads and updates one managed site's schedule", async () => {
+    const schedule = {
+      id: 4,
+      site_id: 8,
+      enabled: true,
+      cadence: "weekly" as const,
+      weekday: 1,
+      local_time: "02:30:00",
+      timezone: "Africa/Casablanca",
+      next_run_at: "2026-08-25T01:30:00Z",
+      last_attempt_at: null,
+      last_attempt_status: null,
+      last_attempt_error: null,
+      last_pipeline_batch_id: null,
+      last_run_status: null,
+      last_run_started_at: null,
+      last_run_finished_at: null,
+      last_run_error: null,
+    };
+    get.mockResolvedValue({ data: schedule });
+    put.mockResolvedValue({ data: schedule });
+
+    await expect(getSiteSchedule(8)).resolves.toEqual(schedule);
+    expect(get).toHaveBeenCalledWith("/sites/8/schedule");
+
+    const update = {
+      enabled: true,
+      cadence: "weekly" as const,
+      weekday: 1,
+      local_time: "02:30",
+      timezone: "Africa/Casablanca",
+    };
+    await expect(updateSiteSchedule({ siteId: 8, schedule: update })).resolves.toEqual(schedule);
+    expect(put).toHaveBeenCalledWith("/sites/8/schedule", update);
+  });
+
+  it("queues a crawl and analysis run now", async () => {
+    const accepted = { batch_id: 19, ingestion_job_run_id: 20 };
+    post.mockResolvedValue({ data: accepted });
+
+    await expect(runSiteScheduleNow(8)).resolves.toEqual(accepted);
+    expect(post).toHaveBeenCalledWith("/sites/8/schedule/run-now");
+  });
+});
+
 describe("listSites", () => {
   it("loads one bounded server page with optional search", async () => {
     const page = [{ id: 1001 }];

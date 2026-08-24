@@ -13,6 +13,7 @@ import {
   deleteSite,
   getEditorialRankingPolicy,
   getExternalLinkPolicy,
+  getSiteSchedule,
   importArticleRows,
   ingestPoolSourceBatch,
   listPoolAuditEvents,
@@ -24,14 +25,17 @@ import {
   SITE_PAGE_SIZE,
   reactivatePoolSource,
   revokePoolSource,
+  runSiteScheduleNow,
   updateExternalLinkPolicy,
   updateEditorialRankingPolicy,
+  updateSiteSchedule,
   validatePoolSources,
 } from "../api/sites";
 import type {
   ArticleImportRow,
   EditorialRankingPolicyUpdate,
   ExternalLinkPolicyUpdate,
+  SiteScheduleUpdate,
 } from "../types/site";
 
 export const useSites = (search = "") =>
@@ -178,6 +182,37 @@ export const usePoolIngestionBatch = () => {
     mutationFn: ingestPoolSourceBatch,
     onSettled: () =>
       Promise.all([
+        qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
+        qc.invalidateQueries({ queryKey: ["sites"] }),
+      ]),
+  });
+};
+
+export const useSiteSchedule = (siteId: number | null) =>
+  useQuery({
+    queryKey: ["site-schedule", siteId],
+    queryFn: () => getSiteSchedule(siteId!),
+    enabled: siteId !== null,
+  });
+
+export const useUpdateSiteSchedule = (siteId: number) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (schedule: SiteScheduleUpdate) => updateSiteSchedule({ siteId, schedule }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["site-schedule", siteId] });
+      void qc.invalidateQueries({ queryKey: ["sites"] });
+    },
+  });
+};
+
+export const useRunSiteScheduleNow = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: runSiteScheduleNow,
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["site-schedule"] }),
         qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
         qc.invalidateQueries({ queryKey: ["sites"] }),
       ]),

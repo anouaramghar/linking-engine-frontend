@@ -94,6 +94,7 @@ const ExternalLinkPolicyModal = lazy(
   () => import("../components/sites/ExternalLinkPolicyModal"),
 );
 const SiteCredentialsModal = lazy(() => import("../components/sites/SiteCredentialsModal"));
+const SiteScheduleModal = lazy(() => import("../components/sites/SiteScheduleModal"));
 
 const activeJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
 
@@ -261,6 +262,7 @@ export default function SitesPage() {
   const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [policySite, setPolicySite] = useState<Site | null>(null);
   const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
+  const [scheduleSite, setScheduleSite] = useState<Site | null>(null);
   const [articleAnalysisSite, setArticleAnalysisSite] = useState<Site | null>(null);
   // A batch is assembled by hand across a long list. Leaving to check one site's
   // credentials before running the rest is part of assembling it, and used to
@@ -830,6 +832,10 @@ export default function SitesPage() {
                             onSelect: () => setRankingPolicySite(site),
                           },
                           {
+                            label: "Schedule refresh",
+                            onSelect: () => setScheduleSite(site),
+                          },
+                          {
                             // The label carries the state, so the menu says
                             // whether this site can publish at all without the
                             // row needing another badge.
@@ -944,6 +950,13 @@ export default function SitesPage() {
           <EditorialRankingPolicyModal
             site={rankingPolicySite}
             onClose={() => setRankingPolicySite(null)}
+            onSaved={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
+        {scheduleSite && (
+          <SiteScheduleModal
+            site={scheduleSite}
+            onClose={() => setScheduleSite(null)}
             onSaved={(message) => setNotice({ message, tone: "info" })}
           />
         )}

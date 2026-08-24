@@ -884,7 +884,7 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                     <p className="assistant-empty-kicker">Ask Mesh</p>
                     <p className="assistant-empty-copy">
                       Ask about your sites, the review queue, running jobs, or evaluation metrics.
-                      I can look things up — reviewing and publishing stay yours.
+                      I can look things up, reviewing and publishing stay yours.
                     </p>
                     <div className="assistant-topic-strip" aria-hidden="true">
                       <span>Queue</span>

@@ -46,6 +46,50 @@ export interface Site {
   editorial_feedback_min_samples?: number;
 }
 
+export type SiteScheduleCadence = "daily" | "weekly";
+
+export type SiteScheduleAttemptStatus = "queued" | "skipped" | "failed";
+
+export type SiteScheduleRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "partial_failed"
+  | "cancelled";
+
+export interface SiteSchedule {
+  id: number;
+  site_id: number;
+  enabled: boolean;
+  cadence: SiteScheduleCadence;
+  weekday: number | null;
+  local_time: string;
+  timezone: string;
+  next_run_at: string | null;
+  last_attempt_at: string | null;
+  last_attempt_status: SiteScheduleAttemptStatus | null;
+  last_attempt_error: string | null;
+  last_pipeline_batch_id: number | null;
+  last_run_status: SiteScheduleRunStatus | null;
+  last_run_started_at: string | null;
+  last_run_finished_at: string | null;
+  last_run_error: string | null;
+}
+
+export interface SiteScheduleUpdate {
+  enabled: boolean;
+  cadence: SiteScheduleCadence;
+  weekday: number | null;
+  local_time: string;
+  timezone: string;
+}
+
+export interface SiteScheduleRunAccepted {
+  batch_id: number;
+  ingestion_job_run_id: number;
+}
+
 export interface EditorialRankingPolicy {
   site_id: number;
   enabled: boolean;
