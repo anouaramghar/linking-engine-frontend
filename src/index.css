@@ -475,6 +475,14 @@ input[type="number"] {
     display: none;
   }
 
+  .evidence-chevron {
+    @apply text-muted transition-transform duration-state ease-settle motion-reduce:transition-none;
+  }
+
+  details[open] > .disclosure-summary .evidence-chevron {
+    transform: rotate(180deg);
+  }
+
   .help-hint {
     @apply relative inline-block align-top;
   }
@@ -1184,126 +1192,11 @@ input[type="number"] {
 
 .assistant-tool-list {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
 }
 
-/* Evidence stays quiet at rest and opens in place. The operator sees what Mesh
-   checked without being asked to parse registry names or a raw JSON tooltip. */
-.assistant-tool-disclosure {
-  max-width: 100%;
-  border: 1px solid var(--assistant-line-soft);
-  border-radius: 9999px;
-  background: var(--assistant-fill);
-  color: var(--assistant-muted);
-  font-size: 12px;
-}
-
-.assistant-tool-disclosure summary {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 7px;
-  overflow: hidden;
-  padding: 5px 10px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.assistant-tool-disclosure summary::-webkit-details-marker {
-  display: none;
-}
-
-.assistant-tool-disclosure__mark {
-  flex: none;
-  color: rgb(var(--assistant-ink));
-}
-
-.assistant-tool-disclosure__label {
-  min-width: 0;
-  overflow: hidden;
-  color: rgb(var(--assistant-ink));
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.assistant-tool-disclosure__summary {
-  flex: none;
-  color: var(--assistant-muted);
-  font-size: 12px;
-}
-
-.assistant-tool-disclosure__toggle {
-  position: relative;
-  width: 10px;
-  height: 10px;
-  flex: none;
-  margin-left: auto;
-}
-
-.assistant-tool-disclosure__toggle::before,
-.assistant-tool-disclosure__toggle::after {
-  position: absolute;
-  top: 4px;
-  left: 1px;
-  width: 8px;
-  height: 1px;
-  background: currentColor;
-  content: "";
-}
-
-.assistant-tool-disclosure__toggle::after {
-  transform: rotate(90deg);
-  transition: opacity 150ms ease;
-}
-
-.assistant-tool-disclosure[open] .assistant-tool-disclosure__toggle::after {
-  opacity: 0;
-}
-
-.assistant-tool-disclosure__body {
-  border-top: 1px solid var(--assistant-line-soft);
-  padding: 8px 10px 10px;
-}
-
-.assistant-tool-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-}
-
-.assistant-tool-metric {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-}
-
-.assistant-tool-metric dt {
-  color: var(--assistant-muted);
-  font-size: 12px;
-}
-
-.assistant-tool-metric dd {
-  color: rgb(var(--assistant-ink));
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.assistant-tool-link {
-  display: inline-flex;
-  margin-top: 8px;
-  color: rgb(var(--assistant-ink));
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-/* Kept as a compatibility hook for older extensions that still render a
-   single source chip. New panel traces use the disclosure above. */
 .assistant-tool-chip {
   display: inline-flex;
   max-width: 100%;
@@ -1543,11 +1436,6 @@ input[type="number"] {
   animation: assistant-shimmer-text 2.4s ease-in-out infinite;
 }
 
-.assistant-thinking__activity {
-  color: rgb(var(--assistant-ink));
-  font-size: 12px;
-}
-
 .assistant-jump-button {
   position: sticky;
   right: 0;
@@ -1624,37 +1512,6 @@ input[type="number"] {
   background: var(--assistant-fill-strong);
 }
 
-.assistant-followup-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 14px;
-  border-top: 1px solid var(--assistant-line-soft);
-  padding-top: 10px;
-}
-
-.assistant-followup {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--assistant-line-soft);
-  border-radius: 9999px;
-  padding: 5px 10px;
-  color: rgb(var(--assistant-body));
-  background: transparent;
-  font-size: 12px;
-  font-weight: 600;
-  text-align: left;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
-}
-
-.assistant-followup:hover:not(:disabled) {
-  border-color: var(--assistant-line);
-  color: rgb(var(--assistant-ink));
-  background: var(--assistant-fill);
-}
-
 .assistant-message--cancelled {
   color: var(--assistant-muted);
 }
@@ -1701,8 +1558,7 @@ input[type="number"] {
   .assistant-send-button,
   .assistant-stop-button,
   .assistant-suggestion,
-  .assistant-suggestion__arrow,
-  .assistant-followup {
+  .assistant-suggestion__arrow {
     transition: none;
   }
 }

@@ -18,11 +18,9 @@ import { useAgentChat, type AgentTurnResult } from "../../hooks/useAgentChat";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type { ResolvedTheme } from "../../hooks/useTheme";
 import { useSession } from "../../hooks/useSession";
-import { ToolTrace } from "./AgentEvidence";
 import AgentAvatar from "./AgentAvatar";
 import AgentMarkdown from "./AgentMarkdown";
 import { getAgentViewContext } from "./agentContext";
-import { toolActivityFor } from "./agentPresentation";
 import Notice from "../Notice";
 
 type AssistantAvatarAnimation =
@@ -51,6 +49,17 @@ const looksLikeQuestion = (text: string) => {
     /^(who|what|where|when|why|how|can|could|is|are|do|does|should)\b/i.test(normalized)
   );
 };
+
+function ToolTrace({ name, outcome }: { name: string; outcome: Record<string, unknown> }) {
+  const summary = Object.entries(outcome)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(" · ");
+  return (
+    <span title={summary || undefined} className="assistant-tool-chip">
+      {name}
+    </span>
+  );
+}
 
 const describeProposal = (proposal: AgentProposal): string => {
   if (proposal.kind === "external_link_policy") {
@@ -693,10 +702,6 @@ export default function AgentPanel({
     [triggerAvatarReaction],
   );
 
-  // Working, rather than thinking, is something the panel can now know instead
-  // of timing: the engine reports each tool as it returns, so the rhythm
-  // changes when the assistant actually goes and looks something up.
-  const latestTool = streamingReply?.tools?.[streamingReply.tools.length - 1];
   const avatarAnimation: AnimationKey = pending
     ? (streamingReply?.tools?.length ?? 0) > 0
       ? "working"
@@ -1021,7 +1026,6 @@ export default function AgentPanel({
                               key={`${tool.name}-${toolIndex}`}
                               name={tool.name}
                               outcome={tool.outcome}
-                              currentHref={viewContext.href}
                             />
                           ))}
                         </div>
@@ -1052,43 +1056,6 @@ export default function AgentPanel({
                             tool={tool}
                           />
                         ))}
-                      {message.role === "assistant" &&
-                        message.id === lastMessage?.id &&
-                        !message.streaming &&
-                        !message.cancelled &&
-                        !message.proposals?.length && (
-                          <div
-                            className="assistant-followup-list"
-                            role="group"
-                            aria-label="Suggested follow-up questions"
-                          >
-                            {viewContext.suggestions.map(({ label, prompt }) => (
-                              <button
-                                key={`${message.id}-${prompt}`}
-                                type="button"
-                                onClick={() => submitMessage(prompt)}
-                                disabled={pending}
-                                className="assistant-followup"
-                              >
-                                <span>{label}</span>
-                                <svg
-                                  aria-hidden="true"
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 12 12"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M1.5 6h8" />
-                                  <path d="m6.5 3 3 3-3 3" />
-                                </svg>
-                              </button>
-                            ))}
-                          </div>
-                        )}
                     </div>
                   </div>
                 ))}
@@ -1104,11 +1071,6 @@ export default function AgentPanel({
                         ? "Mesh is working…"
                         : "Mesh is thinking…"}
                     </span>
-                    {latestTool && (
-                      <span className="assistant-thinking__activity">
-                        {toolActivityFor(latestTool.name)}…
-                      </span>
-                    )}
                   </div>
                 )}
                 {showJumpToLatest && (

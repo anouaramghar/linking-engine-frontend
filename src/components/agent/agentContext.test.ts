@@ -22,7 +22,7 @@ describe("getAgentViewContext", () => {
     expect(context.suggestions[0]?.prompt).toContain("oldest");
   });
 
-  it("keeps deep links and route-specific follow-ups aligned", () => {
+  it("keeps the route context and starter prompts aligned", () => {
     const context = getAgentViewContext("/publish/42", "");
 
     expect(context.href).toBe("/publish/42");
