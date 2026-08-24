@@ -5,8 +5,10 @@ import {
   useBulkReview,
   useFilteredBulkReview,
   useReview,
+  useSuggestionCounts,
   useSuggestions,
 } from "./useSuggestions";
+import { countSuggestions } from "../api/suggestions";
 
 const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
@@ -33,6 +35,7 @@ beforeEach(() => {
   mocks.invalidateQueries.mockReset();
   mocks.invalidateQueries.mockResolvedValue(undefined);
   mocks.listSuggestionPage.mockReset();
+  vi.mocked(countSuggestions).mockReset();
 });
 
 describe("useSuggestions", () => {
@@ -95,5 +98,42 @@ describe("queue mutations", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["publish", "pending"],
     });
+  });
+});
+
+type CountsQuery = {
+  queryKey: unknown[];
+  queryFn: () => Promise<unknown>;
+  refetchOnWindowFocus?: boolean;
+};
+
+const countsOptions = (filters: Parameters<typeof useSuggestionCounts>[0]) =>
+  renderHook(() => useSuggestionCounts(filters)).result.current as unknown as CountsQuery;
+
+describe("useSuggestionCounts", () => {
+  /**
+   * `/suggestions/counts` answers with every status at once and accepts no
+   * status bound, so SelectedPage asking with one bought a second cache entry
+   * holding the identical answer the queue's chips were already paying for.
+   */
+  it("puts two callers that differ only by status on one cache entry", () => {
+    expect(countsOptions({ siteId: 3, status: "approved" }).queryKey).toEqual(
+      countsOptions({ siteId: 3 }).queryKey,
+    );
+  });
+
+  it("does not send a bound the endpoint has no parameter for", async () => {
+    await countsOptions({ siteId: 3, status: "approved" }).queryFn();
+    expect(vi.mocked(countSuggestions)).toHaveBeenCalledWith({ siteId: 3 });
+  });
+
+  /**
+   * Against the client-wide default, and only here. Nothing else moves these
+   * numbers while this browser is idle — a colleague reviewing the same queue
+   * does not reach this cache, and React Query stops its intervals in an
+   * unfocused window — so a tab left open came back showing an old fleet.
+   */
+  it("opts back into a refetch when the operator returns to the tab", () => {
+    expect(countsOptions({}).refetchOnWindowFocus).toBe(true);
   });
 });

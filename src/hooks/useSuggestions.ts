@@ -76,6 +76,20 @@ export const useSuggestionCounts = (
     // themselves under the user's cursor. Holding the last answer keeps the
     // control usable; it is at most one debounce interval stale.
     placeholderData: keepPreviousData,
+    // Against the client-wide default, and only here.
+    //
+    // Nothing else moves these numbers when this browser is idle: a colleague
+    // reviewing the same queue does not reach this cache, and React Query stops
+    // its intervals in an unfocused window — so a tab left open over lunch came
+    // back showing the fleet as it stood an hour ago. Refetch on focus is what
+    // the polled queries already do; this one fires once per return rather than
+    // on a timer, and it is the cheapest query in the dashboard: one grouped
+    // aggregate over an indexed column.
+    //
+    // Deliberately not extended to `["sites"]` or the paginated queue. Those
+    // are the heavy reads the client-wide default exists to protect, and a
+    // refetch of every loaded page on every focus is the cost it avoids.
+    refetchOnWindowFocus: true,
     enabled,
   });
 };

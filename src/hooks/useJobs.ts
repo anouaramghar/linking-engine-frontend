@@ -1,5 +1,5 @@
-import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 
 import { getActiveJobs, getJob } from "../api/jobs";
 import type { JobKind, JobRun, JobStatusValue } from "../types/job";
@@ -115,24 +115,42 @@ export const activeJobsRefresh = (
   return [...keys.values()];
 };
 
+const ACTIVE_JOBS_KEY = ["jobs", "active"] as const;
+
+/**
+ * When this client last acted on the feed.
+ *
+ * The state belongs to the query, not to a component. `useActiveJobs` runs in
+ * the rail, the Sites page and the content pool at once, but React Query runs
+ * one `queryFn` per fetch — whichever observer's timer wins the tick. Refs held
+ * per instance therefore drifted apart: most polls fired the sweep twice, and a
+ * page mounting just as a job left the feed could own that fetch with an empty
+ * history and lose the refresh altogether.
+ *
+ * Weakly keyed, so a test's throwaway client is collected with it and two
+ * clients cannot share one throttle.
+ */
+const lastRefreshAt = new WeakMap<QueryClient, number>();
+
 /** Restore scheduled/background jobs after refresh and keep their stage current. */
 export const useActiveJobs = () => {
   const qc = useQueryClient();
-  const previous = useRef<JobRun[]>([]);
-  const lastRefresh = useRef(0);
 
   return useQuery({
-    queryKey: ["jobs", "active"],
+    queryKey: ACTIVE_JOBS_KEY,
     queryFn: async () => {
+      // The cache is the shared record of what was running: it still holds the
+      // previous answer until this one resolves, and every mounted copy of the
+      // hook reads the same one.
+      const previous = qc.getQueryData<JobRun[]>(ACTIVE_JOBS_KEY) ?? [];
       const active = await getActiveJobs();
       const stale = activeJobsRefresh(
-        previous.current,
+        previous,
         active,
-        Date.now() - lastRefresh.current,
+        Date.now() - (lastRefreshAt.get(qc) ?? 0),
       );
       for (const queryKey of stale) void qc.invalidateQueries({ queryKey });
-      if (stale.length) lastRefresh.current = Date.now();
-      previous.current = active;
+      if (stale.length) lastRefreshAt.set(qc, Date.now());
       return active;
     },
     // 1.5s is the cadence a running crawl's progress deserves; an idle fleet

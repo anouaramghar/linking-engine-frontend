@@ -132,4 +132,36 @@ describe("the active feed acting on what it found", () => {
       expect(keys).toContainEqual(["suggestions", "counts"]);
     });
   });
+
+  /**
+   * The rail, the Sites page and the content pool all mount this hook, but
+   * React Query runs one `queryFn` per fetch. While each copy kept its own
+   * history in a ref, a page mounting mid-job owned that fetch with an empty
+   * one — `didActiveJobsFinish` saw nothing leave, and the sweep that follows a
+   * finished job was lost. The history lives in the cache now, which is the
+   * one thing all three copies already share.
+   */
+  it("sees a job finish through a copy of the hook that never saw it start", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    // The rail has been watching a crawl for a while.
+    mocks.getActiveJobs.mockResolvedValue([job(1)]);
+    const rail = renderHook(() => useActiveJobs(), { wrapper });
+    await waitFor(() => expect(rail.result.current.data).toEqual([job(1)]));
+
+    // A second page mounts, and the crawl finishes on the fetch it owns.
+    mocks.getActiveJobs.mockResolvedValue([]);
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const page = renderHook(() => useActiveJobs(), { wrapper });
+    await waitFor(() => expect(page.result.current.data).toEqual([]));
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([options]) => options?.queryKey);
+      // The full sweep, not just what a running crawl moves.
+      expect(keys).toContainEqual(["suggestions"]);
+      expect(keys).toContainEqual(["publish", "pending"]);
+    });
+  });
 });
