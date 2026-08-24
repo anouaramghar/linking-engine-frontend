@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getActiveJobs, getJob } from "../api/jobs";
-import type { JobRun, JobStatusValue } from "../types/job";
+import type { JobKind, JobRun, JobStatusValue } from "../types/job";
 
 const TERMINAL_STATUSES = new Set<JobStatusValue>([
   "succeeded",
@@ -21,10 +21,15 @@ export const didActiveJobsFinish = (before: JobRun[], after: JobRun[]) => {
   return before.some((job) => !currentIds.has(job.id));
 };
 
+/** Everything a finished job could have produced. */
+const JOB_OUTPUT_KEYS = [
+  ["suggestions"],
+  ["sites"],
+  ["publish", "pending"],
+] as const;
+
 const refreshJobOutputs = (qc: ReturnType<typeof useQueryClient>) => {
-  void qc.invalidateQueries({ queryKey: ["suggestions"] });
-  void qc.invalidateQueries({ queryKey: ["sites"] });
-  void qc.invalidateQueries({ queryKey: ["publish", "pending"] });
+  for (const queryKey of JOB_OUTPUT_KEYS) void qc.invalidateQueries({ queryKey });
 };
 
 /**
@@ -56,54 +61,77 @@ const ACTIVE_POLL_MS = 1500;
 const IDLE_POLL_MS = 15_000;
 
 /**
- * How often a crawl in flight refreshes the numbers it is changing.
+ * How often a job in flight refreshes the numbers it is changing.
  *
- * A crawl writes articles the whole time it runs, so a Sites page watching one
- * showed a stale article count until the job left the active feed — the lag
- * Amir reported on 2026-08-11. Refreshing on every 1.5s poll instead would
- * refetch a page of up to 250 sites forty times a minute, which is a heavier
- * price than the staleness it buys off.
+ * A long job writes the whole time it runs, so a page watching one showed
+ * stale numbers until the job left the active feed — the lag Amir reported on
+ * 2026-08-11. Refreshing on every 1.5s poll instead would refetch a page of up
+ * to 250 sites forty times a minute, which is a heavier price than the
+ * staleness it buys off.
  */
-const RUNNING_CRAWL_REFRESH_MS = 10_000;
+const RUNNING_JOB_REFRESH_MS = 10_000;
 
 /**
- * What one poll of the active feed makes stale.
+ * What each kind of job has already moved while it is still running.
  *
- * `"outputs"` is a finished job: everything it could have produced. `"sites"`
- * is a crawl still running, which has only moved the counts on the site rows.
+ * A crawl was the only kind that reported anything before it finished, so an
+ * analysis — the longest of the four — left the pending count frozen for its
+ * whole run and then made it jump. It commits suggestions after every source
+ * article, so those rows are in the database the moment they are written and
+ * there is nothing to wait for.
+ *
+ * The paginated queue is deliberately absent from `analysis`. It is the
+ * expensive half of the `["suggestions"]` key space, and an editor reading a
+ * card does not want the list re-sorted under them six times a minute. The
+ * counts are the part they are watching, and they are one small aggregate.
  */
-export type ActiveJobsRefresh = "outputs" | "sites" | "none";
+const RUNNING_JOB_TOUCHES: Record<JobKind, readonly (readonly string[])[]> = {
+  ingestion: [["sites"]],
+  analysis: [["sites"], ["suggestions", "counts"]],
+  publication_preparation: [["publish", "pending"]],
+  publication: [["sites"], ["suggestions", "counts"], ["publish", "pending"]],
+};
 
+/**
+ * What one poll of the active feed makes stale, as key prefixes to invalidate.
+ *
+ * Empty means nothing has moved, or the throttle has not elapsed. A job that
+ * has just left the feed answers with everything it could have produced,
+ * whatever the throttle says — that answer arrives once.
+ */
 export const activeJobsRefresh = (
   before: JobRun[],
   after: JobRun[],
-  sinceLastSiteRefreshMs: number,
-): ActiveJobsRefresh => {
-  if (didActiveJobsFinish(before, after)) return "outputs";
-  const crawling = after.some((job) => job.kind === "ingestion");
-  return crawling && sinceLastSiteRefreshMs >= RUNNING_CRAWL_REFRESH_MS ? "sites" : "none";
+  sinceLastRefreshMs: number,
+): readonly (readonly string[])[] => {
+  if (didActiveJobsFinish(before, after)) return JOB_OUTPUT_KEYS;
+  if (sinceLastRefreshMs < RUNNING_JOB_REFRESH_MS) return [];
+  // Two running jobs often move the same rows. Deduplicated by the key itself,
+  // so a fleet mid-crawl and mid-analysis pays for one refresh of the sites.
+  const keys = new Map<string, readonly string[]>();
+  for (const job of after) {
+    for (const key of RUNNING_JOB_TOUCHES[job.kind] ?? []) keys.set(key.join(" "), key);
+  }
+  return [...keys.values()];
 };
 
 /** Restore scheduled/background jobs after refresh and keep their stage current. */
 export const useActiveJobs = () => {
   const qc = useQueryClient();
   const previous = useRef<JobRun[]>([]);
-  const lastSiteRefresh = useRef(0);
+  const lastRefresh = useRef(0);
 
   return useQuery({
     queryKey: ["jobs", "active"],
     queryFn: async () => {
       const active = await getActiveJobs();
-      const refresh = activeJobsRefresh(
+      const stale = activeJobsRefresh(
         previous.current,
         active,
-        Date.now() - lastSiteRefresh.current,
+        Date.now() - lastRefresh.current,
       );
-      if (refresh === "outputs") refreshJobOutputs(qc);
-      // Only the site rows: a crawl produces articles, not suggestions or
-      // publication work, so nothing else has moved yet.
-      else if (refresh === "sites") void qc.invalidateQueries({ queryKey: ["sites"] });
-      if (refresh !== "none") lastSiteRefresh.current = Date.now();
+      for (const queryKey of stale) void qc.invalidateQueries({ queryKey });
+      if (stale.length) lastRefresh.current = Date.now();
       previous.current = active;
       return active;
     },
