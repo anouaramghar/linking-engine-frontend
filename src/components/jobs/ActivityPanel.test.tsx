@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { JobRun } from "../../types/job";
 import type { Site } from "../../types/site";
@@ -118,6 +118,31 @@ describe("ActivityPanel", () => {
 
     await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/sites"));
     expect(screen.queryByRole("complementary", { name: "Running background tasks" })).toBeNull();
+  });
+
+  it("asks for confirmation before stopping a task", async () => {
+    const user = userEvent.setup();
+    const cancel = vi.fn().mockResolvedValue({ status: "cancelled" });
+    renderPanel({ onCancelJob: cancel });
+
+    await user.click(screen.getByRole("button", { name: "Activity, 1 active background task" }));
+    await user.click(screen.getByRole("button", { name: "Stop Alpha site crawl" }));
+    expect(screen.getByRole("heading", { name: "Stop crawl?" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Stop task" }));
+
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith(7));
+    expect(screen.queryByRole("heading", { name: "Stop crawl?" })).toBeNull();
+  });
+
+  it("shows a requested cancellation without offering a second stop", async () => {
+    const user = userEvent.setup();
+    renderPanel({ jobs: [job({ status: "cancel_requested" })] });
+
+    await user.click(screen.getByRole("button", { name: "Activity, 1 active background task" }));
+
+    expect(screen.getByRole("status", { name: "Crawl cancellation requested" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stop Alpha site crawl" })).toBeNull();
   });
 
   it("explains loading, failure, and empty states", async () => {

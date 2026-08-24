@@ -17,7 +17,7 @@ import RailTip from "./components/RailTip";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import ThemeToggle from "./components/ThemeToggle";
 import { useHealth } from "./hooks/useHealth";
-import { useActiveJobs } from "./hooks/useJobs";
+import { useActiveJobs, useCancelJob } from "./hooks/useJobs";
 import { PageStateProvider } from "./hooks/usePageState";
 import {
   QueueSearchContext,
@@ -546,6 +546,7 @@ export default function App() {
   const ownedSiteCount = ownedSites?.length ?? null;
   const { data: counts } = useSuggestionCounts({});
   const activeJobsQuery = useActiveJobs();
+  const cancelJobMutation = useCancelJob();
   const { isError: healthFailed, isPending: healthPending } = useHealth();
   // Owned here, once, because the toggle appears in both the rail and the
   // mobile header and `<html data-theme>` may have only one writer.
@@ -648,6 +649,7 @@ export default function App() {
               sites={sites ?? []}
               isPending={activeJobsQuery.isPending}
               isError={activeJobsQuery.isError}
+              onCancelJob={cancelJobMutation.mutateAsync}
             />
             <NotificationBell collapsed={collapsed} iconOnly />
             <CollapseToggle collapsed={collapsed} onToggle={toggle} />

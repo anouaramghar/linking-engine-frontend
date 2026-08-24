@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import ConfirmDialog from "../ConfirmDialog";
 import LogoLoadingAnimation from "../LogoLoadingAnimation";
 import { isActiveJobStatus, jobStatusGroup, jobStatusLabel } from "../../lib/jobStatus";
+import { errorDetail } from "../../lib/errors";
 import { timeAgo } from "../../lib/utils";
 import { activityDestination, progressMetric, progressSummary } from "./activity";
-import type { JobKind, JobRun } from "../../types/job";
+import { CANCELLATION_COPY, JOB_KIND_LABELS } from "./jobCancellation";
+import type { JobRun } from "../../types/job";
 import type { Site } from "../../types/site";
-
-const KIND_LABELS: Record<JobKind, string> = {
-  ingestion: "Crawl",
-  analysis: "Analysis",
-  publication_preparation: "Exact edits",
-  publication: "Publication",
-};
 
 function ActivityIcon() {
   return (
@@ -85,13 +81,17 @@ function ActivityJobRow({
   job,
   site,
   onOpen,
+  onStop,
+  stopping,
 }: {
   job: JobRun;
   site?: Site;
   onOpen: (job: JobRun) => void;
+  onStop: (job: JobRun) => void;
+  stopping: boolean;
 }) {
   const siteName = site?.name ?? `Site ${job.site_id}`;
-  const kindLabel = KIND_LABELS[job.kind];
+  const kindLabel = JOB_KIND_LABELS[job.kind];
   const stageLabel = jobStatusLabel(job.kind, job.status, job.progress);
   const progress = progressSummary(job.progress);
   const metric = progressMetric(job.progress);
@@ -99,52 +99,73 @@ function ActivityJobRow({
   const timing = queued
     ? `Queued ${timeAgo(job.enqueued_at)}`
     : `Started ${timeAgo(job.started_at ?? job.enqueued_at)}`;
+  const stopPending = job.status === "cancel_requested" || stopping;
 
   return (
     <li className="animate-rowIn border-b border-hairline last:border-b-0">
-      <button
-        type="button"
-        onClick={() => onOpen(job)}
-        aria-label={`Open ${siteName} ${kindLabel.toLowerCase()} activity: ${stageLabel}${progress ? `, ${progress}` : ""}`}
-        className="group flex w-full items-start gap-3 px-5 py-4 text-left transition-colors duration-state ease-settle hover:bg-surface-strong focus-visible:bg-surface-strong"
-      >
-        <span className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-surface-strong text-primary">
-          <LogoLoadingAnimation size="xs" aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-start gap-2">
-            <span className="min-w-0 flex-1 truncate text-caption font-medium text-ink">{siteName}</span>
-            <span className="badge flex-none">{kindLabel}</span>
+      <div className="flex items-start gap-2 px-5 py-4 transition-colors duration-state ease-settle hover:bg-surface-strong">
+        <button
+          type="button"
+          onClick={() => onOpen(job)}
+          aria-label={`Open ${siteName} ${kindLabel.toLowerCase()} activity: ${stageLabel}${progress ? `, ${progress}` : ""}`}
+          className="group flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <span className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-surface-strong text-primary">
+            <LogoLoadingAnimation size="xs" aria-hidden="true" />
           </span>
-          <span className="mt-2 flex items-center gap-2 text-caption font-medium text-ink">
-            <span aria-hidden="true" className="dot bg-primary" />
-            <span>{stageLabel}</span>
-          </span>
-          {metric ? (
-            <span className="mt-2 flex items-center gap-2" role="group" aria-label={`${kindLabel} progress`}>
-              <span
-                role="progressbar"
-                aria-label={`${kindLabel} progress`}
-                aria-valuemin={0}
-                aria-valuemax={metric.total}
-                aria-valuenow={metric.current}
-                className="h-meter min-w-0 flex-1 overflow-hidden rounded-pill bg-hairline-soft"
-              >
-                <span
-                  aria-hidden="true"
-                  className="block h-full w-full origin-left rounded-pill bg-primary transition-transform duration-state ease-settle motion-reduce:transition-none"
-                  style={{ transform: `scaleX(${metric.percent / 100})` }}
-                />
-              </span>
-              <span className="flex-none tabular-nums text-caption-sm text-muted">{progress}</span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-start gap-2">
+              <span className="min-w-0 flex-1 truncate text-caption font-medium text-ink">{siteName}</span>
+              <span className="badge flex-none">{kindLabel}</span>
             </span>
-          ) : (
-            progress && <span className="mt-1 block text-caption-sm text-muted">{progress}</span>
-          )}
-          <span className="mt-1 block text-caption-sm text-muted-soft">{timing}</span>
-        </span>
-        <ChevronIcon />
-      </button>
+            <span className="mt-2 flex items-center gap-2 text-caption font-medium text-ink">
+              <span aria-hidden="true" className="dot bg-primary" />
+              <span>{stageLabel}</span>
+            </span>
+            {metric ? (
+              <span className="mt-2 flex items-center gap-2" role="group" aria-label={`${kindLabel} progress`}>
+                <span
+                  role="progressbar"
+                  aria-label={`${kindLabel} progress`}
+                  aria-valuemin={0}
+                  aria-valuemax={metric.total}
+                  aria-valuenow={metric.current}
+                  className="h-meter min-w-0 flex-1 overflow-hidden rounded-pill bg-hairline-soft"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="block h-full w-full origin-left rounded-pill bg-primary transition-transform duration-state ease-settle motion-reduce:transition-none"
+                    style={{ transform: `scaleX(${metric.percent / 100})` }}
+                  />
+                </span>
+                <span className="flex-none tabular-nums text-caption-sm text-muted">{progress}</span>
+              </span>
+            ) : (
+              progress && <span className="mt-1 block text-caption-sm text-muted">{progress}</span>
+            )}
+            <span className="mt-1 block text-caption-sm text-muted-soft">{timing}</span>
+          </span>
+          <ChevronIcon />
+        </button>
+        {stopPending ? (
+          <span
+            role="status"
+            aria-label={`${kindLabel} cancellation ${job.status === "cancel_requested" ? "requested" : "in progress"}`}
+            className="mt-1 flex-none text-caption-sm font-medium text-muted"
+          >
+            Stopping…
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onStop(job)}
+            aria-label={`Stop ${siteName} ${kindLabel.toLowerCase()}`}
+            className="mt-0.5 flex-none rounded-md border border-hairline-strong px-2 py-1 text-caption-sm font-medium text-muted transition-colors duration-state ease-settle hover:border-error/50 hover:bg-error/5 hover:text-error-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            Stop
+          </button>
+        )}
+      </div>
     </li>
   );
 }
@@ -155,6 +176,7 @@ export interface ActivityPanelProps {
   sites: Site[];
   isPending: boolean;
   isError: boolean;
+  onCancelJob?: (jobRunId: number) => Promise<unknown>;
 }
 
 export default function ActivityPanel({
@@ -163,9 +185,13 @@ export default function ActivityPanel({
   sites,
   isPending,
   isError,
+  onCancelJob,
 }: ActivityPanelProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<JobRun | null>(null);
+  const [cancelingJobId, setCancelingJobId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const panelId = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -208,6 +234,29 @@ export default function ActivityPanel({
   const openJob = (job: JobRun) => {
     navigate(activityDestination(job, sitesById.get(job.site_id)));
     close(true);
+  };
+
+  const askToCancel = (job: JobRun) => {
+    setCancelError(null);
+    setCancelTarget(job);
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
+    if (!onCancelJob) {
+      setCancelTarget(null);
+      return;
+    }
+    setCancelingJobId(cancelTarget.id);
+    setCancelError(null);
+    try {
+      await onCancelJob(cancelTarget.id);
+      setCancelTarget(null);
+    } catch (error) {
+      setCancelError(errorDetail(error, "Could not stop this task. It is still running."));
+    } finally {
+      setCancelingJobId(null);
+    }
   };
 
   return (
@@ -286,6 +335,11 @@ export default function ActivityPanel({
                 {isPending ? "Syncing" : isError ? "Retrying" : `${activeCount} running`}
               </span>
             </div>
+            {cancelError && (
+              <p role="alert" className="mt-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink">
+                {cancelError}
+              </p>
+            )}
           </div>
 
           {isPending ? (
@@ -306,11 +360,32 @@ export default function ActivityPanel({
           ) : (
             <ul aria-label="Active background tasks" className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {activeJobs.map((job) => (
-                <ActivityJobRow key={job.id} job={job} site={sitesById.get(job.site_id)} onOpen={openJob} />
+                <ActivityJobRow
+                  key={job.id}
+                  job={job}
+                  site={sitesById.get(job.site_id)}
+                  onOpen={openJob}
+                  onStop={askToCancel}
+                  stopping={cancelingJobId === job.id}
+                />
               ))}
             </ul>
           )}
         </aside>
+      )}
+      {cancelTarget && (
+        <ConfirmDialog
+          title={CANCELLATION_COPY[cancelTarget.kind].title}
+          description={CANCELLATION_COPY[cancelTarget.kind].description}
+          confirmLabel="Stop task"
+          danger
+          pending={cancelingJobId === cancelTarget.id}
+          error={cancelError}
+          onConfirm={() => void confirmCancel()}
+          onCancel={() => {
+            if (cancelingJobId === null) setCancelTarget(null);
+          }}
+        />
       )}
     </div>
   );

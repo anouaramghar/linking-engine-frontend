@@ -25,6 +25,7 @@ vi.mock("./hooks/useHealth", () => ({
 
 vi.mock("./hooks/useJobs", () => ({
   useActiveJobs: () => ({ data: [], isPending: false, isError: false }),
+  useCancelJob: () => ({ mutateAsync: vi.fn() }),
 }));
 
 vi.mock("./hooks/useAlerts", () => ({

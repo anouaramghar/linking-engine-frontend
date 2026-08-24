@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { getActiveJobs, getJob } from "../api/jobs";
+import { cancelJob, getActiveJobs, getJob } from "../api/jobs";
 import type { JobKind, JobRun, JobStatusValue } from "../types/job";
 
 const TERMINAL_STATUSES = new Set<JobStatusValue>([
@@ -53,6 +53,19 @@ export const useJob = <TResult = Record<string, unknown>>(jobId: string | null) 
       const s = query.state.data?.status;
       return isTerminalJobStatus(s) ? false : 1500;
     },
+  });
+};
+
+export const useCancelJob = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: cancelJob,
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["jobs", "active"] }),
+        qc.invalidateQueries({ queryKey: ["sites"] }),
+        qc.invalidateQueries({ queryKey: ["suggestions", "counts"] }),
+      ]),
   });
 };
 

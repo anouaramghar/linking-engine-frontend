@@ -4,8 +4,9 @@ import { useSearchParams } from "react-router-dom";
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
 import { ingestSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
-import ActionMenu from "../components/ActionMenu";
+import ActionMenu, { type MenuItem } from "../components/ActionMenu";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { CANCELLATION_COPY, JOB_KIND_LABELS } from "../components/jobs/jobCancellation";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
 import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import Notice from "../components/Notice";
@@ -14,7 +15,7 @@ import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import SelectionControl from "../components/SelectionControl";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
-import { useActiveJobs } from "../hooks/useJobs";
+import { useActiveJobs, useCancelJob } from "../hooks/useJobs";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { usePageState } from "../hooks/usePageState";
 import {
@@ -254,6 +255,9 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<JobRun | null>(null);
+  const [cancelingJobId, setCancelingJobId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [policySite, setPolicySite] = useState<Site | null>(null);
   const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
@@ -274,6 +278,7 @@ export default function SitesPage() {
   const batchQuery = usePipelineBatch(batchId);
   const retryPipelineSite = useRetryPipelineSite();
   const cancelBatch = useCancelPipelineBatch();
+  const cancelJob = useCancelJob();
 
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -471,6 +476,42 @@ export default function SitesPage() {
         tone: "error",
       });
     }
+  };
+
+  const askToCancel = (job: JobRun) => {
+    setCancelError(null);
+    setCancelTarget(job);
+  };
+
+  const confirmCancelJob = async () => {
+    if (!cancelTarget || cancelJob.isPending) return;
+    const target = cancelTarget;
+    setCancelingJobId(target.id);
+    setCancelError(null);
+    try {
+      await cancelJob.mutateAsync(target.id);
+      setCancelTarget(null);
+    } catch (error) {
+      setCancelError(errorDetail(error, "Could not stop this task. It is still running."));
+    } finally {
+      setCancelingJobId(null);
+    }
+  };
+
+  const cancellationMenuItems = (siteId: number): MenuItem[] => {
+    const job = activeJobsBySite.get(siteId);
+    if (!job) return [];
+
+    const kindLabel = JOB_KIND_LABELS[job.kind];
+    const stopping = job.status === "cancel_requested" || cancelingJobId === job.id;
+    return [
+      {
+        label: stopping ? `Stopping ${kindLabel}…` : `Stop ${kindLabel}`,
+        disabled: stopping || cancelJob.isPending,
+        danger: true,
+        onSelect: () => askToCancel(job),
+      },
+    ];
   };
 
   return (
@@ -749,6 +790,7 @@ export default function SitesPage() {
                   label="Actions"
                   ariaLabel={`Actions for ${site.name}`}
                   items={[
+                    ...cancellationMenuItems(site.id),
                     ...(site.platform === "pool"
                       ? []
                       : [
@@ -916,6 +958,20 @@ export default function SitesPage() {
           pending={deleteSite.isPending}
           onConfirm={remove}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+      {cancelTarget && (
+        <ConfirmDialog
+          title={CANCELLATION_COPY[cancelTarget.kind].title}
+          description={CANCELLATION_COPY[cancelTarget.kind].description}
+          confirmLabel="Stop task"
+          danger
+          pending={cancelingJobId === cancelTarget.id}
+          error={cancelError}
+          onConfirm={() => void confirmCancelJob()}
+          onCancel={() => {
+            if (cancelingJobId === null) setCancelTarget(null);
+          }}
         />
       )}
       {confirmCancelBatch && batchId !== null && (

@@ -45,6 +45,10 @@ const mocks = vi.hoisted(() => ({
     isPending: false,
     mutateAsync: vi.fn(),
   },
+  cancelJob: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
   setCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
   clearCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
 }));
@@ -58,6 +62,7 @@ vi.mock("../hooks/useSites", () => ({
 
 vi.mock("../hooks/useJobs", () => ({
   useActiveJobs: () => mocks.activeJobs,
+  useCancelJob: () => mocks.cancelJob,
   useJob: () => ({ data: undefined }),
 }));
 
@@ -92,6 +97,8 @@ beforeEach(() => {
   mocks.retryBatch.mutateAsync.mockReset();
   Object.assign(mocks.cancelBatch, { isPending: false });
   mocks.cancelBatch.mutateAsync.mockReset();
+  Object.assign(mocks.cancelJob, { isPending: false });
+  mocks.cancelJob.mutateAsync.mockReset();
   mocks.setCredentials.mutate.mockReset();
   mocks.clearCredentials.mutate.mockReset();
   window.history.replaceState({}, "", "/sites");
@@ -357,6 +364,80 @@ describe("SitesPage job progress", () => {
 
     expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
     expect(document.body.textContent).not.toContain("Indexed");
+  });
+
+  it("offers the active site's stop action from the Actions menu", async () => {
+    mocks.sites.data = [
+      {
+        id: 42,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        last_ingestion_status: "succeeded",
+      },
+    ];
+    mocks.activeJobs.data = [
+      {
+        id: 9,
+        site_id: 42,
+        kind: "ingestion",
+        status: "running",
+        queue_job_id: "rq-9",
+        attempts: 1,
+        result: null,
+        progress: { stage: "crawling" },
+        progress_at: "2026-07-28T08:01:00Z",
+        error: null,
+        enqueued_at: "2026-07-28T08:00:30Z",
+        started_at: "2026-07-28T08:00:31Z",
+        finished_at: null,
+      },
+    ];
+    mocks.cancelJob.mutateAsync.mockResolvedValue({});
+
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stop Crawl" }));
+    expect(screen.getByRole("heading", { name: "Stop crawl?" })).not.toBeNull();
+    expect(document.body.textContent).toContain("Existing active content stays unchanged.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop task" }));
+    await waitFor(() => expect(mocks.cancelJob.mutateAsync).toHaveBeenCalledWith(9));
+  });
+
+  it("shows a requested cancellation as a disabled stopping action", () => {
+    mocks.sites.data = [
+      {
+        id: 42,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+    mocks.activeJobs.data = [
+      {
+        id: 9,
+        site_id: 42,
+        kind: "analysis",
+        status: "cancel_requested",
+        queue_job_id: "rq-9",
+        attempts: 1,
+        result: null,
+        progress: null,
+        progress_at: null,
+        error: null,
+        enqueued_at: "2026-07-28T08:00:30Z",
+        started_at: "2026-07-28T08:00:31Z",
+        finished_at: null,
+      },
+    ];
+
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    const action = screen.getByRole("menuitem", { name: "Stopping Analysis…" }) as HTMLButtonElement;
+    expect(action.disabled).toBe(true);
   });
 });
 

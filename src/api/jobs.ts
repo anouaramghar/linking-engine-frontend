@@ -6,3 +6,6 @@ export const getJob = <TResult = Record<string, unknown>>(id: string) =>
 
 export const getActiveJobs = () =>
   api.get<JobRun[]>("/jobs/active").then((response) => response.data);
+
+export const cancelJob = (jobRunId: number) =>
+  api.post<JobRun>(`/jobs/runs/${jobRunId}/cancel`).then((response) => response.data);

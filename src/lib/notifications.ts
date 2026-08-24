@@ -29,6 +29,7 @@ export const notificationStatus = (alert: AppAlert) => {
   ) {
     return "failed";
   }
+  if (alert.kind === "job_cancelled") return "info";
   if (alert.kind === "job_succeeded" || alert.payload.outcome === "succeeded") {
     return "succeeded";
   }

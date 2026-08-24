@@ -7,6 +7,7 @@ export type JobKind =
 export type JobStatusValue =
   | "queued"
   | "running"
+  | "cancel_requested"
   | "succeeded"
   | "failed"
   // Accepted temporarily so the UI remains correct during rolling deploys.

@@ -41,6 +41,7 @@ describe("notification helpers", () => {
     ).toBe("partial");
     expect(notificationStatus(alert({ kind: "job_lost" }))).toBe("failed");
     expect(notificationStatus(alert({ kind: "job_stopped" }))).toBe("failed");
+    expect(notificationStatus(alert({ kind: "job_cancelled" }))).toBe("info");
   });
 
   it("drops the Telegram prefix without leaving a lowercase headline", () => {
