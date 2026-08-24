@@ -1,6 +1,11 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
+const cspSafeAjvPath = new URL("./src/lib/cspSafeAjv.ts", import.meta.url).pathname.replace(
+  /^\/([A-Za-z]:)/,
+  "$1",
+);
+
 /**
  * Preload the self-hosted faces.
  *
@@ -41,6 +46,19 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), preloadFonts()],
+    resolve: {
+      // avatar-core 0.1.0 compiles its bundled JSON schema with Ajv at module
+      // load. Ajv uses Function(), which a strict production CSP must reject.
+      // The dashboard supplies one trusted, compile-time avatar definition;
+      // production aliases only that validator to the CSP-safe static shim.
+      // Development keeps the package's real validator for feedback.
+      alias:
+        mode === "production"
+          ? {
+              "ajv/dist/2020.js": cspSafeAjvPath,
+            }
+          : undefined,
+    },
     server: {
       // Loopback only: the dev proxy injects the shared backend key, so binding
       // to all interfaces would hand full API authority to the LAN.
