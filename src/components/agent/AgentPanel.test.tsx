@@ -134,15 +134,14 @@ describe("AgentPanel", () => {
     expect(asked(stream.mock.calls[0])).toEqual(["How many suggestions are pending?", []]);
   });
 
-  it("shows the current route scope in the agent context", async () => {
+  it("sends the current route scope in the agent context", async () => {
     window.history.replaceState(null, "", "/queue?site=7&min=85");
     const stream = streams("There are 12 suggestions in this view.");
     const user = userEvent.setup();
     renderPanel();
     await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
 
-    expect(screen.getByText("Current view")).not.toBeNull();
-    expect(screen.getByText(/Pending · Site #7 · Score ≥ 85%/)).not.toBeNull();
+    expect(screen.queryByText("Current view")).toBeNull();
     await user.type(await screen.findByLabelText("Message Mesh"), "what is here?{Enter}");
     await screen.findByText("There are 12 suggestions in this view.");
 

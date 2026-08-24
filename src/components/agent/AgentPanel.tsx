@@ -865,12 +865,6 @@ export default function AgentPanel({
             </div>
           </header>
 
-          <div className="assistant-context-strip" aria-label="Current dashboard context">
-            <span className="assistant-context-strip__label">Current view</span>
-            <span className="assistant-context-strip__scope">{viewContext.title}</span>
-            <span className="assistant-context-strip__detail">{viewContext.detail}</span>
-          </div>
-
           {error && (
             <div className="assistant-notice-wrap">
               <Notice

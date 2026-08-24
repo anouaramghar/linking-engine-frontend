@@ -17,8 +17,6 @@ export type AgentSurface =
   | "access";
 
 export interface AgentViewContext extends AgentChatContext {
-  title: string;
-  detail: string;
   href: string;
   suggestions: readonly AgentPromptSuggestion[];
 }
@@ -157,8 +155,6 @@ export const getAgentViewContext = (pathname: string, search = ""): AgentViewCon
     search,
     scope,
     filters: Object.fromEntries(params.entries()),
-    title: titleFromSurface[surface],
-    detail,
     href: `${safePath}${search}`,
     suggestions: SUGGESTIONS[surface],
   };
