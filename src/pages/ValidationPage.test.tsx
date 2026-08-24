@@ -90,7 +90,6 @@ const mocks = vi.hoisted(() => ({
   bulkMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
   filteredUndoMutate: vi.fn(),
-  articleAnalysisMutate: vi.fn(),
   prepareMutate: vi.fn(),
   prepareReset: vi.fn(),
   approveMutate: vi.fn(),
@@ -218,11 +217,6 @@ vi.mock("../hooks/useSuggestions", () => ({
     isPending: false,
   }),
   useFilteredBulkUndo: () => ({ mutate: mocks.filteredUndoMutate, isPending: false }),
-  useTriggerArticleAnalysis: () => ({
-    mutate: mocks.articleAnalysisMutate,
-    isPending: false,
-    variables: undefined,
-  }),
 }));
 
 vi.mock("../hooks/useSites", () => ({
@@ -288,7 +282,6 @@ beforeEach(() => {
   mocks.bulkMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
   mocks.filteredUndoMutate.mockReset();
-  mocks.articleAnalysisMutate.mockReset();
   mocks.prepareMutate.mockReset();
   mocks.prepareReset.mockReset();
   mocks.approveMutate.mockReset();
@@ -305,9 +298,6 @@ beforeEach(() => {
   mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   mocks.exposureMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
-  mocks.articleAnalysisMutate.mockImplementation((_articleId, options) =>
-    options?.onSuccess?.({ job_id: "article-analysis", job_run_id: 52 }),
-  );
   // Mirrors the real endpoint: a batch reports what it applied and what it had
   // to leave alone, so the page is exercised against a partial result.
   mocks.bulkMutate.mockImplementation(
@@ -476,18 +466,12 @@ describe("ValidationPage live review state", () => {
     expect(within(groups[1]).getByText("1 suggestion")).not.toBeNull();
   });
 
-  it("queues suggestion generation for one exact source article", async () => {
-    const user = userEvent.setup();
+  it("does not offer article generation from a suggestion group", () => {
     renderQueue();
 
-    await user.click(
-      screen.getByRole("button", { name: "Generate suggestions for Source 1" }),
-    );
-
-    expect(mocks.articleAnalysisMutate).toHaveBeenCalledWith(10, expect.any(Object));
-    expect((await screen.findByRole("status")).textContent).toContain(
-      "Suggestion generation queued for “Source 1” as job #52.",
-    );
+    expect(
+      screen.queryByRole("button", { name: "Generate suggestions for Source 1" }),
+    ).toBeNull();
   });
 
   it("collapses a source group without hiding other articles", async () => {

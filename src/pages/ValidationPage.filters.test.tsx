@@ -97,11 +97,6 @@ vi.mock("../hooks/useSuggestions", () => ({
     isPending: false,
   }),
   useFilteredBulkUndo: () => ({ mutate: vi.fn(), isPending: false }),
-  useTriggerArticleAnalysis: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-    variables: undefined,
-  }),
   useAllFilteredSuggestionIds: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 

@@ -35,7 +35,6 @@ import {
   useSuggestionCounts,
   useSuggestionEvents,
   useSuggestions,
-  useTriggerArticleAnalysis,
 } from "../hooks/useSuggestions";
 import { useSites } from "../hooks/useSites";
 import { isConflict } from "../lib/errors";
@@ -315,7 +314,6 @@ export default function ValidationPage() {
   const bulkReview = useBulkReview();
   const filteredReview = useFilteredBulkReview();
   const filteredUndo = useFilteredBulkUndo();
-  const articleAnalysis = useTriggerArticleAnalysis();
 
   // The queue queries run independently of the sites label query, so an empty
   // or failed sites response must not hide their own loading/error state.
@@ -343,8 +341,7 @@ export default function ValidationPage() {
     review.isPending ||
       bulkReview.isPending ||
       filteredReview.isPending ||
-      filteredUndo.isPending ||
-      articleAnalysis.isPending,
+      filteredUndo.isPending,
   );
   const bulkControlsBlocked =
     failed || queueUpdating || bulkCountQueryFailed || actionMutationPending;
@@ -497,11 +494,6 @@ export default function ValidationPage() {
     (id: number) => siteNames.get(id) ?? `site ${id}`,
     [siteNames],
   );
-  const sitesById = useMemo(
-    () => new Map(sites?.map((site) => [site.id, site])),
-    [sites],
-  );
-
   // Each of these walks the whole loaded queue. Unmemoised they ran four full
   // passes on every render — including every cursor move — which is what made
   // holding `j` down feel heavy once a few hundred rows were mounted.
@@ -814,28 +806,6 @@ export default function ValidationPage() {
           }),
       },
     );
-  };
-
-  const generateForArticle = (articleId: number, articleTitle: string) => {
-    if (queueUpdating || confirmation || actionMutationPending) return;
-    setNotice({
-      message: `Queueing suggestion generation for “${articleTitle}”…`,
-      tone: "info",
-    });
-    articleAnalysis.mutate(articleId, {
-      onSuccess: ({ job_run_id: jobRunId }) =>
-        setNotice({
-          message: `Suggestion generation queued for “${articleTitle}”${jobRunId ? ` as job #${jobRunId}` : ""}.`,
-          tone: "info",
-        }),
-      onError: (error) =>
-        setNotice({
-          message: isConflict(error)
-            ? "That article or its site changed, has no remaining capacity, or already has analysis running. Refresh and try again."
-            : `Suggestion generation for “${articleTitle}” could not be queued. Please try again.`,
-          tone: "error",
-        }),
-    });
   };
 
   const requestRejection = (id: number) => {
@@ -1216,17 +1186,6 @@ export default function ValidationPage() {
                       }
                       collapsed={collapsedSources.has(group.key)}
                       onToggle={() => toggleSourceGroup(group.key)}
-                      onGenerateSuggestions={() =>
-                        generateForArticle(group.sourceArticle.id, group.sourceArticle.title)
-                      }
-                      generationPending={
-                        articleAnalysis.isPending &&
-                        articleAnalysis.variables === group.sourceArticle.id
-                      }
-                      generationDisabled={
-                        actionMutationPending ||
-                        sitesById.get(group.siteId)?.suggestion_slots_available === 0
-                      }
                     >
                       {group.visibleSuggestions.map((suggestion) => (
                         <SuggestionCard
