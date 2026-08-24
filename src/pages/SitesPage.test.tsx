@@ -210,7 +210,7 @@ describe("SitesPage batch pipeline", () => {
       "2 sites selected",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear selected sites" }));
     expect(
       (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
         .checked,

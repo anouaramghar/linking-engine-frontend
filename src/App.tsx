@@ -11,7 +11,6 @@ import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom"
 
 import AccountControls from "./components/AccountControls";
 import ActivityPanel from "./components/jobs/ActivityPanel";
-import AgentPanel from "./components/agent/AgentPanel";
 import NotificationBell from "./components/NotificationBell";
 import RailTip from "./components/RailTip";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
@@ -39,6 +38,7 @@ const TraceabilityPage = lazy(() => import("./pages/TraceabilityPage"));
 const ValidationPage = lazy(() => import("./pages/ValidationPage"));
 const SelectedPage = lazy(() => import("./pages/SelectedPage"));
 const PublishPage = lazy(() => import("./pages/PublishPage"));
+const AgentPanel = lazy(() => import("./components/agent/AgentPanel"));
 
 function RouteFallback() {
   return (
@@ -758,7 +758,13 @@ export default function App() {
           </Suspense>
         </RouteErrorBoundary>
         {/* Overlays every page; read-only by contract, so no route guards it. */}
-        <AgentPanel resolvedTheme={resolved} />
+        <Suspense fallback={null}>
+          <AgentPanel
+            resolvedTheme={resolved}
+            currentPath={location.pathname}
+            currentSearch={location.search}
+          />
+        </Suspense>
       </main>
           </div>
         </QueueWorkspaceProvider>

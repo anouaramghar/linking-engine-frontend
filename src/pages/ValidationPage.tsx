@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import Notice from "../components/Notice";
 import type { NoticeState } from "../components/Notice";
@@ -154,6 +154,7 @@ const resolveCounts = (
 };
 
 export default function ValidationPage() {
+  const navigate = useNavigate();
   const { filters, setFilters, reset: clearFilters, isFiltered } = useQueueFilters();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -975,6 +976,16 @@ export default function ValidationPage() {
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
 
+  const reviewPublication = useCallback(
+    (id: number) => {
+      const suggestion = resolvedSuggestions.find((item) => item.id === id);
+      if (suggestion) {
+        navigate(`/publish/${suggestion.site_id}?suggestion=${id}`);
+      }
+    },
+    [navigate, resolvedSuggestions],
+  );
+
   // Keyed to the open suggestion, so the queue itself never triggers one:
   // generating a placement runs a model, and a page of rows would run one each.
   const placementQuery = usePlacement(selected?.id ?? null);
@@ -1199,6 +1210,7 @@ export default function ValidationPage() {
                           onAccept={acceptRow}
                           onReject={rejectRow}
                           onUndo={undoRow}
+                          onReviewPublication={reviewPublication}
                         />
                       ))}
                     </SuggestionGroup>
@@ -1306,6 +1318,7 @@ export default function ValidationPage() {
             onAccept={() => decide(selected.id, "approved")}
             onReject={() => requestRejection(selected.id)}
             onUndo={() => undo([selected.id])}
+            onReviewPublication={() => reviewPublication(selected.id)}
           />
         )}
       </div>

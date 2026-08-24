@@ -359,6 +359,24 @@ function ZoomIcon({ mode }: { mode: "in" | "out" }) {
   );
 }
 
+function ResetZoomIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 5v6h6" />
+      <path d="M4.7 11A8 8 0 1 1 7 16.7" />
+    </svg>
+  );
+}
+
 function SignalLegend() {
   return (
     <details className="mt-3 rounded-lg border border-hairline bg-canvas-soft px-3 py-2">
@@ -624,8 +642,14 @@ export default function GraphLens({ data }: Props) {
           >
             <ZoomIcon mode="in" />
           </button>
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => setZoom(1)}>
-            Reset
+          <button
+            type="button"
+            className="btn btn-outline btn-sm h-11 w-11 p-0 sm:h-8 sm:w-8"
+            aria-label="Reset zoom"
+            title="Reset zoom"
+            onClick={() => setZoom(1)}
+          >
+            <ResetZoomIcon />
           </button>
         </div>
       </div>

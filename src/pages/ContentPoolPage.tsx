@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { ingestSite, MAX_POOL_INGESTION_BATCH_SOURCES } from "../api/sites";
 import ActionMenu from "../components/ActionMenu";
+import BatchSelectionTray from "../components/BatchSelectionTray";
 import ConfirmDialog from "../components/ConfirmDialog";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
 import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
@@ -739,47 +740,31 @@ export default function ContentPoolPage() {
         )}
 
         {selectionMode && selectedSourceIds.size > 0 && (
-          <div
-            role="region"
-            aria-label="Pool batch selection"
-            className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="text-body-sm font-medium text-ink" aria-live="polite">
-                {selectedSourceIds.size} source{selectedSourceIds.size === 1 ? "" : "s"} selected
-              </div>
-              <div className="mt-1 text-caption text-muted">
-                {activeJobsQuery.isError
-                  ? "Live job status is unavailable. Refresh before starting a batch."
-                  : selectedIneligibleCount > 0
-                    ? `${selectedIneligibleCount} selected source${selectedIneligibleCount === 1 ? " is" : "s are"} no longer eligible.`
-                    : selectedActiveCount > 0
-                      ? `${selectedActiveCount} selected source${selectedActiveCount === 1 ? " is" : "s are"} already crawling.`
-                      : batchLimitReached
-                        ? `Batch limit reached: ${MAX_POOL_INGESTION_BATCH_SOURCES} sources maximum.`
-                        : selectedOutsideFilterCount > 0
-                          ? `${selectedOutsideFilterCount} selected outside these filters.`
-                          : "Ready to crawl together."}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedSourceIds(new Set())}
-              className="btn btn-outline btn-sm"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={() => void launchBatch()}
-              disabled={poolBatch.isPending || batchBlocked}
-              className="btn btn-primary btn-sm sm:min-w-[10rem]"
-            >
-              {poolBatch.isPending
-                ? "Starting batch..."
-                : `Run batch (${selectedSourceIds.size})`}
-            </button>
-          </div>
+          <BatchSelectionTray
+            regionLabel="Pool batch selection"
+            itemLabel="source"
+            itemLabelPlural="sources"
+            selectedCount={selectedSourceIds.size}
+            status={
+              activeJobsQuery.isError
+                ? "Live job status is unavailable. Refresh before starting a batch."
+                : selectedIneligibleCount > 0
+                  ? `${selectedIneligibleCount} selected source${selectedIneligibleCount === 1 ? " is" : "s are"} no longer eligible.`
+                  : selectedActiveCount > 0
+                    ? `${selectedActiveCount} selected source${selectedActiveCount === 1 ? " is" : "s are"} already crawling.`
+                    : batchLimitReached
+                      ? `Batch limit reached: ${MAX_POOL_INGESTION_BATCH_SOURCES} sources maximum.`
+                      : selectedOutsideFilterCount > 0
+                        ? `${selectedOutsideFilterCount} selected outside these filters.`
+                        : "Ready to crawl together."
+            }
+            actionLabel={`Run batch (${selectedSourceIds.size})`}
+            pendingActionLabel="Starting batch…"
+            actionPending={poolBatch.isPending}
+            actionDisabled={batchBlocked}
+            onClear={() => setSelectedSourceIds(new Set())}
+            onAction={() => void launchBatch()}
+          />
         )}
       </div>
 

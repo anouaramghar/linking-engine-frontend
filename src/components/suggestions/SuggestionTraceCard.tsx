@@ -12,6 +12,8 @@ export interface SuggestionTraceState {
 interface Props {
   suggestion: Suggestion;
   trace: SuggestionTraceState;
+  /** Embedded previews keep provenance available without letting it lead the decision. */
+  collapsible?: boolean;
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -273,15 +275,18 @@ const timingStat = (suggestion: Suggestion, events: SuggestionEvent[] | undefine
   };
 };
 
-export default function SuggestionTraceCard({ suggestion, trace }: Props) {
+export default function SuggestionTraceCard({ suggestion, trace, collapsible = false }: Props) {
   const bm25 = suggestion.score_components?.bm25_score;
   const externalTrust = suggestion.score_components?.external_trust;
   const externalSafety = suggestion.score_components?.external_safety;
   const graph = suggestion.score_components?.graph;
   const timing = timingStat(suggestion, trace.data);
 
-  return (
-    <section aria-label="Suggestion traceability" className="card mb-5 mt-5 p-4">
+  const card = (
+    <section
+      aria-label="Suggestion traceability"
+      className={`card p-4 ${collapsible ? "" : "mb-5 mt-5"}`}
+    >
       <div className="eyebrow">Why this suggestion</div>
 
       <RankingEvidence suggestion={suggestion} />
@@ -487,5 +492,22 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
         )}
       </div>
     </section>
+  );
+
+  if (!collapsible) return card;
+
+  return (
+    <details className="mt-5 border-t border-hairline pt-5">
+      <summary className="disclosure-summary flex items-start justify-between gap-3 text-left">
+        <span className="min-w-0">
+          <span className="block text-title-sm font-medium text-ink">Technical provenance</span>
+          <span className="mt-1 block text-caption leading-normal text-muted">
+            Ranking, safety, and lifecycle evidence.
+          </span>
+        </span>
+        <span className="badge flex-none">View evidence</span>
+      </summary>
+      <div className="mt-3">{card}</div>
+    </details>
   );
 }

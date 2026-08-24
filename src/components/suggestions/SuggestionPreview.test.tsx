@@ -38,6 +38,13 @@ const placement = {
   onRetry: vi.fn(),
 };
 
+const trace = {
+  data: [],
+  isLoading: false,
+  error: null,
+  onRetry: vi.fn(),
+};
+
 const renderPreview = (
   status: Suggestion["status"],
   onUndo = vi.fn(),
@@ -101,6 +108,28 @@ describe("SuggestionPreview publication state", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Review exact edit" }));
     expect(onReviewPublication).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the decision before collapsed technical provenance", () => {
+    render(
+      <SuggestionPreview
+        suggestion={suggestion("pending")}
+        siteName="Example site"
+        placement={placement}
+        trace={trace}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    const action = screen.getByRole("button", { name: "Select for review" });
+    const provenance = screen.getByText("Technical provenance").closest("details");
+
+    expect(provenance).not.toBeNull();
+    expect(provenance?.open).toBe(false);
+    expect(action.compareDocumentPosition(provenance!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("identifies an in-progress publication", () => {

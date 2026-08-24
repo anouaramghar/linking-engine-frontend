@@ -915,15 +915,25 @@ describe("ValidationPage hand-over to approval", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("does not put a second exact-edit action inside an approved row", async () => {
+  it("keeps the exact-edit action visible from an approved queue item", async () => {
+    const user = userEvent.setup();
     mocks.pendingPublication = [
       { site_id: 1, selected_suggestions: 1, approved_plans: 0 },
     ];
     mocks.suggestions[0] = suggestion(1, { status: "approved" });
-    renderQueue("/?status=approved");
+    renderQueue("/?status=approved&suggestion=1");
 
-    expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
-    expect(tray()?.getAttribute("href")).toBe("/selected");
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(
+      screen.getByRole("button", {
+        name: /Review exact edit for suggestion from Example site: Source 1 to Target 1/,
+      }),
+    ).not.toBeNull();
+    expect(within(preview).getByRole("button", { name: "Review exact edit" })).not.toBeNull();
+
+    await user.click(within(preview).getByRole("button", { name: "Review exact edit" }));
+
+    expect(screen.getByText("Legacy approval link for site 1")).not.toBeNull();
   });
 
   it("ignores legacy review query parameters", () => {

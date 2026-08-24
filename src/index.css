@@ -54,6 +54,8 @@
 :root {
   color-scheme: light;
 
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
   --c-primary: 41 37 36;
   --c-primary-active: 12 10 9;
 
@@ -845,8 +847,60 @@ input[type="number"] {
   background: var(--assistant-fill-strong);
 }
 
+.assistant-context-strip {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--assistant-line-soft);
+  padding: 8px 18px;
+  color: var(--assistant-muted);
+  background: var(--assistant-fill);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.assistant-context-strip__label {
+  flex: none;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.assistant-context-strip__scope {
+  flex: none;
+  color: rgb(var(--assistant-ink));
+  font-weight: 600;
+}
+
+.assistant-context-strip__detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assistant-notice-wrap {
   padding: 14px 18px 0;
+}
+
+.assistant-recovery-action {
+  display: inline-flex;
+  margin-top: -4px;
+  margin-bottom: 10px;
+  border: 0;
+  padding: 0;
+  color: var(--assistant-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.assistant-recovery-action:hover {
+  color: rgb(var(--assistant-ink));
 }
 
 .assistant-unavailable,
@@ -886,22 +940,72 @@ input[type="number"] {
   line-height: 1.55;
 }
 
-.assistant-topic-strip {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 18px;
+.assistant-suggestion-list {
+  width: 100%;
+  margin-top: 22px;
+  border-top: 1px solid var(--assistant-line-soft);
+  text-align: left;
 }
 
-.assistant-topic-strip span {
-  border: 1px solid var(--assistant-line-soft);
-  border-radius: 9999px;
-  padding: 4px 10px;
-  color: var(--assistant-muted);
+.assistant-suggestion {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--assistant-line-soft);
+  padding: 9px 2px 9px 4px;
+  color: rgb(var(--assistant-ink));
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.assistant-suggestion:hover:not(:disabled) {
+  color: rgb(var(--assistant-ink));
   background: var(--assistant-fill);
+}
+
+.assistant-suggestion:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.assistant-suggestion__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.assistant-suggestion__label {
+  color: var(--assistant-muted);
   font-size: 12px;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.assistant-suggestion__prompt {
+  overflow-wrap: anywhere;
+  color: rgb(var(--assistant-body));
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.assistant-suggestion__arrow {
+  flex: none;
+  color: var(--assistant-muted);
+  transition: transform 150ms ease, color 150ms ease;
+}
+
+.assistant-suggestion:hover:not(:disabled) .assistant-suggestion__arrow {
+  color: rgb(var(--assistant-ink));
+  transform: translateX(2px);
 }
 
 .assistant-conversation-log {
@@ -1063,7 +1167,7 @@ input[type="number"] {
   border-radius: 4px;
   background: var(--assistant-fill-strong);
   color: rgb(var(--assistant-ink));
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.92em;
 }
 
@@ -1080,13 +1184,126 @@ input[type="number"] {
 
 .assistant-tool-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
 }
 
-/* What the answer was built from reads as provenance, not achievement: quiet
-   chips at the badge voice, no glowing markers. */
+/* Evidence stays quiet at rest and opens in place. The operator sees what Mesh
+   checked without being asked to parse registry names or a raw JSON tooltip. */
+.assistant-tool-disclosure {
+  max-width: 100%;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  background: var(--assistant-fill);
+  color: var(--assistant-muted);
+  font-size: 12px;
+}
+
+.assistant-tool-disclosure summary {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  padding: 5px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.assistant-tool-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.assistant-tool-disclosure__mark {
+  flex: none;
+  color: rgb(var(--assistant-ink));
+}
+
+.assistant-tool-disclosure__label {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--assistant-ink));
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-tool-disclosure__summary {
+  flex: none;
+  color: var(--assistant-muted);
+  font-size: 12px;
+}
+
+.assistant-tool-disclosure__toggle {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  margin-left: auto;
+}
+
+.assistant-tool-disclosure__toggle::before,
+.assistant-tool-disclosure__toggle::after {
+  position: absolute;
+  top: 4px;
+  left: 1px;
+  width: 8px;
+  height: 1px;
+  background: currentColor;
+  content: "";
+}
+
+.assistant-tool-disclosure__toggle::after {
+  transform: rotate(90deg);
+  transition: opacity 150ms ease;
+}
+
+.assistant-tool-disclosure[open] .assistant-tool-disclosure__toggle::after {
+  opacity: 0;
+}
+
+.assistant-tool-disclosure__body {
+  border-top: 1px solid var(--assistant-line-soft);
+  padding: 8px 10px 10px;
+}
+
+.assistant-tool-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.assistant-tool-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.assistant-tool-metric dt {
+  color: var(--assistant-muted);
+  font-size: 12px;
+}
+
+.assistant-tool-metric dd {
+  color: rgb(var(--assistant-ink));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.assistant-tool-link {
+  display: inline-flex;
+  margin-top: 8px;
+  color: rgb(var(--assistant-ink));
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Kept as a compatibility hook for older extensions that still render a
+   single source chip. New panel traces use the disclosure above. */
 .assistant-tool-chip {
   display: inline-flex;
   max-width: 100%;
@@ -1183,6 +1400,36 @@ input[type="number"] {
   line-height: 1.45;
 }
 
+.assistant-proposal__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 12px;
+  border-top: 1px solid var(--assistant-line-soft);
+  padding-top: 10px;
+}
+
+.assistant-proposal__facts > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assistant-proposal__facts span {
+  color: var(--assistant-muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.assistant-proposal__facts strong {
+  color: rgb(var(--assistant-ink));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 .assistant-proposal__blocked-reason {
   margin-top: 8px;
   color: rgb(var(--assistant-ink));
@@ -1212,7 +1459,8 @@ input[type="number"] {
    colour story, still no saturated hue. */
 .assistant-confirm-button,
 .assistant-jump-button,
-.assistant-send-button {
+.assistant-send-button,
+.assistant-stop-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1229,20 +1477,23 @@ input[type="number"] {
 
 .assistant-confirm-button:hover:not(:disabled),
 .assistant-jump-button:hover:not(:disabled),
-.assistant-send-button:hover:not(:disabled) {
+.assistant-send-button:hover:not(:disabled),
+.assistant-stop-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 8px 22px rgb(0 0 0 / var(--shadow-lift));
 }
 
 .assistant-confirm-button:active:not(:disabled),
 .assistant-jump-button:active:not(:disabled),
-.assistant-send-button:active:not(:disabled) {
+.assistant-send-button:active:not(:disabled),
+.assistant-stop-button:active:not(:disabled) {
   transform: translateY(0) scale(0.98);
 }
 
 .assistant-confirm-button:disabled,
 .assistant-jump-button:disabled,
-.assistant-send-button:disabled {
+.assistant-send-button:disabled,
+.assistant-stop-button:disabled {
   cursor: not-allowed;
   background: var(--assistant-fill-strong);
   color: var(--assistant-muted);
@@ -1261,11 +1512,7 @@ input[type="number"] {
   align-items: center;
   gap: 8px;
   align-self: flex-start;
-  border: 1px solid var(--assistant-line-soft);
-  border-radius: 9999px;
-  padding: 7px 12px;
   color: var(--assistant-muted);
-  background: var(--assistant-fill);
   font-size: 12px;
 }
 
@@ -1294,6 +1541,11 @@ input[type="number"] {
   -webkit-background-clip: text;
   background-clip: text;
   animation: assistant-shimmer-text 2.4s ease-in-out infinite;
+}
+
+.assistant-thinking__activity {
+  color: rgb(var(--assistant-ink));
+  font-size: 12px;
 }
 
 .assistant-jump-button {
@@ -1356,9 +1608,68 @@ input[type="number"] {
   flex: none;
 }
 
+.assistant-stop-button {
+  min-height: 36px;
+  flex: none;
+  border-color: var(--assistant-line);
+  padding: 0 12px;
+  color: rgb(var(--assistant-ink));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assistant-stop-button:hover:not(:disabled) {
+  box-shadow: none;
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-followup-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+  border-top: 1px solid var(--assistant-line-soft);
+  padding-top: 10px;
+}
+
+.assistant-followup {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 5px 10px;
+  color: rgb(var(--assistant-body));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.assistant-followup:hover:not(:disabled) {
+  border-color: var(--assistant-line);
+  color: rgb(var(--assistant-ink));
+  background: var(--assistant-fill);
+}
+
+.assistant-message--cancelled {
+  color: var(--assistant-muted);
+}
+
+.assistant-message__cancelled-copy {
+  margin-top: 8px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
 .assistant-composer-hint {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 2px 0;
   color: var(--assistant-muted);
@@ -1387,7 +1698,11 @@ input[type="number"] {
   .assistant-launcher,
   .assistant-confirm-button,
   .assistant-jump-button,
-  .assistant-send-button {
+  .assistant-send-button,
+  .assistant-stop-button,
+  .assistant-suggestion,
+  .assistant-suggestion__arrow,
+  .assistant-followup {
     transition: none;
   }
 }
@@ -1416,13 +1731,22 @@ input[type="number"] {
 
   .assistant-header-action,
   .assistant-confirm-button,
-  .assistant-jump-button {
+  .assistant-jump-button,
+  .assistant-stop-button {
+    min-height: 44px;
+  }
+
+  .assistant-suggestion {
     min-height: 44px;
   }
 
   .assistant-send-button {
     width: 44px;
     height: 44px;
+  }
+
+  .assistant-stop-button {
+    min-height: 44px;
   }
 }
 

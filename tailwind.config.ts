@@ -147,6 +147,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)"],
         // Waldenburg is licensed; EB Garamond is the substitute the design
         // system documents.
         serif: ["'EB Garamond'", "Georgia", "serif"],

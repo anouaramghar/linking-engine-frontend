@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { BorderBeam } from "border-beam";
@@ -18,8 +18,11 @@ import { useAgentChat, type AgentTurnResult } from "../../hooks/useAgentChat";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type { ResolvedTheme } from "../../hooks/useTheme";
 import { useSession } from "../../hooks/useSession";
+import { ToolTrace } from "./AgentEvidence";
 import AgentAvatar from "./AgentAvatar";
 import AgentMarkdown from "./AgentMarkdown";
+import { getAgentViewContext } from "./agentContext";
+import { toolActivityFor } from "./agentPresentation";
 import Notice from "../Notice";
 
 type AssistantAvatarAnimation =
@@ -35,13 +38,6 @@ type AssistantAvatarAnimation =
 type AvatarReaction = Exclude<AssistantAvatarAnimation, "idle" | "listening" | "thinking" | "working">;
 
 const AVATAR_REACTION_DURATION_MS = 2600;
-const RANDOM_AVATAR_REACTIONS: readonly AvatarReaction[] = ["curious", "happy", "surprised"];
-const RANDOM_AVATAR_MIN_DELAY_MS = 8000;
-const RANDOM_AVATAR_MAX_DELAY_MS = 16000;
-
-const randomAvatarDelay = () =>
-  RANDOM_AVATAR_MIN_DELAY_MS +
-  Math.floor(Math.random() * (RANDOM_AVATAR_MAX_DELAY_MS - RANDOM_AVATAR_MIN_DELAY_MS + 1));
 
 const actionEnvelopeFromFragment = () => {
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -55,20 +51,6 @@ const looksLikeQuestion = (text: string) => {
     /^(who|what|where|when|why|how|can|could|is|are|do|does|should)\b/i.test(normalized)
   );
 };
-
-function ToolTrace({ name, outcome }: { name: string; outcome: Record<string, unknown> }) {
-  const summary = Object.entries(outcome)
-    .map(([key, value]) => `${key}: ${String(value)}`)
-    .join(" · ");
-  return (
-    <span
-      title={summary || undefined}
-      className="assistant-tool-chip"
-    >
-      {name}
-    </span>
-  );
-}
 
 const describeProposal = (proposal: AgentProposal): string => {
   if (proposal.kind === "external_link_policy") {
@@ -178,6 +160,35 @@ const sensitiveProposalWarning = (proposal: AgentProposal): string => {
     return "Sensitive action: this changes whether a shared content source may participate in future ingestion and linking work; it does not start a crawl.";
   }
   return "Sensitive action: this queues connector or analysis work and may consume processing capacity.";
+};
+
+const PROPOSAL_IMPACT_LABELS: Record<string, string> = {
+  pending_count: "Pending",
+  approved_count: "Approved",
+  rejected_count: "Rejected",
+  expiring_count: "Expiring",
+  active_article_count: "Active articles",
+  active_suggestion_count: "Active suggestions",
+  remaining_slots_for_article: "Open slots",
+  site_count: "Sites",
+  article_count: "Articles",
+  wordpress_count: "WordPress",
+  html_count: "HTML",
+  occurrence_count: "Occurrences",
+  unfinished_site_count: "Unfinished sites",
+};
+
+const proposalImpactFacts = (proposal: AgentProposal) => {
+  const facts: Array<{ label: string; value: string }> = [];
+  if (typeof proposal.match_count === "number") {
+    facts.push({ label: "Matches", value: `${proposal.match_count} pending` });
+  }
+  for (const [key, value] of Object.entries(proposal.impact ?? {})) {
+    const label = PROPOSAL_IMPACT_LABELS[key];
+    if (!label || !Number.isFinite(value)) continue;
+    facts.push({ label, value: String(value) });
+  }
+  return facts.slice(0, 4);
 };
 
 interface BlockedActionDetails {
@@ -348,6 +359,7 @@ function ProposalCard({
   const [result, setResult] = useState<AgentProposalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
+  const impactFacts = proposalImpactFacts(proposal);
 
   const confirm = async () => {
     setConfirming(true);
@@ -377,6 +389,18 @@ function ProposalCard({
     <div className="assistant-proposal mt-3">
       <div className="assistant-proposal__label">Staged action</div>
       <p className="assistant-proposal__copy">{describeProposal(proposal)}</p>
+      <div className="assistant-proposal__facts" aria-label="Action impact">
+        <div>
+          <span>Risk</span>
+          <strong>{proposal.risk === "sensitive" ? "Sensitive" : "Reversible"}</strong>
+        </div>
+        {impactFacts.map(({ label, value }) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
       {proposal.risk === "sensitive" && result === null && (
         <p className="assistant-proposal__hint" role="note">
           {sensitiveProposalWarning(proposal)}
@@ -551,9 +575,16 @@ function McpActionCard({
 interface AgentPanelProps {
   /** The shell owns the theme hook so the beam follows explicit preferences. */
   resolvedTheme?: ResolvedTheme;
+  /** Passed by the shell so the panel follows route changes without owning navigation. */
+  currentPath?: string;
+  currentSearch?: string;
 }
 
-export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps) {
+export default function AgentPanel({
+  resolvedTheme = "light",
+  currentPath,
+  currentSearch,
+}: AgentPanelProps) {
   const { data: user } = useSession();
   const [mcpEnvelope, setMcpEnvelope] = useState<string | null>(actionEnvelopeFromFragment);
   const [open, setOpen] = useState(mcpEnvelope !== null);
@@ -566,12 +597,41 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
   const panelRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const avatarReactionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasOpen = useRef(false);
   const stickToBottom = useRef(true);
   const titleId = useId();
-  const { messages, pending, error, clearError, retry, clearConversation, send, configured } =
-    useAgentChat({ enabled: open && !!user });
+  const viewContext = useMemo(
+    () =>
+      getAgentViewContext(
+        currentPath ?? (typeof window === "undefined" ? "/" : window.location.pathname),
+        currentSearch ?? (typeof window === "undefined" ? "" : window.location.search),
+      ),
+    [currentPath, currentSearch],
+  );
+  const agentChatContext = useMemo(
+    () => ({
+      surface: viewContext.surface,
+      path: viewContext.path,
+      search: viewContext.search,
+      scope: viewContext.scope,
+      filters: viewContext.filters,
+    }),
+    [viewContext.filters, viewContext.path, viewContext.scope, viewContext.search, viewContext.surface],
+  );
+  const {
+    messages,
+    pending,
+    error,
+    failedMessage,
+    clearError,
+    retry,
+    cancel,
+    clearConversation,
+    send,
+    configured,
+  } = useAgentChat({ enabled: open && !!user, context: agentChatContext });
 
   // The turn currently being written, if any. It is always the last message:
   // the operator cannot send another while one is in flight.
@@ -619,31 +679,9 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
       .finally(() => setMcpLoading(false));
   }, [mcpEnvelope, user]);
 
-  // When the launcher is idle, give it occasional personality without turning
-  // it into a notification. The loop stops as soon as the panel opens and is
-  // skipped for reduced-motion users.
-  useEffect(() => {
-    if (!user || open || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let randomActionTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRandomAction = () => {
-      randomActionTimer = setTimeout(() => {
-        const reaction =
-          RANDOM_AVATAR_REACTIONS[Math.floor(Math.random() * RANDOM_AVATAR_REACTIONS.length)];
-        if (reaction) triggerAvatarReaction(reaction);
-        scheduleRandomAction();
-      }, randomAvatarDelay());
-    };
-
-    scheduleRandomAction();
-    return () => {
-      if (randomActionTimer !== null) clearTimeout(randomActionTimer);
-    };
-  }, [open, triggerAvatarReaction, user]);
-
   const handleAvatarTurnResult = useCallback(
     (result: AgentTurnResult | null) => {
-      if (!result) return;
+      if (!result || result.cancelled) return;
       triggerAvatarReaction(
         result.assistantMessage
           ? looksLikeQuestion(result.prompt)
@@ -658,6 +696,7 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
   // Working, rather than thinking, is something the panel can now know instead
   // of timing: the engine reports each tool as it returns, so the rhythm
   // changes when the assistant actually goes and looks something up.
+  const latestTool = streamingReply?.tools?.[streamingReply.tools.length - 1];
   const avatarAnimation: AnimationKey = pending
     ? (streamingReply?.tools?.length ?? 0) > 0
       ? "working"
@@ -703,12 +742,25 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
       (route === "/publish" && window.location.pathname.startsWith("/publish/")),
   );
 
-  const submit = () => {
-    const text = draft;
+  const submitMessage = (text: string) => {
     if (!text.trim() || pending) return;
     setDraft("");
     clearAvatarOverride();
     void send(text).then(handleAvatarTurnResult);
+  };
+
+  const submit = () => submitMessage(draft);
+
+  const stopGenerating = () => {
+    clearAvatarOverride();
+    cancel();
+  };
+
+  const editFailedMessage = () => {
+    if (!failedMessage) return;
+    setDraft(failedMessage);
+    clearError();
+    window.setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const openAssistant = () => {
@@ -808,6 +860,12 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
             </div>
           </header>
 
+          <div className="assistant-context-strip" aria-label="Current dashboard context">
+            <span className="assistant-context-strip__label">Current view</span>
+            <span className="assistant-context-strip__scope">{viewContext.title}</span>
+            <span className="assistant-context-strip__detail">{viewContext.detail}</span>
+          </div>
+
           {error && (
             <div className="assistant-notice-wrap">
               <Notice
@@ -820,6 +878,15 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                 retryPending={pending}
                 retryLabel="Retry message"
               />
+              {failedMessage && (
+                <button
+                  type="button"
+                  className="assistant-recovery-action"
+                  onClick={editFailedMessage}
+                >
+                  Edit failed question
+                </button>
+              )}
             </div>
           )}
 
@@ -886,10 +953,41 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                       Ask about your sites, the review queue, running jobs, or evaluation metrics.
                       I can look things up, reviewing and publishing stay yours.
                     </p>
-                    <div className="assistant-topic-strip" aria-hidden="true">
-                      <span>Queue</span>
-                      <span>Sites</span>
-                      <span>Evaluation</span>
+                    <div
+                      className="assistant-suggestion-list"
+                      role="group"
+                      aria-label="Suggested questions"
+                    >
+                      {viewContext.suggestions.map(({ label, prompt }) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          onClick={() => submitMessage(prompt)}
+                          disabled={pending}
+                          aria-label={prompt}
+                          className="assistant-suggestion"
+                        >
+                          <span className="assistant-suggestion__content">
+                            <span className="assistant-suggestion__label">{label}</span>
+                            <span className="assistant-suggestion__prompt">{prompt}</span>
+                          </span>
+                          <svg
+                            aria-hidden="true"
+                            className="assistant-suggestion__arrow"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 8h9" />
+                            <path d="m8.5 4 4 4-4 4" />
+                          </svg>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -901,11 +999,16 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                     <div
                       className={`assistant-message ${
                         message.role === "user" ? "assistant-message--user" : "assistant-message--agent"
-                      }${message.streaming && message.content ? " assistant-message--streaming" : ""}`}
+                      }${message.streaming && message.content ? " assistant-message--streaming" : ""}${
+                        message.cancelled ? " assistant-message--cancelled" : ""
+                      }`}
                     >
                       {message.role === "assistant" && (
                         <div className="assistant-message-label">
                           Mesh
+                          {message.cancelled && (
+                            <span className="assistant-message-label__source">· stopped</span>
+                          )}
                           {message.tools && message.tools.length > 0 && (
                             <span className="assistant-message-label__source">· sources consulted</span>
                           )}
@@ -918,6 +1021,7 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                               key={`${tool.name}-${toolIndex}`}
                               name={tool.name}
                               outcome={tool.outcome}
+                              currentHref={viewContext.href}
                             />
                           ))}
                         </div>
@@ -928,6 +1032,11 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                         <AgentMarkdown content={message.content} />
                       ) : (
                         <p className="whitespace-pre-wrap">{message.content}</p>
+                      )}
+                      {message.cancelled && (
+                        <p className="assistant-message__cancelled-copy">
+                          Stopped before Mesh finished the answer.
+                        </p>
                       )}
                       {message.proposals?.map((proposal, proposalIndex) => (
                         <ProposalCard
@@ -943,6 +1052,43 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                             tool={tool}
                           />
                         ))}
+                      {message.role === "assistant" &&
+                        message.id === lastMessage?.id &&
+                        !message.streaming &&
+                        !message.cancelled &&
+                        !message.proposals?.length && (
+                          <div
+                            className="assistant-followup-list"
+                            role="group"
+                            aria-label="Suggested follow-up questions"
+                          >
+                            {viewContext.suggestions.map(({ label, prompt }) => (
+                              <button
+                                key={`${message.id}-${prompt}`}
+                                type="button"
+                                onClick={() => submitMessage(prompt)}
+                                disabled={pending}
+                                className="assistant-followup"
+                              >
+                                <span>{label}</span>
+                                <svg
+                                  aria-hidden="true"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 12 12"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M1.5 6h8" />
+                                  <path d="m6.5 3 3 3-3 3" />
+                                </svg>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                     </div>
                   </div>
                 ))}
@@ -958,6 +1104,11 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                         ? "Mesh is working…"
                         : "Mesh is thinking…"}
                     </span>
+                    {latestTool && (
+                      <span className="assistant-thinking__activity">
+                        {toolActivityFor(latestTool.name)}…
+                      </span>
+                    )}
                   </div>
                 )}
                 {showJumpToLatest && (
@@ -987,6 +1138,7 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                   <BorderBeam size="pulse-inner" theme={resolvedTheme}>
                     <div className="assistant-composer-field">
                       <textarea
+                        ref={inputRef}
                         aria-label="Message Mesh"
                         rows={1}
                         value={draft}
@@ -1000,32 +1152,43 @@ export default function AgentPanel({ resolvedTheme = "light" }: AgentPanelProps)
                         placeholder="Ask Mesh about your linking engine…"
                         className="assistant-composer-input"
                       />
-                      <button
-                        type="submit"
-                        aria-label="Send"
-                        disabled={pending || !draft.trim()}
-                        className="assistant-send-button"
-                      >
-                        <svg
-                          aria-hidden="true"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 16 16"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.4"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                      {pending ? (
+                        <button
+                          type="button"
+                          aria-label="Stop generating"
+                          onClick={stopGenerating}
+                          className="assistant-stop-button"
                         >
-                          <path d="M2.5 8h10" />
-                          <path d="m8.5 4 4 4-4 4" />
-                        </svg>
-                      </button>
+                          Stop
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          aria-label="Send"
+                          disabled={!draft.trim()}
+                          className="assistant-send-button"
+                        >
+                          <svg
+                            aria-hidden="true"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2.5 8h10" />
+                            <path d="m8.5 4 4 4-4 4" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   </BorderBeam>
                 <div className="assistant-composer-hint">
-                  <span>Enter to send</span>
-                  <span>Shift + Enter for new line</span>
+                  <span>Mesh inspects and stages changes · you confirm writes</span>
+                  <span>Enter to send · Shift + Enter for a new line</span>
                 </div>
               </form>
             </>

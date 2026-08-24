@@ -145,6 +145,7 @@ export default function SiteScheduleModal({
   const lastRun = formatDateTime(scheduleQuery.data?.last_run_finished_at ?? null);
   const lastAttempt = formatDateTime(scheduleQuery.data?.last_attempt_at ?? null);
   const lastStatus = runStatusLabel(scheduleQuery.data?.last_run_status ?? null);
+  const timezoneHintId = `${timezoneListId}-hint`;
 
   return (
     <Modal
@@ -166,9 +167,17 @@ export default function SiteScheduleModal({
       )}
 
       {form && (
-        <div className="space-y-5">
+        <form
+          aria-label="Site refresh schedule"
+          className="space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
           <label className="flex items-start gap-3 rounded-lg bg-surface-strong p-3">
             <input
+              name="enabled"
               type="checkbox"
               checked={form.enabled}
               onChange={(event) => set({ enabled: event.target.checked })}
@@ -187,6 +196,7 @@ export default function SiteScheduleModal({
             <label className="block">
               <span className="mb-1 block text-caption font-medium text-ink">Repeat</span>
               <select
+                name="cadence"
                 className="field"
                 value={form.cadence}
                 onChange={(event) => {
@@ -202,6 +212,7 @@ export default function SiteScheduleModal({
             <label className="block">
               <span className="mb-1 block text-caption font-medium text-ink">Time</span>
               <input
+                name="local_time"
                 className="field"
                 type="time"
                 value={form.localTime}
@@ -214,6 +225,7 @@ export default function SiteScheduleModal({
             <label className="block">
               <span className="mb-1 block text-caption font-medium text-ink">Weekday</span>
               <select
+                name="weekday"
                 className="field"
                 value={form.weekday ?? 0}
                 onChange={(event) => set({ weekday: Number(event.target.value) })}
@@ -230,20 +242,22 @@ export default function SiteScheduleModal({
           <label className="block">
             <span className="mb-1 block text-caption font-medium text-ink">Timezone</span>
             <input
+              name="timezone"
               className="field"
               list={timezoneListId}
               value={form.timezone}
               onChange={(event) => set({ timezone: event.target.value })}
               placeholder="Africa/Casablanca"
+              aria-describedby={timezoneHintId}
             />
             <datalist id={timezoneListId}>
               {TIMEZONES.map((timezone) => (
                 <option key={timezone} value={timezone} />
               ))}
             </datalist>
-            <span className="mt-1 block text-caption-sm leading-relaxed text-muted">
-              Use an IANA timezone. The selected local time follows daylight-saving changes where
-              applicable.
+            <span id={timezoneHintId} className="mt-1 block text-caption-sm leading-relaxed text-muted">
+              Enter an IANA timezone, for example Africa/Casablanca or America/New_York. The
+              schedule uses this local time, including daylight-saving changes where applicable.
             </span>
           </label>
 
@@ -290,10 +304,9 @@ export default function SiteScheduleModal({
               {runNow.isPending ? "Queueing…" : "Run now"}
             </button>
             <button
-              type="button"
               className="btn btn-primary"
+              type="submit"
               disabled={update.isPending}
-              onClick={() => void save()}
             >
               {update.isPending ? "Saving…" : "Save schedule"}
             </button>
@@ -301,7 +314,7 @@ export default function SiteScheduleModal({
               Cancel
             </button>
           </div>
-        </div>
+        </form>
       )}
     </Modal>
   );

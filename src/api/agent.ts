@@ -87,6 +87,19 @@ export interface AgentStatus {
   provider?: string;
 }
 
+/**
+ * The dashboard view the operator was looking at when they asked a question.
+ * It is optional so older engines can keep accepting the original chat body
+ * while the UI grows a more useful scope contract.
+ */
+export interface AgentChatContext {
+  surface: string;
+  path: string;
+  search: string;
+  scope: string;
+  filters?: Record<string, string>;
+}
+
 export const getAgentStatus = () =>
   api.get<AgentStatus>("/agent/status").then((response) => response.data);
 
@@ -102,11 +115,12 @@ export const getAgentStatus = () =>
 export const postAgentMessage = (
   message: string,
   history: { role: "user" | "assistant"; content: string }[],
+  context?: AgentChatContext,
 ) =>
   api
     .post<AgentChatResponse>(
       "/agent/chat",
-      { message, history },
+      { message, history, ...(context ? { context } : {}) },
       { timeout: AGENT_CHAT_TIMEOUT_MS },
     )
     .then((response) => response.data);
@@ -166,6 +180,7 @@ export const streamAgentMessage = async (
   history: { role: "user" | "assistant"; content: string }[],
   handlers: AgentStreamHandlers,
   signal?: AbortSignal,
+  context?: AgentChatContext,
 ) => {
   const base = String(api.defaults.baseURL ?? "/api/v1").replace(/\/$/, "");
   const response = await fetch(`${base}/agent/chat/stream`, {
@@ -175,7 +190,7 @@ export const streamAgentMessage = async (
       Accept: "text/event-stream",
       [LINKMESH_CLIENT_HEADER]: LINKMESH_CLIENT_VALUE,
     },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, ...(context ? { context } : {}) }),
     signal,
   });
   if (!response.ok) throw new AgentStreamError(await refusalDetail(response));

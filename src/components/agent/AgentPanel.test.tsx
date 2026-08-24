@@ -117,6 +117,64 @@ describe("AgentPanel", () => {
     expect(screen.getByText("get_queue_counts")).not.toBeNull();
   });
 
+  it("offers common editor questions as clickable prompts", async () => {
+    const stream = streams("There are 12 pending suggestions.");
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+
+    const prompt = await screen.findByRole("button", {
+      name: "How many suggestions are pending?",
+    });
+    expect(screen.getByRole("button", { name: "What jobs are running?" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "What's blocking publication?" })).not.toBeNull();
+
+    await user.click(prompt);
+    await screen.findByText("There are 12 pending suggestions.");
+    expect(asked(stream.mock.calls[0])).toEqual(["How many suggestions are pending?", []]);
+  });
+
+  it("shows the current route scope and offers contextual follow-ups", async () => {
+    window.history.replaceState(null, "", "/queue?site=7&min=85");
+    const stream = streams("There are 12 suggestions in this view.");
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+
+    expect(screen.getByText("Current view")).not.toBeNull();
+    expect(screen.getByText(/Pending · Site #7 · Score ≥ 85%/)).not.toBeNull();
+    await user.type(await screen.findByLabelText("Message Mesh"), "what is here?{Enter}");
+    await screen.findByText("There are 12 suggestions in this view.");
+
+    expect(screen.getByRole("group", { name: "Suggested follow-up questions" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Ageing queue" })).not.toBeNull();
+    expect((stream.mock.calls[0] as unknown[])[4]).toMatchObject({
+      surface: "review_queue",
+      scope: "Review queue · Pending · Site #7 · Score ≥ 85%",
+    });
+  });
+
+  it("lets the operator stop a partial answer and keeps the interruption explicit", async () => {
+    vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+      (_message, _history, handlers, signal) =>
+        new Promise((_resolve, reject) => {
+          handlers.onDelta("Partial answer");
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
+    );
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "take your time{Enter}");
+    await screen.findByText("Partial answer");
+
+    await user.click(screen.getByRole("button", { name: "Stop generating" }));
+
+    expect(await screen.findByText("Stopped before Mesh finished the answer.")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop generating" })).toBeNull();
+  });
+
   it("shows the reply as it arrives, before the turn has finished", async () => {
     // The whole point of streaming: half an answer on screen beats a spinner
     // over a finished one nobody can see yet.
@@ -160,6 +218,42 @@ describe("AgentPanel", () => {
       expect(container.querySelector(".assistant-message--streaming")).toBeNull(),
     );
     expect(screen.getByText("The queue has 3 pending suggestions.")).not.toBeNull();
+  });
+
+  it("uses the completed reply when a streamed proposal is repaired", async () => {
+    const proposal: AgentProposal = {
+      tool: "preview_site_job",
+      kind: "site_job_start",
+      risk: "sensitive",
+      method: "POST",
+      endpoint: "/api/v1/suggestions/2",
+      payload: { expected_active_job_run_ids: [] },
+      impact: {
+        site_count: 1,
+        active_article_count: 70,
+        active_internal_link_count: 5,
+        active_suggestion_count: 150,
+      },
+    };
+    vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+      async (_message, _history, handlers) => {
+        handlers.onDelta("The proposal is staged. Confirm in the dashboard.");
+        handlers.onDone({
+          reply: "Analysis is staged for your confirmation.",
+          tools_used: [],
+          proposals: [proposal],
+        });
+      },
+    );
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "run analysis{Enter}");
+
+    expect(await screen.findByText("Analysis is staged for your confirmation.")).not.toBeNull();
+    expect(screen.queryByText("The proposal is staged. Confirm in the dashboard.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Confirm sensitive change" })).not.toBeNull();
   });
 
   it("renders the reply's Markdown as structure, and the operator's own words as typed", async () => {

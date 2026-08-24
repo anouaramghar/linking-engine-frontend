@@ -5,6 +5,7 @@ import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
 import { ingestSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
 import ActionMenu, { type MenuItem } from "../components/ActionMenu";
+import BatchSelectionTray from "../components/BatchSelectionTray";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { CANCELLATION_COPY, JOB_KIND_LABELS } from "../components/jobs/jobCancellation";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
@@ -883,43 +884,29 @@ export default function SitesPage() {
           )}
 
         {selectionMode && selectedSiteIds.size > 0 && (
-          <div
-            role="region"
-            aria-label="Batch selection"
-            className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="text-body-sm font-medium text-ink" aria-live="polite">
-                {selectedSiteIds.size} site{selectedSiteIds.size === 1 ? "" : "s"} selected
-              </div>
-              <div className="mt-1 text-caption text-muted">
-                {activeJobsQuery.isError
-                  ? "Live job status is unavailable. Refresh before starting a batch."
-                  : selectedActiveCount > 0
-                    ? `${selectedActiveCount} selected site${selectedActiveCount === 1 ? " is" : "s are"} already busy.`
-                    : batchLimitReached
-                      ? `Batch limit reached: ${MAX_PIPELINE_BATCH_SITES} sites maximum.`
-                      : selectedOutsideSearchCount > 0
-                  ? `${selectedOutsideSearchCount} selected outside this search.`
-                  : "Ready to run together."}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedSiteIds(new Set())}
-              className="btn btn-outline btn-sm"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={() => void launchBatch()}
-              disabled={createBatch.isPending || batchBlocked}
-              className="btn btn-primary btn-sm sm:min-w-[10rem]"
-            >
-              {createBatch.isPending ? "Starting batch…" : `Run batch (${selectedSiteIds.size})`}
-            </button>
-          </div>
+          <BatchSelectionTray
+            regionLabel="Batch selection"
+            itemLabel="site"
+            itemLabelPlural="sites"
+            selectedCount={selectedSiteIds.size}
+            status={
+              activeJobsQuery.isError
+                ? "Live job status is unavailable. Refresh before starting a batch."
+                : selectedActiveCount > 0
+                  ? `${selectedActiveCount} selected site${selectedActiveCount === 1 ? " is" : "s are"} already busy.`
+                  : batchLimitReached
+                    ? `Batch limit reached: ${MAX_PIPELINE_BATCH_SITES} sites maximum.`
+                    : selectedOutsideSearchCount > 0
+                      ? `${selectedOutsideSearchCount} selected outside this search.`
+                      : "Ready to run together."
+            }
+            actionLabel={`Run batch (${selectedSiteIds.size})`}
+            pendingActionLabel="Starting batch…"
+            actionPending={createBatch.isPending}
+            actionDisabled={batchBlocked}
+            onClear={() => setSelectedSiteIds(new Set())}
+            onAction={() => void launchBatch()}
+          />
         )}
       </div>
       <Suspense fallback={null}>

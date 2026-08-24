@@ -127,6 +127,9 @@ describe("GraphLens", () => {
 
     await user.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(screen.getByText("125%")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Reset zoom" }));
+    expect(screen.getByText("100%")).not.toBeNull();
   });
 
   it("searches the full site and exposes the selected page inspector", async () => {

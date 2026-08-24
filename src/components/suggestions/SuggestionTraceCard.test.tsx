@@ -27,6 +27,24 @@ const suggestion: Suggestion = {
 };
 
 describe("SuggestionTraceCard", () => {
+  it("can keep technical provenance collapsed inside the detail panel", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={suggestion}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+        collapsible
+      />,
+    );
+
+    const details = screen.getByText("Technical provenance").closest("details");
+    expect(details?.open).toBe(false);
+
+    fireEvent.click(screen.getByText("Technical provenance"));
+
+    expect(details?.open).toBe(true);
+    expect(screen.getByRole("region", { name: "Suggestion traceability" })).not.toBeNull();
+  });
+
   it("renders useful statistics and newest lifecycle events", () => {
     render(
       <SuggestionTraceCard

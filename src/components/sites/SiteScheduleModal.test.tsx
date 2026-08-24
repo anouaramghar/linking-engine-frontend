@@ -58,7 +58,12 @@ describe("SiteScheduleModal", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Timezone/ }), {
       target: { value: "Africa/Casablanca" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save schedule" }));
+    const form = screen.getByRole("form", { name: "Site refresh schedule" });
+    expect(form.querySelector('[name="enabled"]')).not.toBeNull();
+    expect(form.querySelector('[name="cadence"]')).not.toBeNull();
+    expect(form.querySelector('[name="local_time"]')).not.toBeNull();
+    expect(form.querySelector('[name="timezone"]')).not.toBeNull();
+    fireEvent.submit(form);
 
     await waitFor(() =>
       expect(mocks.update.mutateAsync).toHaveBeenCalledWith(

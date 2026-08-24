@@ -53,6 +53,9 @@ typography:
     fontWeight: 600
     lineHeight: 1.4
     letterSpacing: "0.96px"
+  code:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    token: "--font-mono"
 rounded:
   xs: "4px"
   sm: "6px"
@@ -178,7 +181,8 @@ The palette is warm, restrained, and role-named. Light and dark themes re-point 
 
 **Display Font:** EB Garamond (with Georgia, serif fallback)
 **Body Font:** Inter (with system-ui, sans-serif fallback)
-**Label/Mono Font:** Inter for labels; monospace is reserved for code and measured data.
+**Label Font:** Inter.
+**Code Font:** `--font-mono` (`ui-monospace, SFMono-Regular, Menlo, monospace`) is reserved for code and measured data.
 
 **Character:** EB Garamond at a light display weight keeps the editorial voice human and unforced. Inter is compact, legible, and slightly tracked so a long review queue remains scannable.
 

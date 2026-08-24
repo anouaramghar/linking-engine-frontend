@@ -584,6 +584,35 @@ describe("streamAgentMessage", () => {
     });
   });
 
+  it("carries the operator's current view as optional chat context", async () => {
+    const fetching = respondWith(
+      sse('event: done\ndata: {"reply":"ok","tools_used":[],"proposals":[]}\n\n'),
+    );
+
+    await streamAgentMessage(
+      "what is here?",
+      [],
+      handlers(),
+      undefined,
+      {
+        surface: "review_queue",
+        path: "/queue",
+        search: "?site=7",
+        scope: "Review queue · Pending · Site #7",
+        filters: { site: "7" },
+      },
+    );
+
+    const [, init] = fetching.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      message: "what is here?",
+      context: {
+        surface: "review_queue",
+        scope: "Review queue · Pending · Site #7",
+      },
+    });
+  });
+
   it("carries the engine's own words out of a refusal", async () => {
     respondWith({
       ok: false,

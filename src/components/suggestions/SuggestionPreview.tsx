@@ -123,88 +123,96 @@ export default function SuggestionPreview({
         )}
       </div>
 
-      {trace && <SuggestionTraceCard suggestion={s} trace={trace} />}
-
-      {s.status === "pending" ? (
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={onAccept}
-            disabled={actionsDisabled}
-            className="btn btn-primary flex-1"
-          >
-            Select for review
-          </button>
-          <button
-            type="button"
-            onClick={onReject}
-            disabled={actionsDisabled}
-            className="btn btn-outline"
-          >
-            Reject
-          </button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {/* Both grounds are utilities, so the fallback is chosen here rather
-              than layered — stylesheet order, not attribute order, decides
-              which of two competing `bg-*` utilities wins. */}
-          <div
-            className={`flex min-h-10 items-center justify-center gap-2 rounded-pill px-4 text-caption-upper uppercase text-ink ${
-              STATUS_META[s.status].tint || "bg-surface-strong"
-            }`}
-          >
-            <span className={`dot ${STATUS_META[s.status].dot}`} />
-            {STATUS_META[s.status].label}
+      <section
+        aria-labelledby={`suggestion-decision-${s.id}`}
+        className="sticky top-0 z-10 -mx-5 mt-5 border-y border-hairline bg-canvas-soft px-5 py-4 sm:-mx-8 sm:px-8"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 id={`suggestion-decision-${s.id}`} className="text-title-sm text-ink">
+              Review this suggestion
+            </h3>
+            <p className="mt-1 text-caption leading-normal text-muted">
+              {s.status === "pending"
+                ? "Selection adds this suggestion to exact-edit review; it is not published until the exact edit is approved."
+                : s.status === "rejected"
+                  ? "Rejected suggestions are not published."
+                  : "Review the current publication state before continuing."}
+            </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {s.status === "approved" && onReviewPublication && (
-              <button
-                type="button"
-                onClick={onReviewPublication}
-                disabled={actionsDisabled}
-                className="btn btn-primary flex-1"
-              >
-                Review exact edit
-              </button>
-            )}
-            {isReversible(s.status) && (
-              <button
-                type="button"
-                onClick={onUndo}
-                disabled={actionsDisabled}
-                className="btn btn-outline"
-              >
-                Undo
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
-      {publicationMessage && (
-        <div role="region" aria-label="Publish status" className="card mt-3 px-4 py-3">
-          <div className="eyebrow">Publish status</div>
-          <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
-          {s.status === "failed" && s.publish_error && (
-            <div className="mt-2 break-words text-caption leading-normal text-error-ink">
-              {s.publish_error}
+          {s.status !== "pending" && (
+            <div
+              className={`flex min-h-10 flex-none items-center justify-center gap-2 rounded-pill px-4 text-caption-upper uppercase text-ink ${
+                STATUS_META[s.status].tint || "bg-surface-strong"
+              }`}
+            >
+              <span className={`dot ${STATUS_META[s.status].dot}`} />
+              {STATUS_META[s.status].label}
             </div>
           )}
         </div>
-      )}
 
-      {s.status === "pending" && (
-        <div className="mt-3 text-caption leading-normal text-muted">
-          Selection adds this suggestion to the review tray; it is not published until the exact
-          edit is approved.
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          {s.status === "pending" ? (
+            <>
+              <button
+                type="button"
+                onClick={onAccept}
+                disabled={actionsDisabled}
+                className="btn btn-primary flex-1"
+              >
+                Select for review
+              </button>
+              <button
+                type="button"
+                onClick={onReject}
+                disabled={actionsDisabled}
+                className="btn btn-outline"
+              >
+                Reject
+              </button>
+            </>
+          ) : (
+            <>
+              {s.status === "approved" && onReviewPublication && (
+                <button
+                  type="button"
+                  onClick={onReviewPublication}
+                  disabled={actionsDisabled}
+                  className="btn btn-primary flex-1"
+                >
+                  Review exact edit
+                </button>
+              )}
+              {isReversible(s.status) && (
+                <button
+                  type="button"
+                  onClick={onUndo}
+                  disabled={actionsDisabled}
+                  className="btn btn-outline"
+                >
+                  Undo
+                </button>
+              )}
+            </>
+          )}
         </div>
-      )}
-      {s.status === "rejected" && (
-        <div className="mt-3 text-caption leading-normal text-muted">
-          Rejected suggestions are not published.
-        </div>
-      )}
+
+        {publicationMessage && (
+          <div role="region" aria-label="Publish status" className="mt-3 rounded-lg bg-surface-strong px-4 py-3">
+            <div className="eyebrow">Publish status</div>
+            <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
+            {s.status === "failed" && s.publish_error && (
+              <div className="mt-2 break-words text-caption leading-normal text-error-ink">
+                {s.publish_error}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {trace && <SuggestionTraceCard suggestion={s} trace={trace} collapsible />}
     </>
   );
 

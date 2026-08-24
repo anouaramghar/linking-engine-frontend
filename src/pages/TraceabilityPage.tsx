@@ -27,6 +27,41 @@ const eventDateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
+function CopyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CopiedIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5 12 4 4L19 6" />
+    </svg>
+  );
+}
+
 export default function TraceabilityPage() {
   const sites = useSites().data ?? [];
   const [searchParams, setSearchParams] = useSearchParams();
@@ -165,8 +200,23 @@ export default function TraceabilityPage() {
                     </p>
                   )}
                 </div>
-                <button type="button" className="btn btn-outline btn-sm" onClick={() => void copyTrace(event.trace_id)}>
-                  {copied === event.trace_id ? "Copied" : "Copy trace ID"}
+                <button
+                  type="button"
+                  className={`btn btn-outline btn-sm ${
+                    copied === event.trace_id ? "" : "h-11 w-11 p-0 sm:h-8 sm:w-8"
+                  }`}
+                  aria-label={copied === event.trace_id ? "Copied" : "Copy trace ID"}
+                  title={copied === event.trace_id ? "Copied" : "Copy trace ID"}
+                  onClick={() => void copyTrace(event.trace_id)}
+                >
+                  {copied === event.trace_id ? (
+                    <>
+                      <CopiedIcon />
+                      <span>Copied</span>
+                    </>
+                  ) : (
+                    <CopyIcon />
+                  )}
                 </button>
               </div>
               <p className="mt-2 break-all text-caption-sm text-muted" translate="no">
