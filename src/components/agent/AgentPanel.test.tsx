@@ -65,11 +65,14 @@ const renderPanel = () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={client}>
-      <AgentPanel />
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={client}>
+        <AgentPanel />
+      </QueryClientProvider>,
+    ),
+    client,
+  };
 };
 
 beforeEach(() => {
@@ -394,6 +397,87 @@ describe("AgentPanel", () => {
 
     const launcher = await screen.findByRole("button", { name: "Open Mesh" });
     expect(document.activeElement).toBe(launcher);
+  });
+
+  /**
+   * The panel sits above the routes, so a page cannot refresh what it writes.
+   * Before this, a confirmed rule left the rail badge, the queue chips and the
+   * site rows all showing the numbers they held before the confirmation.
+   */
+  it("marks what a confirmed action changed as stale", async () => {
+    streams("I can approve the strong ones when you are ready.", {
+      proposals: [
+        {
+          tool: "preview_bulk_review",
+          kind: "bulk_review",
+          risk: "reversible",
+          method: "POST",
+          endpoint: "/api/v1/suggestions/bulk-review-by-filter",
+          payload: {
+            status: "approved",
+            match_status: "pending",
+            site_id: 7,
+            all_sites: false,
+            threshold_percent: 85,
+          },
+          match_count: 12,
+        },
+      ],
+    });
+    vi.mocked(agentApi.confirmProposal).mockResolvedValue({
+      message: "Applied: 12 reviewed.",
+      undoAvailable: true,
+    });
+
+    const user = userEvent.setup();
+    const { client } = renderPanel();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "approve the strong ones{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Confirm" }));
+    await screen.findByText(/Applied: 12 reviewed/);
+
+    const keys = invalidate.mock.calls.map(([options]) => options?.queryKey);
+    // A prefix, so the counts and the paginated queue under it go too.
+    expect(keys).toContainEqual(["suggestions"]);
+    expect(keys).toContainEqual(["publish", "pending"]);
+  });
+
+  it("leaves the cache alone when a confirmation fails", async () => {
+    streams("I can approve the strong ones when you are ready.", {
+      proposals: [
+        {
+          tool: "preview_bulk_review",
+          kind: "bulk_review",
+          risk: "reversible",
+          method: "POST",
+          endpoint: "/api/v1/suggestions/bulk-review-by-filter",
+          payload: {
+            status: "approved",
+            match_status: "pending",
+            site_id: 7,
+            all_sites: false,
+            threshold_percent: 85,
+          },
+          match_count: 12,
+        },
+      ],
+    });
+    vi.mocked(agentApi.confirmProposal).mockRejectedValue(new Error("refused"));
+
+    const user = userEvent.setup();
+    const { client } = renderPanel();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "approve the strong ones{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Confirm" }));
+    await screen.findByText(/could not be applied/);
+
+    // Nothing moved, so nothing is stale. A sweep here would cost the whole
+    // dashboard a refetch to redraw the numbers it already has.
+    expect(invalidate.mock.calls.map(([options]) => options?.queryKey)).not.toContainEqual([
+      "suggestions",
+    ]);
   });
 
   it("stages a bulk rule behind an explicit confirm, then reports the result", async () => {

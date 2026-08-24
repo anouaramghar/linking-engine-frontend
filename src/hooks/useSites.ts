@@ -205,8 +205,10 @@ export const useUpdateExternalLinkPolicy = (siteId: number) => {
       updateExternalLinkPolicy({ siteId, policy }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["external-link-policy", siteId] });
+      // Prefix match, so this reaches the paginated queue and the counts under
+      // it. A second line naming the counts separately was dead: they have
+      // never had a key of their own.
       void qc.invalidateQueries({ queryKey: ["suggestions"] });
-      void qc.invalidateQueries({ queryKey: ["suggestion-counts"] });
     },
   });
 };

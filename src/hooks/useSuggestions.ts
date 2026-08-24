@@ -49,13 +49,27 @@ export const useSuggestions = (
   };
 };
 
+/**
+ * `/suggestions/counts` answers with every status at once, so a status is not a
+ * bound it accepts. Dropping it here keeps the request honest and, more
+ * usefully, keeps two callers asking the same question on one cache entry:
+ * SelectedPage asks with `status: "approved"` and reads `.approved` off the
+ * same answer the queue's chips are already holding.
+ */
+const countScope = (filters: SuggestionQueueFilters): SuggestionQueueFilters => {
+  const scope = { ...filters };
+  delete scope.status;
+  return scope;
+};
+
 export const useSuggestionCounts = (
   filters: SuggestionQueueFilters,
   enabled = true,
-) =>
-  useQuery({
-    queryKey: ["suggestions", "counts", filters],
-    queryFn: () => countSuggestions(filters),
+) => {
+  const scope = countScope(filters);
+  return useQuery({
+    queryKey: ["suggestions", "counts", scope],
+    queryFn: () => countSuggestions(scope),
     // The threshold rule is part of this key, so every change of it is a new
     // query. Without a placeholder the counts blink to `undefined`, the page
     // reads that as zero, and the bulk buttons those counts label disable
@@ -64,6 +78,7 @@ export const useSuggestionCounts = (
     placeholderData: keepPreviousData,
     enabled,
   });
+};
 
 /**
  * The placement for the open suggestion, fetched only while one is open.

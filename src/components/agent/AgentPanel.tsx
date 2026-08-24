@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { BorderBeam } from "border-beam";
 import type { AnimationKey } from "@bible-strong/avatar-core";
 import {
@@ -9,6 +10,7 @@ import {
   type AgentActionPreview,
   type AgentActionReceipt,
   type AgentProposal,
+  type AgentProposalKind,
   type AgentProposalResult,
   type AgentToolTrace,
 } from "../../api/agent";
@@ -297,6 +299,40 @@ function BlockedActionCard({ tool }: { tool: AgentToolTrace }) {
 }
 
 /**
+ * What a confirmed action makes stale.
+ *
+ * The panel writes from above the routes, so nothing it changes belongs to the
+ * page the operator happens to be looking at. Without this the rail badge, the
+ * queue chips and the site rows all keep the numbers they held before the
+ * confirmation, and the only way to see the work land was to navigate away and
+ * back. Each entry is a key prefix, so `["suggestions"]` also covers the counts
+ * and the paginated queue beneath it.
+ *
+ * Keyed by kind rather than by endpoint, because the kind is what
+ * `confirmProposal` allowlists — a new action cannot reach the server without
+ * first appearing here.
+ */
+const AFFECTED_QUERIES: Record<AgentProposalKind, readonly (readonly string[])[]> = {
+  bulk_review: [["suggestions"], ["suggestion-events"], ["publish", "pending"]],
+  review_suggestion: [["suggestions"], ["suggestion-events"], ["publish", "pending"]],
+  editorial_ranking_policy: [["editorial-ranking-policy"], ["sites"]],
+  // A changed external-link rule re-scores what the queue may offer, so the
+  // rows and their counts move although no suggestion was reviewed.
+  external_link_policy: [["external-link-policy"], ["suggestions"]],
+  // A started job appears as an activity row first. Its output arrives later,
+  // through the active-jobs feed that refreshes the numbers again then.
+  site_job_start: [["jobs"], ["sites"]],
+  article_analysis_start: [["jobs"], ["sites"], ["suggestions"]],
+  pipeline_batch_start: [["pipeline-batch"], ["jobs"], ["sites"], ["suggestions"]],
+  pipeline_retry: [["pipeline-batch"], ["jobs"], ["sites"], ["suggestions"]],
+  pipeline_cancel: [["pipeline-batch"], ["jobs"], ["sites"]],
+  site_create: [["sites"], ["jobs"], ["publish", "pending"]],
+  site_bulk_create: [["sites"], ["jobs"], ["publish", "pending"]],
+  alert_acknowledgement: [["alerts"]],
+  pool_source_action: [["sites"], ["pool-audit"], ["jobs"]],
+};
+
+/**
  * One staged bulk rule. The Confirm button is the only writer in the whole
  * panel, and it posts the staged payload verbatim to the audited endpoint —
  * the agent never executes anything it proposes.
@@ -311,12 +347,20 @@ function ProposalCard({
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<AgentProposalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const confirm = async () => {
     setConfirming(true);
     setError(null);
     try {
       setResult(await confirmProposal(proposal));
+      // Only after the write is acknowledged, and never awaited: the refetches
+      // it starts belong to the rest of the dashboard, so waiting for them
+      // would hold this button busy — and a failed refetch would then be
+      // reported as a failed confirmation, which it is not.
+      for (const queryKey of AFFECTED_QUERIES[proposal.kind] ?? []) {
+        void qc.invalidateQueries({ queryKey });
+      }
       onReaction?.("celebrate");
     } catch (cause) {
       onReaction?.("surprised");
