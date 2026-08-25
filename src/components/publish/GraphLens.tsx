@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 
 import type { GraphFeature, GraphNetwork, GraphNetworkEdge } from "../../types/graph";
 
-type NetworkFilter = "all" | "orphan" | "underlinked" | "hub" | "saturated";
-type NodeStatus = Exclude<NetworkFilter, "all"> | "connected";
+type NetworkFilter = "all" | "prepared" | "orphan" | "underlinked" | "hub" | "saturated";
+type NodeStatus = Exclude<NetworkFilter, "all" | "prepared"> | "connected";
 
 interface Props {
   data: GraphNetwork;
@@ -18,6 +18,7 @@ interface LayoutBand {
   count: number;
   rows: number;
   top: number;
+  center: Position;
 }
 
 interface LayoutResult {
@@ -36,6 +37,7 @@ const CLUSTER_GAP = 56;
 const BAND_PITCH = 26;
 const BAND_GAP = 72;
 const MAX_FORCE_LAYOUT_NODES = 400;
+const ISOLATED_GROUP_THRESHOLD = 12;
 
 const STATUS_LABEL: Record<NodeStatus, string> = {
   orphan: "Orphan",
@@ -91,8 +93,13 @@ const nodeStatus = (node: GraphFeature): NodeStatus => {
   return "connected";
 };
 
-const matchesFilter = (node: GraphFeature, filter: NetworkFilter) => {
+const matchesFilter = (
+  node: GraphFeature,
+  filter: NetworkFilter,
+  preparedNodeIds: Set<number>,
+) => {
   if (filter === "all") return true;
+  if (filter === "prepared") return preparedNodeIds.has(node.article_id);
   return node[filter];
 };
 
@@ -299,7 +306,15 @@ const layoutFullNodes = (nodes: GraphFeature[], edges: GraphNetworkEdge[]): Layo
         y: top + Math.floor(order / columns) * BAND_PITCH,
       });
     });
-    band = { count: isolated.length, rows, top };
+    band = {
+      count: isolated.length,
+      rows,
+      top,
+      center: {
+        x: NETWORK_WIDTH / 2,
+        y: top + ((rows - 1) * BAND_PITCH) / 2,
+      },
+    };
   }
 
   const bandBottom = band === null ? 0 : band.top + (band.rows - 1) * BAND_PITCH + MAP_PADDING;
@@ -379,7 +394,7 @@ function ResetZoomIcon() {
 
 function SignalLegend() {
   return (
-    <details className="mt-3 rounded-lg border border-hairline bg-canvas-soft px-3 py-2">
+    <details open className="mt-3 rounded-lg border border-hairline bg-canvas-soft px-3 py-2">
       <summary className="cursor-pointer text-caption font-medium text-ink">Map key</summary>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {LEGEND_STATUSES.map((status) => (
@@ -397,8 +412,9 @@ function SignalLegend() {
         ))}
       </div>
       <p className="mt-3 text-caption-sm text-muted">
-        Every square is a page. Lines show internal links; arrowheads show their direction. Linked
-        pages group into clusters. Pages with no internal link stay in the block below the clusters.
+        Every small marker is a page. Lines show internal links; arrowheads show their direction.
+        Linked pages group into clusters. Large groups of pages with no internal link are summarized
+        as one selectable marker below the clusters.
       </p>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption-sm text-muted">
         <span>
@@ -418,6 +434,8 @@ export default function GraphLens({ data }: Props) {
   const [filter, setFilter] = useState<NetworkFilter>("all");
   const [query, setQuery] = useState("");
   const [selectedArticleId, setSelectedArticleId] = useState<number | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<"isolated" | null>(null);
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
   const [showDirection, setShowDirection] = useState(true);
   const [zoom, setZoom] = useState(1);
 
@@ -444,6 +462,13 @@ export default function GraphLens({ data }: Props) {
     ];
   }, [data.edges, proposedEdges]);
   const visibleProposedEdges = visibleEdges.filter((edge) => edge.proposed);
+  const preparedNodeIds = useMemo(
+    () =>
+      new Set(
+        visibleProposedEdges.flatMap((edge) => [edge.source_article_id, edge.target_article_id]),
+      ),
+    [visibleProposedEdges],
+  );
   const layout = useMemo(() => layoutFullNodes(data.nodes, visibleEdges), [data.nodes, visibleEdges]);
   const selectedNode = selectedArticleId === null ? undefined : nodeById.get(selectedArticleId);
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -461,10 +486,64 @@ export default function GraphLens({ data }: Props) {
   const highlightNodeIds = useMemo(
     () =>
       new Set(
-        matchingNodes.filter((node) => matchesFilter(node, filter)).map((node) => node.article_id),
+        matchingNodes
+          .filter((node) => matchesFilter(node, filter, preparedNodeIds))
+          .map((node) => node.article_id),
       ),
-    [filter, matchingNodes],
+    [filter, matchingNodes, preparedNodeIds],
   );
+  const selectedConnections = useMemo(() => {
+    if (selectedArticleId === null) return { incoming: [], outgoing: [] };
+    const incoming = visibleEdges
+      .filter((edge) => edge.target_article_id === selectedArticleId)
+      .map((edge) => nodeById.get(edge.source_article_id))
+      .filter((node): node is GraphFeature => node !== undefined);
+    const outgoing = visibleEdges
+      .filter((edge) => edge.source_article_id === selectedArticleId)
+      .map((edge) => nodeById.get(edge.target_article_id))
+      .filter((node): node is GraphFeature => node !== undefined);
+    return { incoming, outgoing };
+  }, [nodeById, selectedArticleId, visibleEdges]);
+  const selectedNeighborIds = useMemo(
+    () =>
+      new Set(
+        [...selectedConnections.incoming, ...selectedConnections.outgoing].map(
+          (node) => node.article_id,
+        ),
+      ),
+    [selectedConnections],
+  );
+  const isolatedNodes = useMemo(
+    () => data.nodes.filter((node) => !layout.linked.has(node.article_id)),
+    [data.nodes, layout.linked],
+  );
+  const isolatedPreviewNodes = useMemo(
+    () =>
+      isolatedNodes
+        .slice()
+        .sort((left, right) => nodeDegree(right) - nodeDegree(left))
+        .slice(0, 8),
+    [isolatedNodes],
+  );
+  const groupIsolated =
+    layout.band !== null &&
+    layout.band.count >= ISOLATED_GROUP_THRESHOLD &&
+    normalizedQuery.length === 0;
+  const selectedProposedEdge = useMemo(
+    () =>
+      selectedEdgeKey === null
+        ? undefined
+        : proposedEdges.find(
+            (edge) => edgeKey(edge.source_article_id, edge.target_article_id) === selectedEdgeKey,
+          ),
+    [proposedEdges, selectedEdgeKey],
+  );
+  const selectedProposedSource = selectedProposedEdge
+    ? nodeById.get(selectedProposedEdge.source_article_id)
+    : undefined;
+  const selectedProposedTarget = selectedProposedEdge
+    ? nodeById.get(selectedProposedEdge.target_article_id)
+    : undefined;
   const labelIds = useMemo(() => {
     const ids = new Set<number>();
     const add = (articleId: number) => {
@@ -472,9 +551,10 @@ export default function GraphLens({ data }: Props) {
     };
 
     if (selectedArticleId !== null) add(selectedArticleId);
+    selectedNeighborIds.forEach(add);
     if (normalizedQuery.length > 0 || filter !== "all") {
       matchingNodes
-        .filter((node) => matchesFilter(node, filter))
+        .filter((node) => matchesFilter(node, filter, preparedNodeIds))
         .forEach((node) => add(node.article_id));
     } else {
       // A small cluster stays legible on a large site, so name those pages even
@@ -490,21 +570,9 @@ export default function GraphLens({ data }: Props) {
         .forEach((node) => add(node.article_id));
     }
     return ids;
-  }, [data.nodes, filter, layout.linked, matchingNodes, normalizedQuery, selectedArticleId]);
-  const selectedConnections = useMemo(() => {
-    if (selectedArticleId === null) return { incoming: [], outgoing: [] };
-    const incoming = visibleEdges
-      .filter((edge) => edge.target_article_id === selectedArticleId)
-      .map((edge) => nodeById.get(edge.source_article_id))
-      .filter((node): node is GraphFeature => node !== undefined);
-    const outgoing = visibleEdges
-      .filter((edge) => edge.source_article_id === selectedArticleId)
-      .map((edge) => nodeById.get(edge.target_article_id))
-      .filter((node): node is GraphFeature => node !== undefined);
-    return { incoming, outgoing };
-  }, [nodeById, selectedArticleId, visibleEdges]);
+  }, [data.nodes, filter, layout.linked, matchingNodes, normalizedQuery, preparedNodeIds, selectedArticleId, selectedNeighborIds]);
   const activeNode = (node: GraphFeature) =>
-    matchesFilter(node, filter) && matchesQuery(node, normalizedQuery);
+    matchesFilter(node, filter, preparedNodeIds) && matchesQuery(node, normalizedQuery);
   const focusEdge = (edge: GraphNetworkEdge) =>
     selectedArticleId !== null &&
     (edge.source_article_id === selectedArticleId || edge.target_article_id === selectedArticleId);
@@ -519,16 +587,29 @@ export default function GraphLens({ data }: Props) {
     const source = layout.positions.get(edge.source_article_id);
     const target = layout.positions.get(edge.target_article_id);
     if (!source || !target) return null;
+    const edgeId = edgeKey(edge.source_article_id, edge.target_article_id);
     const active = highlightedEdge(edge);
     const focused = focusEdge(edge);
+    const selected = selectedEdgeKey === edgeId;
     const sourceNode = nodeById.get(edge.source_article_id);
     const targetNode = nodeById.get(edge.target_article_id);
     const dimmed =
       (sourceNode ? !activeNode(sourceNode) : true) &&
       (targetNode ? !activeNode(targetNode) : true);
+    const edgeLabel =
+      (proposed ? "Prepared link: " : "Active link: ") +
+      (sourceNode?.article_title ?? "Unknown page") +
+      " to " +
+      (targetNode?.article_title ?? "Unknown page");
+    const selectEdge = () => {
+      if (!proposed) return;
+      setSelectedEdgeKey(edgeId);
+      setSelectedGroup(null);
+      setSelectedArticleId(edge.target_article_id);
+    };
     return (
       <line
-        key={edgeKey(edge.source_article_id, edge.target_article_id) + ":" + index}
+        key={edgeId + ":" + index}
         x1={source.x}
         y1={source.y}
         x2={target.x}
@@ -540,19 +621,59 @@ export default function GraphLens({ data }: Props) {
               ? "rgb(var(--c-primary))"
               : "rgb(var(--c-hairline-control))"
         }
-        strokeWidth={focused ? 2.2 : proposed ? 2 : active ? 1.5 : 1}
-        strokeOpacity={focused ? 0.95 : proposed ? 0.9 : dimmed ? 0.08 : active ? 0.7 : 0.45}
+        strokeWidth={selected ? 3.2 : focused ? 2.4 : proposed ? 2.2 : active ? 1.5 : 1}
+        strokeOpacity={
+          selected ? 1 : focused ? 0.98 : proposed ? 0.95 : dimmed ? 0.08 : active ? 0.7 : 0.45
+        }
         strokeDasharray={proposed ? "6 4" : undefined}
+        strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
+        role={proposed ? "button" : undefined}
+        tabIndex={proposed ? 0 : undefined}
+        aria-label={proposed ? edgeLabel : undefined}
+        className={proposed ? "cursor-pointer" : undefined}
+        onClick={proposed ? selectEdge : undefined}
+        onKeyDown={
+          proposed
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  selectEdge();
+                }
+              }
+            : undefined
+        }
         markerEnd={
           showDirection
-            ? focused || active
+            ? selected || focused || active
               ? "url(#graph-lens-arrow-active)"
               : "url(#graph-lens-arrow-muted)"
             : undefined
         }
       />
     );
+  };
+
+  const selectNode = (articleId: number) => {
+    setSelectedArticleId(articleId);
+    setSelectedGroup(null);
+    setSelectedEdgeKey(null);
+  };
+  const selectIsolatedGroup = () => {
+    setSelectedArticleId(null);
+    setSelectedGroup("isolated");
+    setSelectedEdgeKey(null);
+  };
+  const setNetworkFilter = (nextFilter: NetworkFilter) => {
+    setFilter(nextFilter);
+    setSelectedArticleId(null);
+    setSelectedGroup(null);
+    setSelectedEdgeKey(null);
+  };
+  const clearSelection = () => {
+    setSelectedArticleId(null);
+    setSelectedGroup(null);
+    setSelectedEdgeKey(null);
   };
 
   const mapSummary =
@@ -622,22 +743,32 @@ export default function GraphLens({ data }: Props) {
       )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Network health filters">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Network graph filters">
           <SignalButton
             active={filter === "all"}
             color="rgb(var(--c-primary))"
             count={data.article_count}
             description="The full site"
             label="All pages"
-            onClick={() => setFilter("all")}
+            onClick={() => setNetworkFilter("all")}
           />
+          {visibleProposedEdges.length > 0 && (
+            <SignalButton
+              active={filter === "prepared"}
+              color="rgb(var(--c-primary))"
+              count={visibleProposedEdges.length}
+              description="Prepared links and their neighboring pages"
+              label="Prepared"
+              onClick={() => setNetworkFilter("prepared")}
+            />
+          )}
           <SignalButton
             active={filter === "orphan"}
             color={STATUS_COLOR.orphan}
             count={data.orphan_count}
             description={STATUS_DESCRIPTION.orphan}
             label="Orphans"
-            onClick={() => setFilter("orphan")}
+            onClick={() => setNetworkFilter("orphan")}
           />
           <SignalButton
             active={filter === "underlinked"}
@@ -645,7 +776,7 @@ export default function GraphLens({ data }: Props) {
             count={data.underlinked_count}
             description={STATUS_DESCRIPTION.underlinked}
             label="Underlinked"
-            onClick={() => setFilter("underlinked")}
+            onClick={() => setNetworkFilter("underlinked")}
           />
           <SignalButton
             active={filter === "hub"}
@@ -653,7 +784,7 @@ export default function GraphLens({ data }: Props) {
             count={data.hub_count}
             description={STATUS_DESCRIPTION.hub}
             label="Hubs"
-            onClick={() => setFilter("hub")}
+            onClick={() => setNetworkFilter("hub")}
           />
           <SignalButton
             active={filter === "saturated"}
@@ -661,7 +792,7 @@ export default function GraphLens({ data }: Props) {
             count={data.saturated_count}
             description={STATUS_DESCRIPTION.saturated}
             label="Saturated"
-            onClick={() => setFilter("saturated")}
+            onClick={() => setNetworkFilter("saturated")}
           />
         </div>
 
@@ -689,7 +820,7 @@ export default function GraphLens({ data }: Props) {
               type="button"
               className="btn btn-outline btn-sm max-w-full truncate"
               title={node.article_title}
-              onClick={() => setSelectedArticleId(node.article_id)}
+              onClick={() => selectNode(node.article_id)}
             >
               {shortTitle(node.article_title)}
             </button>
@@ -749,7 +880,7 @@ export default function GraphLens({ data }: Props) {
             <svg
               role="group"
               aria-label="Full site network map"
-              className="block"
+              className={zoom === 1 ? "block h-auto w-full" : "block"}
               width={NETWORK_WIDTH * zoom}
               height={layout.height * zoom}
               viewBox={"0 0 " + NETWORK_WIDTH + " " + layout.height}
@@ -814,6 +945,67 @@ export default function GraphLens({ data }: Props) {
                 {visibleProposedEdges.map((edge, index) => renderEdge(edge, index, true))}
               </g>
 
+              {groupIsolated && filter !== "prepared" && layout.band && (
+                <g
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedGroup === "isolated"}
+                  aria-label={
+                    layout.band.count.toLocaleString() +
+                    " isolated pages. Open the page list to inspect them."
+                  }
+                  className="graph-group cursor-pointer"
+                  onClick={selectIsolatedGroup}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectIsolatedGroup();
+                    }
+                  }}
+                >
+                  <title>
+                    {layout.band.count.toLocaleString() +
+                      " isolated pages. Select to inspect their titles and structural signals."}
+                  </title>
+                  <rect
+                    className="graph-group-focus"
+                    x={layout.band.center.x - 105}
+                    y={layout.band.center.y - 21}
+                    width="210"
+                    height="42"
+                    rx="21"
+                    fill="none"
+                    stroke="rgb(var(--c-primary))"
+                    strokeWidth="2"
+                    opacity={selectedGroup === "isolated" ? 1 : 0}
+                    pointerEvents="none"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <rect
+                    x={layout.band.center.x - 98}
+                    y={layout.band.center.y - 14}
+                    width="196"
+                    height="28"
+                    rx="14"
+                    fill={filter === "orphan" ? STATUS_FILL.orphan : "rgb(var(--c-surface-strong))"}
+                    stroke={filter === "orphan" ? STATUS_COLOR.orphan : "rgb(var(--c-hairline-strong))"}
+                    strokeWidth="1.5"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <text
+                    x={layout.band.center.x}
+                    y={layout.band.center.y + 4}
+                    textAnchor="middle"
+                    fill="rgb(var(--c-ink))"
+                    fontSize="12"
+                    fontWeight="600"
+                    pointerEvents="none"
+                  >
+                    {layout.band.count.toLocaleString() + " isolated pages"}
+                  </text>
+                </g>
+              )}
+
               <g aria-label="Pages">
                 {data.nodes.map((node) => {
                   const position = layout.positions.get(node.article_id);
@@ -821,6 +1013,10 @@ export default function GraphLens({ data }: Props) {
                   const status = nodeStatus(node);
                   const matching = activeNode(node);
                   const selected = node.article_id === selectedArticleId;
+                  const neighbor = selectedNeighborIds.has(node.article_id);
+                  const hiddenByGroup =
+                    groupIsolated && !layout.linked.has(node.article_id) && !selected;
+                  if (hiddenByGroup) return null;
                   const size = clamp(7 + Math.log2(nodeDegree(node) + 1) * 1.8, 7, 15);
                   const showLabel = labelIds.has(node.article_id);
                   const labelOnRight = position.x < NETWORK_WIDTH - 250;
@@ -840,16 +1036,29 @@ export default function GraphLens({ data }: Props) {
                       aria-pressed={selected}
                       aria-label={node.article_title + ". " + detail}
                       className="graph-node cursor-pointer"
-                      opacity={matching ? 1 : 0.14}
-                      onClick={() => setSelectedArticleId(node.article_id)}
+                      opacity={selected || matching ? 1 : neighbor ? 0.82 : 0.14}
+                      onClick={() => selectNode(node.article_id)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          setSelectedArticleId(node.article_id);
+                          selectNode(node.article_id);
                         }
                       }}
                     >
                       <title>{node.article_title + " · " + detail}</title>
+                      {selected && (
+                        <circle
+                          cx={position.x}
+                          cy={position.y}
+                          r={size + 9}
+                          fill="none"
+                          stroke="rgb(var(--c-primary))"
+                          strokeWidth="1.5"
+                          opacity="0.34"
+                          pointerEvents="none"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      )}
                       <rect
                         className="graph-node-focus"
                         x={position.x - size - 7}
@@ -907,9 +1116,67 @@ export default function GraphLens({ data }: Props) {
 
         <aside
           aria-label="Selected page details"
-          className="rounded-xl border border-hairline bg-surface-card px-4 py-4"
+          className="self-start rounded-xl border border-hairline bg-surface-card px-4 py-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
         >
-          {selectedNode ? (
+          {selectedGroup === "isolated" ? (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="text-body-sm font-medium text-ink">Isolated pages</h4>
+                  <p className="mt-1 text-caption-sm text-muted">
+                    {isolatedNodes.length.toLocaleString()} pages have no active or prepared internal
+                    link.
+                  </p>
+                </div>
+                <button type="button" className="btn btn-outline btn-sm" onClick={clearSelection}>
+                  Clear
+                </button>
+              </div>
+              <div className="mt-4 divide-y divide-hairline rounded-lg border border-hairline">
+                {isolatedPreviewNodes.map((node) => (
+                  <button
+                    key={node.article_id}
+                    type="button"
+                    aria-label={
+                      node.article_title +
+                      ". " +
+                      node.in_degree +
+                      " incoming, " +
+                      node.out_degree +
+                      " outgoing, " +
+                      STATUS_LABEL[nodeStatus(node)]
+                    }
+                    className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors duration-feedback ease-settle first:rounded-t-lg last:rounded-b-lg hover:bg-surface-strong"
+                    onClick={() => selectNode(node.article_id)}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="mt-1.5 h-2.5 w-2.5 flex-none rounded-sm border"
+                      style={{
+                        backgroundColor: STATUS_FILL[nodeStatus(node)],
+                        borderColor: STATUS_COLOR[nodeStatus(node)],
+                      }}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-caption font-medium text-ink">
+                        {node.article_title}
+                      </span>
+                      <span className="mt-0.5 block text-caption-sm text-muted">
+                        · {node.in_degree} incoming · {node.out_degree} outgoing ·{" "}
+                        {STATUS_LABEL[nodeStatus(node)]}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {isolatedNodes.length > isolatedPreviewNodes.length && (
+                <p className="mt-3 text-caption-sm text-muted">
+                  Showing {isolatedPreviewNodes.length} of {isolatedNodes.length.toLocaleString()}.
+                  Use search to find a specific page.
+                </p>
+              )}
+            </>
+          ) : selectedNode ? (
             <>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -921,11 +1188,21 @@ export default function GraphLens({ data }: Props) {
                 <button
                   type="button"
                   className="btn btn-outline btn-sm"
-                  onClick={() => setSelectedArticleId(null)}
+                  onClick={clearSelection}
                 >
                   Clear
                 </button>
               </div>
+              {selectedProposedEdge && (
+                <div className="mt-3 rounded-lg border border-primary bg-tint-active px-3 py-3 text-caption-sm">
+                  <div className="font-medium text-ink">Prepared link selected</div>
+                  <p className="mt-1 leading-normal text-body">
+                    {selectedProposedSource?.article_title ?? "Unknown page"} →{" "}
+                    {selectedProposedTarget?.article_title ?? "Unknown page"}
+                  </p>
+                  <p className="mt-1 text-muted">This dashed link is prepared but not live yet.</p>
+                </div>
+              )}
               <div className="mt-3 inline-flex rounded-pill bg-surface-strong px-2.5 py-1 text-caption-sm font-medium text-ink">
                 {STATUS_LABEL[nodeStatus(selectedNode)]}
               </div>
@@ -946,14 +1223,31 @@ export default function GraphLens({ data }: Props) {
               <p className="mt-3 break-all text-caption-sm leading-normal text-muted">
                 {selectedNode.article_url}
               </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={selectedNode.article_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-primary btn-sm"
+                >
+                  Open page
+                </a>
+              </div>
               <div className="mt-4 space-y-3 text-caption-sm">
                 <div>
                   <div className="font-medium text-ink">Links to</div>
                   {selectedConnections.outgoing.length > 0 ? (
                     <ul className="mt-1 space-y-1 text-muted">
                       {selectedConnections.outgoing.slice(0, 4).map((node) => (
-                        <li key={node.article_id} className="truncate" title={node.article_title}>
+                        <li key={node.article_id}>
+                          <button
+                            type="button"
+                            className="block max-w-full truncate text-left hover:text-ink"
+                            title={node.article_title}
+                            onClick={() => selectNode(node.article_id)}
+                          >
                           {node.article_title}
+                          </button>
                         </li>
                       ))}
                       {selectedConnections.outgoing.length > 4 && (
@@ -969,8 +1263,15 @@ export default function GraphLens({ data }: Props) {
                   {selectedConnections.incoming.length > 0 ? (
                     <ul className="mt-1 space-y-1 text-muted">
                       {selectedConnections.incoming.slice(0, 4).map((node) => (
-                        <li key={node.article_id} className="truncate" title={node.article_title}>
+                        <li key={node.article_id}>
+                          <button
+                            type="button"
+                            className="block max-w-full truncate text-left hover:text-ink"
+                            title={node.article_title}
+                            onClick={() => selectNode(node.article_id)}
+                          >
                           {node.article_title}
+                          </button>
                         </li>
                       ))}
                       {selectedConnections.incoming.length > 4 && (
@@ -986,9 +1287,25 @@ export default function GraphLens({ data }: Props) {
           ) : (
             <>
               <h4 className="text-body-sm font-medium text-ink">Page details</h4>
-              <p className="mt-2 text-caption-sm leading-normal text-muted">
-                Select a square to inspect its structural signal, URL, and neighboring links.
-              </p>
+              {visibleProposedEdges.length > 0 ? (
+                <>
+                  <p className="mt-2 text-caption-sm leading-normal text-muted">
+                    Start with the prepared links, or select any page to inspect its structural
+                    signal, URL, and neighboring links.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm mt-4"
+                    onClick={() => setNetworkFilter("prepared")}
+                  >
+                    Focus prepared links
+                  </button>
+                </>
+              ) : (
+                <p className="mt-2 text-caption-sm leading-normal text-muted">
+                  Select a square to inspect its structural signal, URL, and neighboring links.
+                </p>
+              )}
             </>
           )}
         </aside>

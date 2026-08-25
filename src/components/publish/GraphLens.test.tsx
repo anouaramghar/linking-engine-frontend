@@ -132,6 +132,34 @@ describe("GraphLens", () => {
     ).toHaveLength(1);
   });
 
+  it("focuses prepared links and opens their relationship in the inspector", async () => {
+    const user = userEvent.setup();
+    render(
+      <GraphLens
+        data={{
+          ...DATA,
+          proposed_edges: [
+            {
+              suggestion_id: 99,
+              source_article_id: 2,
+              target_article_id: 5,
+              status: "new",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Prepared: 1/ }));
+    expect(screen.getByRole("button", { name: /Prepared: 1/ }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+
+    await user.click(screen.getByRole("button", { name: /Prepared link: Lost article to Popular article/ }));
+    expect(screen.getByText("Prepared link selected")).not.toBeNull();
+    expect(screen.getByText("Lost article → Popular article")).not.toBeNull();
+  });
+
   it("highlights a category, lets the editor inspect a page, and zooms the map", async () => {
     const user = userEvent.setup();
     render(<GraphLens data={DATA} />);
@@ -216,6 +244,26 @@ describe("GraphLens", () => {
       ),
     );
     expect(rows.size).toBeLessThanOrEqual(6);
+  });
+
+  it("summarizes a large isolated group and opens a short page list", async () => {
+    const user = userEvent.setup();
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
+      ...DATA.nodes[1],
+      article_id: index + 1,
+      article_title: "Isolated article " + (index + 1),
+      article_url: "https://example.com/isolated-" + (index + 1),
+    }));
+
+    render(<GraphLens data={{ ...DATA, nodes, edges: [], article_count: 13, edge_count: 0 }} />);
+
+    const group = screen.getByRole("button", { name: /13 isolated pages/ });
+    await user.click(group);
+    expect(screen.getByRole("heading", { name: "Isolated pages" })).not.toBeNull();
+    expect(screen.getByText("13 pages have no active or prepared internal link.")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Isolated article 1\. 0 incoming/ }),
+    ).not.toBeNull();
   });
 
   it("renders a dense network without pairwise relaxation freezing the review", () => {
