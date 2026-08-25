@@ -207,10 +207,15 @@ describe("GraphLens", () => {
     await user.keyboard("{Enter}");
     expect(lostNode.querySelector(".graph-node-focus")?.getAttribute("opacity")).toBe("1");
 
+    // Filtering for orphans flies the camera out to the isolated rim, so the
+    // readout is only back at the core frame once the reset is pressed.
+    await user.click(screen.getByRole("button", { name: "Reset zoom" }));
+    expect(screen.getByText("100%")).not.toBeNull();
+
     await user.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(screen.getByText("125%")).not.toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Reset zoom" }));
+    await user.click(screen.getByRole("button", { name: "Zoom out" }));
     expect(screen.getByText("100%")).not.toBeNull();
   });
 
@@ -227,7 +232,7 @@ describe("GraphLens", () => {
     expect(screen.getByText("No active outgoing links recorded.")).not.toBeNull();
   });
 
-  it("keeps a larger network bounded and deterministic", () => {
+  it("keeps a larger network on one frame instead of a growing canvas", () => {
     const nodes = Array.from({ length: 120 }, (_, index) => ({
       ...DATA.nodes[index % DATA.nodes.length],
       article_id: index + 1,
@@ -241,12 +246,18 @@ describe("GraphLens", () => {
     render(<GraphLens data={{ ...DATA, nodes, edges, article_count: 120, edge_count: 119 }} />);
 
     expect(screen.getAllByRole("button", { name: /Article \d+\. / })).toHaveLength(120);
-    expect(screen.getByRole("group", { name: "Full site network map" }).getAttribute("height")).toBe(
-      "869",
-    );
+
+    // The map is a camera over a fixed frame: a bigger site changes what the
+    // frame contains, never how tall the page is.
+    const map = screen.getByRole("group", { name: "Full site network map" });
+    expect(map.getAttribute("height")).toBeNull();
+    const viewBox = (map.getAttribute("viewBox") ?? "").split(" ").map(Number);
+    expect(viewBox).toHaveLength(4);
+    expect(viewBox.every((value) => Number.isFinite(value))).toBe(true);
+    expect(viewBox[2]).toBeGreaterThan(0);
   });
 
-  it("groups unlinked pages into a band instead of one flat lattice", () => {
+  it("scatters unlinked pages around the linked core instead of stacking a band", () => {
     const nodes = Array.from({ length: 51 }, (_, index) => ({
       ...DATA.nodes[1],
       article_id: index + 1,
@@ -258,22 +269,15 @@ describe("GraphLens", () => {
       <GraphLens data={{ ...DATA, nodes, edges, article_count: 51, edge_count: 1 }} />,
     );
 
-    expect(screen.getByText("49 pages with no internal link")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /49 isolated pages/ })).not.toBeNull();
+    expect(screen.getByText("49")).not.toBeNull();
 
-    // The band packs the unlinked pages; the map never grows to fill dead space.
-    const map = screen.getByRole("group", { name: "Full site network map" });
-    expect(Number(map.getAttribute("height"))).toBeLessThan(420);
-
-    const rows = new Set(
-      [
-        ...container.querySelectorAll(
-          "g[aria-label='Pages'] > g > rect:not(.graph-node-focus)",
-        ),
-      ].map((rect) =>
-        rect.getAttribute("y"),
-      ),
-    );
-    expect(rows.size).toBeLessThanOrEqual(6);
+    // Two pages link to each other; the other 49 ring them.
+    const halo = container.querySelector("g.graph-halo");
+    expect(halo?.querySelectorAll("g.graph-node")).toHaveLength(49);
+    expect(
+      container.querySelectorAll("g[aria-label='Pages'] g.graph-node"),
+    ).toHaveLength(2);
   });
 
   it("summarizes a large isolated group and opens a short page list", async () => {
@@ -311,6 +315,6 @@ describe("GraphLens", () => {
     render(<GraphLens data={{ ...DATA, nodes, edges, article_count: 401, edge_count: 400 }} />);
 
     expect(screen.getAllByRole("button", { name: /Dense article \d+\. / })).toHaveLength(401);
-    expect(screen.getByText("Dense map mode: use search, filters, and zoom to focus.")).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Full site network map" })).not.toBeNull();
   });
 });

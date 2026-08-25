@@ -1,6 +1,28 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { REDUCED_MOTION_QUERY } from "../../hooks/useTheme";
+import { placeMapLabels, truncateTitle, type LabelAnchor, type LabelCandidate } from "../../lib/siteMapLabels";
+import { layoutSiteMap, type MapPoint } from "../../lib/siteMapLayout";
 import type { GraphFeature, GraphNetwork, GraphNetworkEdge } from "../../types/graph";
+
+/**
+ * The site as one map: a linked core, and the pages that never reached it.
+ *
+ * The screen is a camera over a single composition rather than a diagram plus a
+ * summary band. Pages that carry an internal link — active or prepared — settle
+ * into the middle; pages that carry none are scattered around them and are, at
+ * the opening frame, just off the edge. Zooming out is what brings them in, so
+ * the size of the unlinked rim is something the editor *sees* on the way to it
+ * instead of a number they read in a caption.
+ *
+ * Two things are deliberately not React state, because both change per animation
+ * frame and neither changes what the DOM contains: the camera writes `viewBox`
+ * and the halo's reveal straight onto the SVG element (see `writeViewport`), and
+ * the map keeps its screen-constant weight through `vectorEffect` and
+ * zero-length stroked paths rather than through re-rendered geometry. React
+ * re-renders once per settled camera, not sixty times per second.
+ */
 
 type NetworkFilter = "all" | "prepared" | "orphan" | "underlinked" | "hub" | "saturated";
 type NodeStatus = Exclude<NetworkFilter, "all" | "prepared"> | "connected";
@@ -9,48 +31,35 @@ interface Props {
   data: GraphNetwork;
 }
 
-interface Position {
+/** Where the camera is: a world-space centre and how tight the frame is. */
+interface Viewport {
+  scale: number;
   x: number;
   y: number;
 }
 
-interface LabelPlacement extends Position {
-  textAnchor: "start" | "end";
-}
-
-interface LabelBox {
-  bottom: number;
-  left: number;
-  right: number;
-  top: number;
-}
-
-interface LayoutBand {
-  count: number;
-  rows: number;
-  top: number;
-  center: Position;
-}
-
-interface LayoutResult {
-  band: LayoutBand | null;
+interface FrameSize {
   height: number;
-  linked: Set<number>;
-  positions: Map<number, Position>;
+  width: number;
 }
 
-const NETWORK_WIDTH = 1280;
-const MAX_NETWORK_HEIGHT = 1200;
-const MAP_PADDING = 48;
-const MAX_MAP_LABELS = 18;
-const CLUSTER_NODE_SPACE = 34;
-const CLUSTER_GAP = 56;
-const BAND_PITCH = 26;
-const BAND_GAP = 72;
-const MAX_FORCE_LAYOUT_NODES = 400;
-const ISOLATED_GROUP_THRESHOLD = 12;
-const LABEL_VERTICAL_OFFSETS = [0, -18, 18, -36, 36, -54, 54];
-const LABEL_GAP = 8;
+/** jsdom reports no layout, and the map still has to be describable in tests. */
+const FALLBACK_FRAME: FrameSize = { height: 620, width: 980 };
+const MAX_SCALE = 6;
+const ZOOM_STEP = 1.25;
+/** Below this the map is a shape, not a reading surface: titles switch off. */
+const LABEL_MIN_SCALE = 0.8;
+const MAX_LABELS = 22;
+/**
+ * Above this many isolated pages the rim is drawn as one path of markers.
+ * Ten thousand focusable groups is not a keyboard surface anyone can use, and
+ * the pages stay reachable through search and the isolated-page list.
+ */
+const HALO_MARKER_LIMIT = 700;
+const TAB_LIMIT = 40;
+const CAMERA_MS = 460;
+/** The opening move: the whole site, then in to the core. */
+const INTRO_MS = 900;
 
 const STATUS_LABEL: Record<NodeStatus, string> = {
   orphan: "Orphan",
@@ -86,15 +95,15 @@ const STATUS_FILL: Record<NodeStatus, string> = {
 
 const LEGEND_STATUSES: NodeStatus[] = ["orphan", "underlinked", "hub", "saturated", "connected"];
 
+const clamp = (value: number, minimum: number, maximum: number) =>
+  Math.min(maximum, Math.max(minimum, value));
+
 const snapshotLabel = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Current graph snapshot";
   return (
     "Snapshot " +
-    new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date)
+    new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date)
   );
 };
 
@@ -106,11 +115,7 @@ const nodeStatus = (node: GraphFeature): NodeStatus => {
   return "connected";
 };
 
-const matchesFilter = (
-  node: GraphFeature,
-  filter: NetworkFilter,
-  preparedNodeIds: Set<number>,
-) => {
+const matchesFilter = (node: GraphFeature, filter: NetworkFilter, preparedNodeIds: Set<number>) => {
   if (filter === "all") return true;
   if (filter === "prepared") return preparedNodeIds.has(node.article_id);
   return node[filter];
@@ -121,221 +126,48 @@ const matchesQuery = (node: GraphFeature, normalizedQuery: string) =>
   node.article_title.toLocaleLowerCase().includes(normalizedQuery) ||
   node.article_url.toLocaleLowerCase().includes(normalizedQuery);
 
-const clamp = (value: number, minimum: number, maximum: number) =>
-  Math.min(maximum, Math.max(minimum, value));
-
-const seeded = (value: number) => {
-  const result = Math.sin(value * 12.9898 + 78.233) * 43758.5453;
-  return result - Math.floor(result);
-};
-
-const shortTitle = (title: string) => (title.length > 34 ? title.slice(0, 31) + "…" : title);
-
 const edgeKey = (sourceArticleId: number, targetArticleId: number) =>
   sourceArticleId + ":" + targetArticleId;
 
 const nodeDegree = (node: GraphFeature) => node.in_degree + node.out_degree;
 
 /**
- * Pages that link to each other become clusters; pages with no internal link
- * become a compact band below them. One shared lattice for every page made a
- * sparse site look like wallpaper instead of a network.
+ * A page marker is a zero-length stroked path, not a circle element.
+ *
+ * `stroke-linecap="round"` paints a dot of exactly the stroke width at the
+ * point, and `vector-effect="non-scaling-stroke"` holds that width in screen
+ * pixels at every zoom. So one attribute keeps every marker the same size
+ * whether the camera is framing eight pages or four thousand — without
+ * recomputing a single coordinate as the camera moves.
  */
-const connectedGroups = (nodes: GraphFeature[], edges: GraphNetworkEdge[]): number[][] => {
-  const indexById = new Map(nodes.map((node, index) => [node.article_id, index]));
-  const parent = nodes.map((_, index) => index);
-  const find = (index: number) => {
-    let root = index;
-    while (parent[root] !== root) root = parent[root];
-    let cursor = index;
-    while (parent[cursor] !== root) {
-      const next = parent[cursor];
-      parent[cursor] = root;
-      cursor = next;
-    }
-    return root;
+const markerPath = (point: MapPoint) => "M" + point.x + " " + point.y + "l0 0";
+
+const markerSize = (node: GraphFeature) => clamp(9 + Math.log2(nodeDegree(node) + 1) * 2.4, 9, 22);
+
+const HALO_MARKER_SIZE = 7;
+
+const frameSpan = (coreSpan: number, scale: number, aspect: number) => {
+  // The core disc must fit whichever screen axis is shorter, so the opening
+  // frame is the same promise on a phone and on a 27" display.
+  const shortSide = coreSpan / scale;
+  return aspect >= 1
+    ? { height: shortSide, width: shortSide * aspect }
+    : { height: shortSide / aspect, width: shortSide };
+};
+
+const projectPoint = (
+  point: MapPoint,
+  view: Viewport,
+  coreSpan: number,
+  aspect: number,
+  frame: FrameSize,
+) => {
+  const span = frameSpan(coreSpan, view.scale, aspect);
+  return {
+    x: ((point.x - (view.x - span.width / 2)) / span.width) * frame.width,
+    y: ((point.y - (view.y - span.height / 2)) / span.height) * frame.height,
   };
-
-  edges.forEach((edge) => {
-    const source = indexById.get(edge.source_article_id);
-    const target = indexById.get(edge.target_article_id);
-    if (source === undefined || target === undefined) return;
-    const sourceRoot = find(source);
-    const targetRoot = find(target);
-    if (sourceRoot !== targetRoot) parent[sourceRoot] = targetRoot;
-  });
-
-  const groups = new Map<number, number[]>();
-  nodes.forEach((_, index) => {
-    const root = find(index);
-    const group = groups.get(root);
-    if (group) group.push(index);
-    else groups.set(root, [index]);
-  });
-  return [...groups.values()].sort((left, right) => right.length - left.length);
 };
-
-/** Row packing gives each cluster its own disc, largest cluster first. */
-const packClusters = (sizes: number[]) => {
-  const usableWidth = NETWORK_WIDTH - MAP_PADDING * 2;
-  const radii = sizes.map((size) =>
-    clamp(Math.sqrt(size) * CLUSTER_NODE_SPACE, 46, usableWidth / 2),
-  );
-  const centers: Position[] = [];
-  let rowStart = 0;
-  let rowTop = MAP_PADDING;
-  let rowHeight = 0;
-  let cursorX = MAP_PADDING;
-
-  // Each finished row moves to the middle of the map, so one large cluster
-  // does not sit against the left edge with the rest of the width empty.
-  const centerRow = (endIndex: number, width: number) => {
-    const shift = (usableWidth - width) / 2;
-    for (let index = rowStart; index < endIndex; index += 1) centers[index].x += shift;
-  };
-
-  radii.forEach((radius) => {
-    const span = radius * 2 + CLUSTER_GAP;
-    if (cursorX > MAP_PADDING && cursorX - MAP_PADDING + span > usableWidth) {
-      centerRow(centers.length, cursorX - MAP_PADDING - CLUSTER_GAP);
-      rowStart = centers.length;
-      rowTop += rowHeight;
-      rowHeight = 0;
-      cursorX = MAP_PADDING;
-    }
-    centers.push({ x: cursorX + radius, y: rowTop + radius });
-    cursorX += span;
-    rowHeight = Math.max(rowHeight, span);
-  });
-  centerRow(centers.length, cursorX - MAP_PADDING - CLUSTER_GAP);
-
-  return { centers, height: rowTop + rowHeight - CLUSTER_GAP / 2 + MAP_PADDING, radii };
-};
-
-const layoutFullNodes = (nodes: GraphFeature[], edges: GraphNetworkEdge[]): LayoutResult => {
-  const positions = new Map<number, Position>();
-  const linked = new Set<number>();
-  if (nodes.length === 0) return { band: null, height: 320, linked, positions };
-
-  const groups = connectedGroups(nodes, edges);
-  const clusters = groups.filter((group) => group.length > 1);
-  const isolated = groups.filter((group) => group.length === 1).map((group) => group[0]);
-
-  // Clusters get a golden-angle seed, then a short relaxation pass for topology.
-  const pack = packClusters(clusters.map((cluster) => cluster.length));
-  const clusterHeight = clusters.length > 0 ? Math.min(pack.height, MAX_NETWORK_HEIGHT) : 0;
-  const clusterNodes: { center: Position; index: number; point: Position }[] = [];
-
-  clusters.forEach((cluster, clusterIndex) => {
-    const center = pack.centers[clusterIndex];
-    const radius = pack.radii[clusterIndex];
-    cluster.forEach((nodeIndex, memberIndex) => {
-      const angle = memberIndex * 2.399963 + seeded(nodes[nodeIndex].article_id) * 0.6;
-      const spread = Math.sqrt((memberIndex + 0.55) / cluster.length) * radius;
-      clusterNodes.push({
-        center,
-        index: nodeIndex,
-        point: {
-          x: clamp(center.x + Math.cos(angle) * spread, MAP_PADDING, NETWORK_WIDTH - MAP_PADDING),
-          y: clamp(center.y + Math.sin(angle) * spread, MAP_PADDING, clusterHeight - MAP_PADDING),
-        },
-      });
-    });
-  });
-
-  const clusterCount = clusterNodes.length;
-  const orderByIndex = new Map(clusterNodes.map(({ index }, order) => [index, order]));
-  const indexById = new Map(nodes.map((node, index) => [node.article_id, index]));
-  const springs = edges.flatMap((edge) => {
-    const source = orderByIndex.get(indexById.get(edge.source_article_id) ?? -1);
-    const target = orderByIndex.get(indexById.get(edge.target_article_id) ?? -1);
-    return source === undefined || target === undefined ? [] : [[source, target] as const];
-  });
-  // Pairwise repulsion is O(n²). A deterministic cluster seed is preferable
-  // to freezing the publication review on a large site, and still keeps every
-  // page and link visible for search/filter inspection.
-  const iterations = clusterCount > MAX_FORCE_LAYOUT_NODES ? 0 : 22;
-
-  for (let iteration = 0; iteration < iterations && clusterCount > 1; iteration += 1) {
-    const forceX = new Float64Array(clusterCount);
-    const forceY = new Float64Array(clusterCount);
-
-    for (let sourceIndex = 0; sourceIndex < clusterCount; sourceIndex += 1) {
-      for (let targetIndex = sourceIndex + 1; targetIndex < clusterCount; targetIndex += 1) {
-        const source = clusterNodes[sourceIndex].point;
-        const target = clusterNodes[targetIndex].point;
-        const differenceX = source.x - target.x;
-        const differenceY = source.y - target.y;
-        const distance = Math.max(Math.hypot(differenceX, differenceY), 0.001);
-        const repulsion = Math.min(4.2, 5400 / (distance * distance));
-        const pushX = (differenceX / distance) * repulsion;
-        const pushY = (differenceY / distance) * repulsion;
-        forceX[sourceIndex] += pushX;
-        forceY[sourceIndex] += pushY;
-        forceX[targetIndex] -= pushX;
-        forceY[targetIndex] -= pushY;
-      }
-    }
-
-    springs.forEach(([sourceIndex, targetIndex]) => {
-      const source = clusterNodes[sourceIndex].point;
-      const target = clusterNodes[targetIndex].point;
-      const differenceX = target.x - source.x;
-      const differenceY = target.y - source.y;
-      const distance = Math.max(Math.hypot(differenceX, differenceY), 0.001);
-      const attraction = clamp((distance - 74) * 0.008, -1.8, 2.2);
-      const pullX = (differenceX / distance) * attraction;
-      const pullY = (differenceY / distance) * attraction;
-      forceX[sourceIndex] += pullX;
-      forceY[sourceIndex] += pullY;
-      forceX[targetIndex] -= pullX;
-      forceY[targetIndex] -= pullY;
-    });
-
-    clusterNodes.forEach(({ center, point }, index) => {
-      const gravity = 0.006 + iteration * 0.0004;
-      forceX[index] += (center.x - point.x) * gravity;
-      forceY[index] += (center.y - point.y) * gravity;
-      point.x = clamp(point.x + forceX[index] * 0.72, MAP_PADDING, NETWORK_WIDTH - MAP_PADDING);
-      point.y = clamp(point.y + forceY[index] * 0.72, MAP_PADDING, clusterHeight - MAP_PADDING);
-    });
-  }
-
-  clusterNodes.forEach(({ index, point }) => {
-    positions.set(nodes[index].article_id, point);
-    linked.add(nodes[index].article_id);
-  });
-
-  // Unlinked pages sit in one tidy block, so the map never invents a topology.
-  let band: LayoutBand | null = null;
-  if (isolated.length > 0) {
-    const maxColumns = Math.floor((NETWORK_WIDTH - MAP_PADDING * 2) / BAND_PITCH);
-    const columns = clamp(Math.round(Math.sqrt(isolated.length * 4)), 1, maxColumns);
-    const rows = Math.ceil(isolated.length / columns);
-    const top = clusterHeight > 0 ? clusterHeight + BAND_GAP : MAP_PADDING + 24;
-    isolated.forEach((nodeIndex, order) => {
-      positions.set(nodes[nodeIndex].article_id, {
-        x: MAP_PADDING + (order % columns) * BAND_PITCH,
-        y: top + Math.floor(order / columns) * BAND_PITCH,
-      });
-    });
-    band = {
-      count: isolated.length,
-      rows,
-      top,
-      center: {
-        x: NETWORK_WIDTH / 2,
-        y: top + ((rows - 1) * BAND_PITCH) / 2,
-      },
-    };
-  }
-
-  const bandBottom = band === null ? 0 : band.top + (band.rows - 1) * BAND_PITCH + MAP_PADDING;
-  const height = clamp(Math.round(Math.max(clusterHeight, bandBottom)), 260, MAX_NETWORK_HEIGHT);
-
-  return { band, height, linked, positions };
-};
-
 
 function SignalButton({
   active,
@@ -359,7 +191,7 @@ function SignalButton({
       aria-label={label + ": " + count + ". " + description}
       onClick={onClick}
       className={
-        "inline-flex min-h-10 items-center gap-2 rounded-pill border px-3 py-2 text-left transition-[background-color,border-color,box-shadow] duration-state ease-settle " +
+        "inline-flex min-h-9 items-center gap-2 rounded-pill border px-3 py-1.5 text-left transition-[background-color,border-color,box-shadow] duration-state ease-settle " +
         (active
           ? "border-ink bg-surface-card shadow-soft"
           : "border-hairline bg-canvas-soft hover:border-hairline-strong hover:bg-surface-card")
@@ -370,8 +202,8 @@ function SignalButton({
         className="h-2 w-2 flex-none rounded-full"
         style={{ backgroundColor: color }}
       />
-      <span className="text-caption font-medium text-ink">{label}</span>
-      <span className="text-body-sm tabular-nums text-muted">{count.toLocaleString()}</span>
+      <span className="text-caption-sm font-medium text-ink">{label}</span>
+      <span className="text-caption-sm tabular-nums text-muted">{count.toLocaleString()}</span>
     </button>
   );
 }
@@ -405,51 +237,290 @@ function ResetZoomIcon() {
   );
 }
 
-function SignalLegend() {
+function FitIcon() {
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-hairline bg-canvas-soft">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2">
-        <span className="text-caption font-medium text-ink">Map key</span>
-        {LEGEND_STATUSES.map((status) => (
-          <span key={status} className="inline-flex items-center gap-2 text-caption-sm text-muted">
-            <span
-              aria-hidden="true"
-              className="h-2.5 w-2.5 flex-none rounded-sm border"
-              style={{ backgroundColor: STATUS_FILL[status], borderColor: STATUS_COLOR[status] }}
-            />
-            {STATUS_LABEL[status]}
-          </span>
-        ))}
-        <span className="inline-flex items-center text-caption-sm text-muted">
-          <span className="mr-1 inline-block w-6 border-t border-hairline-control align-middle" />
-          Active line
-        </span>
-        <span className="inline-flex items-center text-caption-sm text-muted">
-          <span className="mr-1 inline-block w-6 border-t-2 border-dashed border-primary align-middle" />
-          Prepared line
-        </span>
-      </div>
-      <details className="border-t border-hairline px-3 py-2">
-        <summary className="cursor-pointer text-caption-sm font-medium text-ink">
-          How to read the map
-        </summary>
-        <p className="mt-2 text-caption-sm leading-normal text-muted">
-          Every small marker is a page. Lines show internal links; arrowheads show their direction.
-          Linked pages group into clusters. Large groups of pages with no internal link are
-          summarized as one selectable marker below the clusters.
-        </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {LEGEND_STATUSES.map((status) => (
-            <div key={status} className="text-caption-sm text-muted">
-              <span className="font-medium text-ink">{STATUS_LABEL[status]}:</span>{" "}
-              {STATUS_DESCRIPTION[status]}
-            </div>
-          ))}
-        </div>
-      </details>
-    </div>
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 9V4h5" />
+      <path d="M20 9V4h-5" />
+      <path d="M4 15v5h5" />
+      <path d="M20 15v5h-5" />
+    </svg>
   );
 }
+
+/**
+ * The link layer. Split from the page layer so a hover — which only moves a
+ * title — never reconciles a few thousand line elements.
+ */
+const MapEdges = memo(function MapEdges({
+  activeIds,
+  edges,
+  nodeById,
+  onSelectEdge,
+  positions,
+  preparedEdges,
+  selectedArticleId,
+  selectedEdgeKey,
+  showDirection,
+}: {
+  activeIds: Set<number>;
+  edges: GraphNetworkEdge[];
+  nodeById: Map<number, GraphFeature>;
+  onSelectEdge: (edge: GraphNetworkEdge) => void;
+  positions: Map<number, MapPoint>;
+  preparedEdges: GraphNetworkEdge[];
+  selectedArticleId: number | null;
+  selectedEdgeKey: string | null;
+  showDirection: boolean;
+}) {
+  const renderEdge = (edge: GraphNetworkEdge, index: number, prepared: boolean) => {
+    const source = positions.get(edge.source_article_id);
+    const target = positions.get(edge.target_article_id);
+    if (!source || !target) return null;
+
+    const edgeId = edgeKey(edge.source_article_id, edge.target_article_id);
+    const focused =
+      selectedArticleId !== null &&
+      (edge.source_article_id === selectedArticleId || edge.target_article_id === selectedArticleId);
+    const selected = selectedEdgeKey === edgeId;
+    const live =
+      activeIds.has(edge.source_article_id) || activeIds.has(edge.target_article_id);
+    const sourceNode = nodeById.get(edge.source_article_id);
+    const targetNode = nodeById.get(edge.target_article_id);
+    // A marker paints with its own fill, so it would not dim with the line it
+    // caps: a receded link would keep a solid arrowhead speckling the map.
+    const markerEnd =
+      showDirection && (live || focused || selected || prepared)
+        ? selected || focused
+          ? "url(#graph-lens-arrow-active)"
+          : "url(#graph-lens-arrow-muted)"
+        : undefined;
+
+    const line = (
+      <line
+        key={edgeId + ":" + index}
+        className={prepared ? "graph-edge-visible graph-edge-prepared" : undefined}
+        x1={source.x}
+        y1={source.y}
+        x2={target.x}
+        y2={target.y}
+        stroke={focused || prepared ? "rgb(var(--c-primary))" : "rgb(var(--c-hairline-control))"}
+        strokeWidth={selected ? 3 : focused ? 2.2 : prepared ? 2 : 1.1}
+        strokeOpacity={selected ? 1 : focused ? 0.96 : prepared ? 0.92 : live ? 0.5 : 0.1}
+        strokeDasharray={prepared ? "6 4" : undefined}
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        pointerEvents="none"
+        markerEnd={markerEnd}
+      />
+    );
+
+    if (!prepared) return line;
+
+    const edgeLabel =
+      "Prepared link: " +
+      (sourceNode?.article_title ?? "Unknown page") +
+      " to " +
+      (targetNode?.article_title ?? "Unknown page");
+
+    return (
+      <g
+        key={edgeId + ":" + index}
+        role="button"
+        tabIndex={0}
+        aria-label={edgeLabel}
+        className="graph-edge-hit cursor-pointer"
+        onClick={() => onSelectEdge(edge)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelectEdge(edge);
+          }
+        }}
+      >
+        <line
+          className="graph-edge-hit-target"
+          x1={source.x}
+          y1={source.y}
+          x2={target.x}
+          y2={target.y}
+          stroke="transparent"
+          strokeWidth="18"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+          pointerEvents="stroke"
+        />
+        <line
+          className="graph-edge-focus"
+          x1={source.x}
+          y1={source.y}
+          x2={target.x}
+          y2={target.y}
+          stroke="rgb(var(--c-primary))"
+          strokeWidth="12"
+          strokeOpacity={selected ? 0.18 : 0}
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+          pointerEvents="none"
+        />
+        {line}
+      </g>
+    );
+  };
+
+  return (
+    <>
+      <g role="group" aria-label="Internal links">
+        {edges.map((edge, index) => renderEdge(edge, index, false))}
+      </g>
+      <g role="group" aria-label="Prepared internal links">
+        {preparedEdges.map((edge, index) => renderEdge(edge, index, true))}
+      </g>
+    </>
+  );
+});
+
+/**
+ * The page layer, in two instances: the core and the halo. Both draw the same
+ * marker; only the size and the default weight differ, because an isolated page
+ * has no degree to express.
+ */
+const MapNodes = memo(function MapNodes({
+  activeIds,
+  ids,
+  neighborIds,
+  nodeById,
+  onSelect,
+  positions,
+  selectedArticleId,
+  tabbableIds,
+  variant,
+}: {
+  activeIds: Set<number>;
+  ids: number[];
+  neighborIds: Set<number>;
+  nodeById: Map<number, GraphFeature>;
+  onSelect: (articleId: number) => void;
+  positions: Map<number, MapPoint>;
+  selectedArticleId: number | null;
+  tabbableIds: Set<number>;
+  variant: "core" | "halo";
+}) {
+  return (
+    <>
+      {ids.map((articleId) => {
+        const node = nodeById.get(articleId);
+        const position = positions.get(articleId);
+        if (!node || !position) return null;
+
+        const status = nodeStatus(node);
+        const selected = articleId === selectedArticleId;
+        const active = activeIds.has(articleId);
+        const neighbor = neighborIds.has(articleId);
+        const size = variant === "core" ? markerSize(node) : HALO_MARKER_SIZE;
+        const path = markerPath(position);
+        const detail =
+          STATUS_LABEL[status] +
+          ". " +
+          node.in_degree +
+          " incoming and " +
+          node.out_degree +
+          " outgoing links.";
+
+        return (
+          <g
+            key={articleId}
+            data-article-id={articleId}
+            role="button"
+            tabIndex={tabbableIds.has(articleId) || selected ? 0 : -1}
+            aria-pressed={selected}
+            aria-label={node.article_title + ". " + detail}
+            className="graph-node cursor-pointer"
+            opacity={selected || active ? 1 : neighbor ? 0.8 : 0.12}
+            onClick={() => onSelect(articleId)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect(articleId);
+              }
+            }}
+          >
+            <title>{node.article_title + " · " + detail}</title>
+            <path
+              className="graph-node-focus"
+              d={path}
+              stroke="rgb(var(--c-primary))"
+              strokeWidth={size + 16}
+              strokeLinecap="round"
+              strokeOpacity="0.14"
+              opacity={selected ? 1 : 0}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />
+            {/* Stacked strokes, widest first: the selected page keeps its own
+                status colour and gains an ink edge around it, rather than being
+                buried under a coloured blob. */}
+            {selected && (
+              <path
+                d={path}
+                stroke="rgb(var(--c-primary))"
+                strokeWidth={size + 6}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+                pointerEvents="none"
+              />
+            )}
+            <path
+              d={path}
+              stroke={STATUS_COLOR[status]}
+              strokeWidth={size}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />
+            <path
+              d={path}
+              stroke={STATUS_FILL[status]}
+              strokeWidth={Math.max(size - 3, 2)}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />
+            <path
+              className="graph-node-hit"
+              d={path}
+              stroke="transparent"
+              strokeWidth={Math.max(size + 12, 20)}
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="stroke"
+            />
+            {/* A stroked point has no width or height of its own, so the group
+                would measure as a zero-size box — invisible to anything that
+                asks the DOM where this page is. This gives it an extent. */}
+            <rect
+              x={position.x - size / 2}
+              y={position.y - size / 2}
+              width={size}
+              height={size}
+              fill="transparent"
+              pointerEvents="none"
+            />
+          </g>
+        );
+      })}
+    </>
+  );
+});
 
 function ConnectionList({
   emptyLabel,
@@ -494,8 +565,22 @@ export default function GraphLens({ data }: Props) {
   const [selectedArticleId, setSelectedArticleId] = useState<number | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<"isolated" | null>(null);
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
+  const [hoveredArticleId, setHoveredArticleId] = useState<number | null>(null);
   const [showDirection, setShowDirection] = useState(true);
-  const [zoom, setZoom] = useState(1);
+  const [showNames, setShowNames] = useState(true);
+  const [viewport, setViewport] = useState<Viewport>({ scale: 1, x: 0, y: 0 });
+  const [frame, setFrame] = useState<FrameSize>(FALLBACK_FRAME);
+
+  const frameElementRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  /** What the camera is showing right now, mid-flight included. */
+  const shownRef = useRef<Viewport>({ scale: 1, x: 0, y: 0 });
+  const animationRef = useRef(0);
+  const mountedRef = useRef(false);
+  const dragRef = useRef<{ moved: boolean; origin: Viewport; pointerId: number; x: number; y: number } | null>(null);
+  const geometryRef = useRef({ aspect: 1, coreSpan: 1 });
+
+  const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
 
   const nodeById = useMemo(
     () => new Map(data.nodes.map((node) => [node.article_id, node])),
@@ -505,21 +590,24 @@ export default function GraphLens({ data }: Props) {
     () => (data.proposed_edges ?? []).filter((edge) => edge.status === "new"),
     [data.proposed_edges],
   );
-  const visibleEdges = useMemo(() => {
-    const activeEdgeKeys = new Set(data.edges.map((edge) => edgeKey(edge.source_article_id, edge.target_article_id)));
-    const uniqueProposed = proposedEdges.filter(
-      (edge) => !activeEdgeKeys.has(edgeKey(edge.source_article_id, edge.target_article_id)),
+  const visibleProposedEdges = useMemo(() => {
+    const activeEdgeKeys = new Set(
+      data.edges.map((edge) => edgeKey(edge.source_article_id, edge.target_article_id)),
     );
-    return [
-      ...data.edges,
-      ...uniqueProposed.map((edge) => ({
+    return proposedEdges
+      .filter((edge) => !activeEdgeKeys.has(edgeKey(edge.source_article_id, edge.target_article_id)))
+      .map((edge) => ({
         source_article_id: edge.source_article_id,
         target_article_id: edge.target_article_id,
         proposed: true,
-      })),
-    ];
+      }));
   }, [data.edges, proposedEdges]);
-  const visibleProposedEdges = visibleEdges.filter((edge) => edge.proposed);
+  const layoutEdges = useMemo(
+    () => [...data.edges, ...visibleProposedEdges],
+    [data.edges, visibleProposedEdges],
+  );
+  const layout = useMemo(() => layoutSiteMap(data.nodes, layoutEdges), [data.nodes, layoutEdges]);
+
   const effectiveFilter: NetworkFilter =
     filter === "prepared" && visibleProposedEdges.length === 0 ? "all" : filter;
   const preparedNodeIds = useMemo(
@@ -529,8 +617,7 @@ export default function GraphLens({ data }: Props) {
       ),
     [visibleProposedEdges],
   );
-  const layout = useMemo(() => layoutFullNodes(data.nodes, visibleEdges), [data.nodes, visibleEdges]);
-  const selectedNode = selectedArticleId === null ? undefined : nodeById.get(selectedArticleId);
+
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchingNodes = useMemo(
     () =>
@@ -539,45 +626,49 @@ export default function GraphLens({ data }: Props) {
         .sort((left, right) => nodeDegree(right) - nodeDegree(left)),
     [data.nodes, normalizedQuery],
   );
-  const matchingNodeIds = useMemo(
-    () => new Set(matchingNodes.map((node) => node.article_id)),
-    [matchingNodes],
-  );
-  const highlightNodeIds = useMemo(
+  const activeIds = useMemo(
     () =>
       new Set(
-        matchingNodes
-          .filter((node) => matchesFilter(node, effectiveFilter, preparedNodeIds))
+        data.nodes
+          .filter(
+            (node) =>
+              matchesFilter(node, effectiveFilter, preparedNodeIds) &&
+              matchesQuery(node, normalizedQuery),
+          )
           .map((node) => node.article_id),
       ),
-    [effectiveFilter, matchingNodes, preparedNodeIds],
+    [data.nodes, effectiveFilter, normalizedQuery, preparedNodeIds],
   );
+  const selectedNode = selectedArticleId === null ? undefined : nodeById.get(selectedArticleId);
+
   const selectedConnections = useMemo(() => {
     if (selectedArticleId === null) {
-      return {
-        activeIncoming: [],
-        activeOutgoing: [],
-        preparedIncoming: [],
-        preparedOutgoing: [],
-      };
+      return { activeIncoming: [], activeOutgoing: [], preparedIncoming: [], preparedOutgoing: [] };
     }
-    const activeIncoming = data.edges
-      .filter((edge) => edge.target_article_id === selectedArticleId)
-      .map((edge) => nodeById.get(edge.source_article_id))
-      .filter((node): node is GraphFeature => node !== undefined);
-    const activeOutgoing = data.edges
-      .filter((edge) => edge.source_article_id === selectedArticleId)
-      .map((edge) => nodeById.get(edge.target_article_id))
-      .filter((node): node is GraphFeature => node !== undefined);
-    const preparedIncoming = visibleProposedEdges
-      .filter((edge) => edge.target_article_id === selectedArticleId)
-      .map((edge) => nodeById.get(edge.source_article_id))
-      .filter((node): node is GraphFeature => node !== undefined);
-    const preparedOutgoing = visibleProposedEdges
-      .filter((edge) => edge.source_article_id === selectedArticleId)
-      .map((edge) => nodeById.get(edge.target_article_id))
-      .filter((node): node is GraphFeature => node !== undefined);
-    return { activeIncoming, activeOutgoing, preparedIncoming, preparedOutgoing };
+    const resolve = (ids: number[]) =>
+      ids.map((id) => nodeById.get(id)).filter((node): node is GraphFeature => node !== undefined);
+    return {
+      activeIncoming: resolve(
+        data.edges
+          .filter((edge) => edge.target_article_id === selectedArticleId)
+          .map((edge) => edge.source_article_id),
+      ),
+      activeOutgoing: resolve(
+        data.edges
+          .filter((edge) => edge.source_article_id === selectedArticleId)
+          .map((edge) => edge.target_article_id),
+      ),
+      preparedIncoming: resolve(
+        visibleProposedEdges
+          .filter((edge) => edge.target_article_id === selectedArticleId)
+          .map((edge) => edge.source_article_id),
+      ),
+      preparedOutgoing: resolve(
+        visibleProposedEdges
+          .filter((edge) => edge.source_article_id === selectedArticleId)
+          .map((edge) => edge.target_article_id),
+      ),
+    };
   }, [data.edges, nodeById, selectedArticleId, visibleProposedEdges]);
   const selectedNeighborIds = useMemo(
     () =>
@@ -591,9 +682,18 @@ export default function GraphLens({ data }: Props) {
       ),
     [selectedConnections],
   );
+
+  const coreIdList = useMemo(
+    () => data.nodes.filter((node) => layout.coreIds.has(node.article_id)).map((node) => node.article_id),
+    [data.nodes, layout.coreIds],
+  );
   const isolatedNodes = useMemo(
-    () => data.nodes.filter((node) => !layout.linked.has(node.article_id)),
-    [data.nodes, layout.linked],
+    () => data.nodes.filter((node) => layout.haloIds.has(node.article_id)),
+    [data.nodes, layout.haloIds],
+  );
+  const haloIdList = useMemo(
+    () => isolatedNodes.map((node) => node.article_id),
+    [isolatedNodes],
   );
   const isolatedPreviewNodes = useMemo(
     () =>
@@ -603,10 +703,433 @@ export default function GraphLens({ data }: Props) {
         .slice(0, 8),
     [isolatedNodes],
   );
-  const groupIsolated =
-    layout.band !== null &&
-    layout.band.count >= ISOLATED_GROUP_THRESHOLD &&
-    normalizedQuery.length === 0;
+  const denseHalo = haloIdList.length > HALO_MARKER_LIMIT;
+  const denseHaloPath = useMemo(
+    () =>
+      denseHalo
+        ? haloIdList
+            .map((articleId) => layout.positions.get(articleId))
+            .filter((point): point is MapPoint => point !== undefined)
+            .map(markerPath)
+            .join("")
+        : "",
+    [denseHalo, haloIdList, layout.positions],
+  );
+
+  const tabbableIds = useMemo(() => {
+    const focused =
+      normalizedQuery.length > 0 || effectiveFilter !== "all"
+        ? matchingNodes.filter((node) => matchesFilter(node, effectiveFilter, preparedNodeIds))
+        : data.nodes
+            .filter((node) => layout.coreIds.has(node.article_id))
+            .sort((left, right) => nodeDegree(right) - nodeDegree(left));
+    return new Set(focused.slice(0, TAB_LIMIT).map((node) => node.article_id));
+  }, [data.nodes, effectiveFilter, layout.coreIds, matchingNodes, normalizedQuery, preparedNodeIds]);
+
+  // ---------------------------------------------------------------- camera
+  const aspect = frame.height > 0 ? frame.width / frame.height : FALLBACK_FRAME.width / FALLBACK_FRAME.height;
+  const coreSpan = layout.focusRadius * 2;
+  const worldSpan = layout.worldRadius * 2;
+  const fitScale = clamp(coreSpan / worldSpan, 0.04, 1);
+  const minScale = Math.min(fitScale, 1);
+  /** The zoom at which the isolated rim is fully lit. */
+  const haloFullScale = clamp(fitScale * 1.3, 0.12, 0.92);
+
+  const haloRevealAt = useCallback(
+    (scale: number) => {
+      if (layout.coreIds.size === 0 || layout.haloIds.size === 0) return 1;
+      const span = Math.max(1 - haloFullScale, 0.08);
+      // Never fully dark: a trace of the rim at the opening frame is the
+      // invitation to go looking for it.
+      return clamp((1 - scale) / span, 0.09, 1);
+    },
+    [haloFullScale, layout.coreIds.size, layout.haloIds.size],
+  );
+
+  const writeViewport = useCallback(
+    (view: Viewport) => {
+      const svg = svgRef.current;
+      if (!svg) return;
+      const span = frameSpan(geometryRef.current.coreSpan, view.scale, geometryRef.current.aspect);
+      svg.setAttribute(
+        "viewBox",
+        view.x - span.width / 2 + " " + (view.y - span.height / 2) + " " + span.width + " " + span.height,
+      );
+      svg.style.setProperty("--graph-halo", haloRevealAt(view.scale).toFixed(3));
+    },
+    [haloRevealAt],
+  );
+
+  const moveCamera = useCallback(
+    (target: Viewport, duration: number) => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      const from = shownRef.current;
+      const element = frameElementRef.current;
+      if (duration <= 0 || reducedMotion || typeof requestAnimationFrame === "undefined") {
+        shownRef.current = target;
+        writeViewport(target);
+        return;
+      }
+
+      const start = performance.now();
+      element?.classList.add("is-moving");
+      const step = (now: number) => {
+        const progress = clamp((now - start) / duration, 0, 1);
+        // Exponential ease-out, the system's `ease-settle`: the camera
+        // decelerates into place and never overshoots.
+        const eased = progress >= 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+        shownRef.current = {
+          x: from.x + (target.x - from.x) * eased,
+          y: from.y + (target.y - from.y) * eased,
+          // Zoom interpolates geometrically, so a 4× move reads as one steady
+          // movement rather than a lurch followed by a crawl.
+          scale: from.scale * Math.pow(target.scale / from.scale, eased),
+        };
+        writeViewport(shownRef.current);
+        if (progress < 1) {
+          animationRef.current = requestAnimationFrame(step);
+          return;
+        }
+        shownRef.current = target;
+        writeViewport(target);
+        animationRef.current = 0;
+        element?.classList.remove("is-moving");
+      };
+      animationRef.current = requestAnimationFrame(step);
+    },
+    [reducedMotion, writeViewport],
+  );
+
+  // Declared before the camera: a resize or a new snapshot changes what one map
+  // unit is worth on screen, and the camera writes through this.
+  useLayoutEffect(() => {
+    geometryRef.current = { aspect, coreSpan };
+    if (animationRef.current === 0) writeViewport(shownRef.current);
+  }, [aspect, coreSpan, writeViewport]);
+
+  useLayoutEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      // The opening move states the model: the whole site, then in to the part
+      // of it that holds together.
+      shownRef.current = { scale: minScale, x: 0, y: 0 };
+      writeViewport(shownRef.current);
+      moveCamera(viewport, INTRO_MS);
+      return;
+    }
+    moveCamera(viewport, CAMERA_MS);
+  }, [minScale, moveCamera, viewport, writeViewport]);
+
+  useLayoutEffect(() => {
+    const element = frameElementRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (!box || box.width === 0 || box.height === 0) return;
+      setFrame((current) =>
+        Math.abs(current.width - box.width) < 1 && Math.abs(current.height - box.height) < 1
+          ? current
+          : { height: box.height, width: box.width },
+      );
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(
+    () => () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    },
+    [],
+  );
+
+  const clampViewport = useCallback(
+    (view: Viewport): Viewport => ({
+      scale: clamp(view.scale, minScale, MAX_SCALE),
+      x: clamp(view.x, -layout.worldRadius, layout.worldRadius),
+      y: clamp(view.y, -layout.worldRadius, layout.worldRadius),
+    }),
+    [layout.worldRadius, minScale],
+  );
+
+  const zoomBy = useCallback(
+    (factor: number, anchor?: { x: number; y: number }) => {
+      setViewport((current) => {
+        const scale = clamp(current.scale * factor, minScale, MAX_SCALE);
+        if (!anchor || scale === current.scale) return clampViewport({ ...current, scale });
+        const span = frameSpan(coreSpan, current.scale, aspect);
+        const world = {
+          x: current.x - span.width / 2 + (anchor.x / frame.width) * span.width,
+          y: current.y - span.height / 2 + (anchor.y / frame.height) * span.height,
+        };
+        const ratio = current.scale / scale;
+        return clampViewport({
+          scale,
+          x: world.x + (current.x - world.x) * ratio,
+          y: world.y + (current.y - world.y) * ratio,
+        });
+      });
+    },
+    [aspect, clampViewport, coreSpan, frame.height, frame.width, minScale],
+  );
+
+  /** Put a set of pages in the frame, whatever it costs in zoom. */
+  const framePoints = useCallback(
+    (points: MapPoint[]) => {
+      if (points.length === 0) return;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      points.forEach((point) => {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+      });
+      const needWidth = Math.max((maxX - minX) * 1.25, 200);
+      const needHeight = Math.max((maxY - minY) * 1.25, 200);
+      const shortSide =
+        aspect >= 1
+          ? Math.max(needHeight, needWidth / aspect)
+          : Math.max(needWidth, needHeight * aspect);
+      setViewport(
+        clampViewport({
+          scale: coreSpan / shortSide,
+          x: (minX + maxX) / 2,
+          y: (minY + maxY) / 2,
+        }),
+      );
+    },
+    [aspect, clampViewport, coreSpan],
+  );
+
+  const showWholeSite = useCallback(() => {
+    setViewport(clampViewport({ scale: minScale, x: 0, y: 0 }));
+  }, [clampViewport, minScale]);
+
+  const showCore = useCallback(() => {
+    setViewport(clampViewport({ scale: 1, x: 0, y: 0 }));
+  }, [clampViewport]);
+
+  /** Bring a page into the frame — and into the light, if it is on the rim. */
+  const revealArticle = useCallback(
+    (articleId: number) => {
+      const point = layout.positions.get(articleId);
+      if (!point) return;
+      const onRim = layout.haloIds.has(articleId);
+      setViewport((current) => {
+        const screen = projectPoint(point, current, coreSpan, aspect, frame);
+        const inside =
+          screen.x > frame.width * 0.14 &&
+          screen.x < frame.width * 0.86 &&
+          screen.y > frame.height * 0.14 &&
+          screen.y < frame.height * 0.86;
+        const scale = onRim ? Math.min(current.scale, haloFullScale) : current.scale;
+        if (inside && scale === current.scale) return current;
+        return clampViewport({ scale, x: point.x, y: point.y });
+      });
+    },
+    [aspect, clampViewport, coreSpan, frame, haloFullScale, layout.haloIds, layout.positions],
+  );
+
+  // ------------------------------------------------------------- selection
+  const selectNode = useCallback((articleId: number) => {
+    setSelectedArticleId(articleId);
+    setSelectedGroup(null);
+    setSelectedEdgeKey(null);
+  }, []);
+
+  const openArticle = useCallback(
+    (articleId: number) => {
+      selectNode(articleId);
+      revealArticle(articleId);
+    },
+    [revealArticle, selectNode],
+  );
+
+  const selectEdge = useCallback(
+    (edge: GraphNetworkEdge) => {
+      setSelectedEdgeKey(edgeKey(edge.source_article_id, edge.target_article_id));
+      setSelectedGroup(null);
+      setSelectedArticleId(edge.target_article_id);
+    },
+    [],
+  );
+
+  const selectIsolatedGroup = useCallback(() => {
+    setSelectedArticleId(null);
+    setSelectedGroup("isolated");
+    setSelectedEdgeKey(null);
+    showWholeSite();
+  }, [showWholeSite]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedArticleId(null);
+    setSelectedGroup(null);
+    setSelectedEdgeKey(null);
+  }, []);
+
+  const setNetworkFilter = (nextFilter: NetworkFilter) => {
+    setFilter(nextFilter);
+    setSelectedArticleId(null);
+    setSelectedGroup(null);
+    setSelectedEdgeKey(null);
+    if (nextFilter === "all") {
+      showCore();
+      return;
+    }
+    // The camera follows the question: filtering for orphans is asking to be
+    // shown the rim, and the answer should not be waiting off-screen.
+    const points = data.nodes
+      .filter((node) => matchesFilter(node, nextFilter, preparedNodeIds))
+      .map((node) => layout.positions.get(node.article_id))
+      .filter((point): point is MapPoint => point !== undefined);
+    framePoints(points);
+  };
+
+  // ------------------------------------------------------------ pointer map
+  const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return;
+    dragRef.current = {
+      moved: false,
+      origin: shownRef.current,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    frameElementRef.current?.classList.add("is-moving");
+  };
+
+  const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.x;
+    const deltaY = event.clientY - drag.y;
+    if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    const span = frameSpan(coreSpan, drag.origin.scale, aspect);
+    const next = clampViewport({
+      scale: drag.origin.scale,
+      x: drag.origin.x - (deltaX / Math.max(frame.width, 1)) * span.width,
+      y: drag.origin.y - (deltaY / Math.max(frame.height, 1)) * span.height,
+    });
+    shownRef.current = next;
+    writeViewport(next);
+  };
+
+  const onPointerUp = (event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    frameElementRef.current?.classList.remove("is-moving");
+    if (drag.moved) setViewport(shownRef.current);
+  };
+
+  // A drag that ends over a page must not also select it.
+  const onClickCapture = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (dragRef.current?.moved) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+  };
+
+  const onPointerOver = (event: React.PointerEvent<SVGSVGElement>) => {
+    const target = (event.target as Element).closest?.("[data-article-id]");
+    const articleId = target ? Number(target.getAttribute("data-article-id")) : null;
+    setHoveredArticleId((current) =>
+      current === articleId || Number.isNaN(articleId) ? current : articleId,
+    );
+  };
+
+  const onPointerLeave = () => setHoveredArticleId(null);
+
+  // ---------------------------------------------------------------- titles
+  const labels = useMemo(() => {
+    const haloLit = haloRevealAt(viewport.scale) > 0.4;
+    const anchors = new Map<number, LabelAnchor>();
+    const inFrame: { articleId: number; degree: number }[] = [];
+
+    data.nodes.forEach((node) => {
+      const point = layout.positions.get(node.article_id);
+      if (!point) return;
+      const onRim = layout.haloIds.has(node.article_id);
+      if (denseHalo && onRim) return;
+      const screen = projectPoint(point, viewport, coreSpan, aspect, frame);
+      if (
+        screen.x < -40 ||
+        screen.y < -40 ||
+        screen.x > frame.width + 40 ||
+        screen.y > frame.height + 40
+      ) {
+        return;
+      }
+      const radius = (onRim ? HALO_MARKER_SIZE : markerSize(node)) / 2 + 2;
+      anchors.set(node.article_id, { radius, x: screen.x, y: screen.y });
+      const readable = onRim ? haloLit || node.article_id === selectedArticleId : true;
+      if (readable) inFrame.push({ articleId: node.article_id, degree: nodeDegree(node) });
+    });
+
+    const candidates: LabelCandidate[] = [];
+    const seen = new Set<number>();
+    const push = (articleId: number | null, forced = false) => {
+      if (articleId === null || seen.has(articleId)) return;
+      const node = nodeById.get(articleId);
+      if (!node || !anchors.has(articleId)) return;
+      seen.add(articleId);
+      candidates.push({ articleId, forced, text: truncateTitle(node.article_title) });
+    };
+
+    // A selected or pointed-at page is always named, at any zoom: that is the
+    // answer to "which one is this?", and it is the only title the editor asked
+    // for by hand.
+    push(selectedArticleId, true);
+    push(hoveredArticleId, true);
+    selectedNeighborIds.forEach((articleId) => push(articleId));
+    if (normalizedQuery.length > 0 || effectiveFilter !== "all") {
+      matchingNodes
+        .filter((node) => matchesFilter(node, effectiveFilter, preparedNodeIds))
+        .forEach((node) => push(node.article_id));
+    }
+    inFrame
+      .sort((left, right) => right.degree - left.degree)
+      .forEach((entry) => push(entry.articleId));
+
+    const limit = showNames && viewport.scale >= LABEL_MIN_SCALE ? MAX_LABELS : 0;
+    return placeMapLabels({
+      anchors,
+      candidates,
+      height: frame.height,
+      limit,
+      width: frame.width,
+    });
+  }, [
+    aspect,
+    coreSpan,
+    data.nodes,
+    denseHalo,
+    effectiveFilter,
+    frame,
+    haloRevealAt,
+    hoveredArticleId,
+    layout.haloIds,
+    layout.positions,
+    matchingNodes,
+    nodeById,
+    normalizedQuery,
+    preparedNodeIds,
+    selectedArticleId,
+    selectedNeighborIds,
+    showNames,
+    viewport,
+  ]);
+
   const selectedProposedEdge = useMemo(
     () =>
       selectedEdgeKey === null
@@ -622,258 +1145,13 @@ export default function GraphLens({ data }: Props) {
   const selectedProposedTarget = selectedProposedEdge
     ? nodeById.get(selectedProposedEdge.target_article_id)
     : undefined;
-  const labelPlacements = useMemo(() => {
-    const placements = new Map<number, LabelPlacement>();
-    const candidates: GraphFeature[] = [];
-    const candidateIds = new Set<number>();
-    const addCandidate = (node: GraphFeature | undefined) => {
-      if (
-        node === undefined ||
-        candidateIds.has(node.article_id) ||
-        candidates.length >= MAX_MAP_LABELS * 3
-      ) {
-        return;
-      }
-      candidateIds.add(node.article_id);
-      candidates.push(node);
-    };
 
-    if (selectedArticleId !== null) addCandidate(nodeById.get(selectedArticleId));
-    selectedNeighborIds.forEach((articleId) => addCandidate(nodeById.get(articleId)));
-    if (normalizedQuery.length > 0 || effectiveFilter !== "all") {
-      matchingNodes
-        .filter((node) => matchesFilter(node, effectiveFilter, preparedNodeIds))
-        .forEach(addCandidate);
-    } else {
-      // A small cluster stays legible on a large site, so name those pages even
-      // when the band below holds hundreds of unlinked ones.
-      const pool =
-        layout.linked.size > 0 && layout.linked.size <= 32
-          ? data.nodes.filter((node) => layout.linked.has(node.article_id))
-          : data.nodes.length <= 32
-            ? data.nodes.slice()
-            : [];
-      pool.sort((left, right) => nodeDegree(right) - nodeDegree(left)).forEach(addCandidate);
-    }
-
-    const occupiedLabels: LabelBox[] = [];
-    const nodeBoxes = data.nodes.flatMap((node) => {
-      const position = layout.positions.get(node.article_id);
-      return position === undefined
-        ? []
-        : [
-            {
-              articleId: node.article_id,
-              box: {
-                bottom: position.y + 9,
-                left: position.x - 9,
-                right: position.x + 9,
-                top: position.y - 9,
-              },
-            },
-          ];
-    });
-    const overlaps = (left: LabelBox, right: LabelBox) =>
-      left.left < right.right + LABEL_GAP &&
-      left.right > right.left - LABEL_GAP &&
-      left.top < right.bottom + LABEL_GAP &&
-      left.bottom > right.top - LABEL_GAP;
-
-    candidates.forEach((node) => {
-      if (placements.size >= MAX_MAP_LABELS) return;
-      const position = layout.positions.get(node.article_id);
-      if (position === undefined) return;
-
-      const text = shortTitle(node.article_title);
-      const width = clamp(text.length * 6.5, 64, 230);
-      const preferredSide: LabelPlacement["textAnchor"] =
-        position.x < NETWORK_WIDTH / 2 ? "start" : "end";
-      const sides: LabelPlacement["textAnchor"][] = [
-        preferredSide,
-        preferredSide === "start" ? "end" : "start",
-      ];
-
-      for (const textAnchor of sides) {
-        for (const offset of LABEL_VERTICAL_OFFSETS) {
-          const x = textAnchor === "start" ? position.x + 13 : position.x - 13;
-          const y = position.y + 4 + offset;
-          const box: LabelBox = {
-            bottom: y + 4,
-            left: textAnchor === "start" ? x : x - width,
-            right: textAnchor === "start" ? x + width : x,
-            top: y - 13,
-          };
-          const collidesWithLabel = occupiedLabels.some((other) => overlaps(box, other));
-          const collidesWithNode = nodeBoxes.some(
-            (other) => other.articleId !== node.article_id && overlaps(box, other.box),
-          );
-          if (
-            box.left < 8 ||
-            box.right > NETWORK_WIDTH - 8 ||
-            box.top < 8 ||
-            box.bottom > layout.height - 8 ||
-            collidesWithLabel ||
-            collidesWithNode
-          ) {
-            continue;
-          }
-          placements.set(node.article_id, { x, y, textAnchor });
-          occupiedLabels.push(box);
-          return;
-        }
-      }
-
-      // The selected page must remain named even when a dense local topology
-      // leaves no collision-free label slot.
-      if (selectedArticleId === node.article_id) {
-        const textAnchor: LabelPlacement["textAnchor"] = preferredSide;
-        const x = textAnchor === "start" ? position.x + 13 : position.x - 13;
-        placements.set(node.article_id, { x, y: position.y + 4, textAnchor });
-      }
-    });
-    return placements;
-  }, [
-    data.nodes,
-    effectiveFilter,
-    layout.height,
-    layout.linked,
-    layout.positions,
-    matchingNodes,
-    normalizedQuery,
-    nodeById,
-    preparedNodeIds,
-    selectedArticleId,
-    selectedNeighborIds,
-  ]);
-  const activeNode = (node: GraphFeature) =>
-    matchesFilter(node, effectiveFilter, preparedNodeIds) && matchesQuery(node, normalizedQuery);
-  const focusEdge = (edge: GraphNetworkEdge) =>
-    selectedArticleId !== null &&
-    (edge.source_article_id === selectedArticleId || edge.target_article_id === selectedArticleId);
-  const highlightedEdge = (edge: GraphNetworkEdge) =>
-    focusEdge(edge) ||
-    (effectiveFilter !== "all" &&
-      (highlightNodeIds.has(edge.source_article_id) || highlightNodeIds.has(edge.target_article_id))) ||
-    (normalizedQuery.length > 0 &&
-      (matchingNodeIds.has(edge.source_article_id) || matchingNodeIds.has(edge.target_article_id)));
-
-  const renderEdge = (edge: GraphNetworkEdge, index: number, proposed = false) => {
-    const source = layout.positions.get(edge.source_article_id);
-    const target = layout.positions.get(edge.target_article_id);
-    if (!source || !target) return null;
-    const edgeId = edgeKey(edge.source_article_id, edge.target_article_id);
-    const active = highlightedEdge(edge);
-    const focused = focusEdge(edge);
-    const selected = selectedEdgeKey === edgeId;
-    const sourceNode = nodeById.get(edge.source_article_id);
-    const targetNode = nodeById.get(edge.target_article_id);
-    const dimmed =
-      (sourceNode ? !activeNode(sourceNode) : true) &&
-      (targetNode ? !activeNode(targetNode) : true);
-    const edgeLabel =
-      (proposed ? "Prepared link: " : "Active link: ") +
-      (sourceNode?.article_title ?? "Unknown page") +
-      " to " +
-      (targetNode?.article_title ?? "Unknown page");
-    const selectEdge = () => {
-      if (!proposed) return;
-      setSelectedEdgeKey(edgeId);
-      setSelectedGroup(null);
-      setSelectedArticleId(edge.target_article_id);
-    };
-    const markerEnd =
-      showDirection
-        ? selected || focused || active
-          ? "url(#graph-lens-arrow-active)"
-          : "url(#graph-lens-arrow-muted)"
-        : undefined;
-    const visibleLine = (
-      <line
-        key={edgeId + ":" + index}
-        className={proposed ? "graph-edge-visible" : undefined}
-        x1={source.x}
-        y1={source.y}
-        x2={target.x}
-        y2={target.y}
-        stroke={focused || proposed ? "rgb(var(--c-primary))" : "rgb(var(--c-hairline-control))"}
-        strokeWidth={selected ? 3.2 : focused ? 2.4 : proposed ? 2.2 : active ? 1.5 : 1}
-        strokeOpacity={
-          selected ? 1 : focused ? 0.98 : proposed ? 0.95 : dimmed ? 0.08 : active ? 0.7 : 0.45
-        }
-        strokeDasharray={proposed ? "6 4" : undefined}
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-        pointerEvents={proposed ? "none" : undefined}
-        markerEnd={markerEnd}
-      />
-    );
-    if (!proposed) return visibleLine;
-    return (
-      <g
-        key={edgeId + ":" + index}
-        role="button"
-        tabIndex={0}
-        aria-label={edgeLabel}
-        className="graph-edge-hit cursor-pointer"
-        onClick={selectEdge}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            selectEdge();
-          }
-        }}
-      >
-        <line
-          className="graph-edge-hit-target"
-          x1={source.x}
-          y1={source.y}
-          x2={target.x}
-          y2={target.y}
-          stroke="transparent"
-          strokeWidth="16"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-          pointerEvents="stroke"
-        />
-        <line
-          className="graph-edge-focus"
-          x1={source.x}
-          y1={source.y}
-          x2={target.x}
-          y2={target.y}
-          stroke="rgb(var(--c-primary))"
-          strokeWidth="10"
-          strokeOpacity={selected ? 0.2 : 0}
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-          pointerEvents="none"
-        />
-        {visibleLine}
-      </g>
-    );
-  };
-
-  const selectNode = (articleId: number) => {
-    setSelectedArticleId(articleId);
-    setSelectedGroup(null);
-    setSelectedEdgeKey(null);
-  };
-  const selectIsolatedGroup = () => {
-    setSelectedArticleId(null);
-    setSelectedGroup("isolated");
-    setSelectedEdgeKey(null);
-  };
-  const setNetworkFilter = (nextFilter: NetworkFilter) => {
-    setFilter(nextFilter);
-    setSelectedArticleId(null);
-    setSelectedGroup(null);
-    setSelectedEdgeKey(null);
-  };
-  const clearSelection = () => {
-    setSelectedArticleId(null);
-    setSelectedGroup(null);
-    setSelectedEdgeKey(null);
-  };
+  const haloForced =
+    selectedGroup === "isolated" ||
+    (selectedArticleId !== null && layout.haloIds.has(selectedArticleId)) ||
+    ((normalizedQuery.length > 0 || effectiveFilter !== "all") &&
+      isolatedNodes.some((node) => activeIds.has(node.article_id)));
+  const haloVisible = haloForced || haloRevealAt(viewport.scale) > 0.2;
 
   const mapSummary =
     data.article_count.toLocaleString() +
@@ -882,8 +1160,8 @@ export default function GraphLens({ data }: Props) {
     " internal links. " +
     (visibleProposedEdges.length > 0
       ? `${visibleProposedEdges.length.toLocaleString()} prepared internal ${
-          visibleProposedEdges.length === 1 ? "link" : "links"
-        } are overlaid. `
+          visibleProposedEdges.length === 1 ? "link is" : "links are"
+        } overlaid. `
       : "") +
     data.orphan_count.toLocaleString() +
     " orphans, " +
@@ -894,46 +1172,55 @@ export default function GraphLens({ data }: Props) {
     data.saturated_count.toLocaleString() +
     " saturated pages.";
 
+  const isolatedCount = isolatedNodes.length;
+  const statCells: { label: string; tone?: string; value: string }[] = [
+    { label: "Pages", value: data.article_count.toLocaleString() },
+    { label: "Internal links", value: data.edge_count.toLocaleString() },
+    ...(visibleProposedEdges.length > 0
+      ? [
+          {
+            label: "Prepared links",
+            tone: "text-primary",
+            value: visibleProposedEdges.length.toLocaleString(),
+          },
+        ]
+      : []),
+    { label: "Linked core", value: layout.coreIds.size.toLocaleString() },
+    { label: "Isolated pages", value: isolatedCount.toLocaleString() },
+  ];
+
   return (
     <section
       aria-label="Site network"
       aria-describedby="site-network-description"
-      className="mt-4 border-t border-hairline pt-4"
+      className="mt-5 border-t border-hairline pt-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-title-md font-medium text-ink">Full site graph</h3>
-          <p className="mt-1 max-w-3xl text-caption-sm leading-normal text-muted">
-            See the whole active site as a connected system, with prepared internal links shown as
-            dashed lines. Search or filter to bring important pages forward, then select a page to
-            inspect its place in the network.
+          <p className="text-caption-upper uppercase text-muted">Site overview</p>
+          <h3 className="mt-1.5 text-title-md font-medium text-ink">The whole site as one map</h3>
+          <p className="mt-1.5 max-w-2xl text-caption-sm leading-normal text-muted">
+            Pages that carry an internal link — live or prepared — hold the centre. Pages that carry
+            none are scattered around them. Zoom out to bring that rim into the frame.
           </p>
         </div>
-        <span className="flex-none text-caption-sm text-muted">{snapshotLabel(data.computed_at)}</span>
+        <span className="flex-none text-caption-sm text-muted">
+          {snapshotLabel(data.computed_at)}
+        </span>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-hairline py-3 text-caption-sm text-muted">
-        <span>
-          <strong className="font-medium text-ink">{data.article_count.toLocaleString()}</strong> pages
-        </span>
-        <span>
-          <strong className="font-medium text-ink">{data.edge_count.toLocaleString()}</strong> internal links
-        </span>
-        {visibleProposedEdges.length > 0 && (
-          <span>
-            <strong className="font-medium text-primary">
-              {visibleProposedEdges.length.toLocaleString()}
-            </strong>{" "}
-            prepared internal {visibleProposedEdges.length === 1 ? "link" : "links"}
-          </span>
-        )}
-        <span>
-          <strong className="font-medium text-error-ink">{data.orphan_count.toLocaleString()}</strong> orphans
-        </span>
-        <span>
-          <strong className="font-medium text-success">{data.hub_count.toLocaleString()}</strong> hubs
-        </span>
-      </div>
+      {/* Flex rather than a grid: the strip gains a cell when a batch is
+          prepared, and a fixed column count would leave a hole on the row. */}
+      <dl className="mt-4 flex flex-wrap gap-px overflow-hidden rounded-lg border border-hairline bg-hairline">
+        {statCells.map((cell) => (
+          <div key={cell.label} className="min-w-36 flex-1 bg-surface-card px-3 py-2.5">
+            <dt className="text-caption-sm text-muted">{cell.label}</dt>
+            <dd className={"mt-0.5 text-title-sm tabular-nums " + (cell.tone ?? "text-ink")}>
+              {cell.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
       {visibleProposedEdges.length > 0 && (
         <p className="mt-2 text-caption-sm text-muted">
           Structural signals describe the active site; dashed links are prepared edits and are not
@@ -1011,7 +1298,8 @@ export default function GraphLens({ data }: Props) {
       {normalizedQuery.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-2" aria-live="polite">
           <span className="text-caption-sm text-muted">
-            {matchingNodes.length.toLocaleString()} {matchingNodes.length === 1 ? "page" : "pages"} match
+            {matchingNodes.length.toLocaleString()} {matchingNodes.length === 1 ? "page" : "pages"}{" "}
+            match
           </span>
           {matchingNodes.slice(0, 6).map((node) => (
             <button
@@ -1019,304 +1307,358 @@ export default function GraphLens({ data }: Props) {
               type="button"
               className="btn btn-outline btn-sm max-w-full truncate"
               title={node.article_title}
-              onClick={() => selectNode(node.article_id)}
+              onClick={() => openArticle(node.article_id)}
             >
-              {shortTitle(node.article_title)}
+              {truncateTitle(node.article_title, 34)}
             </button>
           ))}
         </div>
       )}
 
-      <SignalLegend />
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-caption-sm text-muted">
-        <span>
-          {effectiveFilter === "all" && normalizedQuery.length === 0
-            ? "The map keeps every page visible; select a square to inspect it."
-            : "Matching pages stay bright while the rest of the site recedes. Select a square to inspect it."}
-        </span>
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Network view controls">
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            aria-pressed={showDirection}
-            onClick={() => setShowDirection((current) => !current)}
-          >
-            {showDirection ? "Direction on" : "Direction off"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            aria-label="Zoom out"
-            onClick={() => setZoom((current) => Math.max(0.75, Number((current - 0.25).toFixed(2))))}
-          >
-            <ZoomIcon mode="out" />
-          </button>
-          <span className="min-w-12 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            aria-label="Zoom in"
-            onClick={() => setZoom((current) => Math.min(1.75, Number((current + 0.25).toFixed(2))))}
-          >
-            <ZoomIcon mode="in" />
-          </button>
-          <button
-            type="button"
-            className="btn btn-outline btn-sm h-11 w-11 p-0 sm:h-8 sm:w-8"
-            aria-label="Reset zoom"
-            title="Reset zoom"
-            onClick={() => setZoom(1)}
-          >
-            <ResetZoomIcon />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="min-w-0 overflow-auto rounded-xl border border-hairline bg-canvas-soft p-3">
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
           {data.nodes.length > 0 ? (
-            <svg
-              role="group"
-              aria-label="Full site network map"
-              className={zoom === 1 ? "block h-auto w-full" : "block"}
-              width={NETWORK_WIDTH * zoom}
-              height={layout.height * zoom}
-              viewBox={"0 0 " + NETWORK_WIDTH + " " + layout.height}
+            <div
+              ref={frameElementRef}
+              className="graph-map relative h-[clamp(24rem,56vh,40rem)] overflow-hidden rounded-xl border border-hairline bg-canvas-soft"
             >
-              <title>Full site network map</title>
-              <desc>{mapSummary}</desc>
-              <defs>
-                <marker
-                  id="graph-lens-arrow-muted"
-                  viewBox="0 0 10 10"
-                  refX="8"
-                  refY="5"
-                  markerWidth="5"
-                  markerHeight="5"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="rgb(var(--c-hairline-control))" />
-                </marker>
-                <marker
-                  id="graph-lens-arrow-active"
-                  viewBox="0 0 10 10"
-                  refX="8"
-                  refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="rgb(var(--c-primary))" />
-                </marker>
-              </defs>
-              {layout.band && layout.band.top > MAP_PADDING + 24 && (
-                <g aria-hidden="true">
-                  <line
-                    x1={MAP_PADDING}
-                    y1={layout.band.top - 40}
-                    x2={NETWORK_WIDTH - MAP_PADDING}
-                    y2={layout.band.top - 40}
-                    stroke="rgb(var(--c-hairline))"
-                    strokeWidth="1"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <text
-                    x={MAP_PADDING}
-                    y={layout.band.top - 22}
-                    fill="rgb(var(--c-muted))"
-                    fontSize="12"
-                    fontWeight="500"
+              <svg
+                ref={svgRef}
+                role="group"
+                aria-label="Full site network map"
+                className="graph-world absolute inset-0 h-full w-full cursor-grab touch-none active:cursor-grabbing"
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+                onPointerOver={onPointerOver}
+                onPointerLeave={onPointerLeave}
+                onClickCapture={onClickCapture}
+              >
+                <title>Full site network map</title>
+                <desc>{mapSummary}</desc>
+                <defs>
+                  <radialGradient id="graph-lens-core-glow">
+                    <stop offset="0%" stopColor="rgb(var(--c-orb-sky))" stopOpacity="0.34" />
+                    <stop offset="65%" stopColor="rgb(var(--c-orb-lavender))" stopOpacity="0.12" />
+                    <stop offset="100%" stopColor="rgb(var(--c-orb-lavender))" stopOpacity="0" />
+                  </radialGradient>
+                  <marker
+                    id="graph-lens-arrow-muted"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="5"
+                    markerHeight="5"
+                    orient="auto-start-reverse"
                   >
-                    {layout.band.count.toLocaleString() +
-                      (layout.band.count === 1 ? " page with no" : " pages with no") +
-                      (visibleProposedEdges.length > 0
-                        ? " active or prepared internal link"
-                        : " internal link")}
-                  </text>
-                </g>
-              )}
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgb(var(--c-hairline-control))" />
+                  </marker>
+                  <marker
+                    id="graph-lens-arrow-active"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgb(var(--c-primary))" />
+                  </marker>
+                </defs>
 
-              <g role="group" aria-label="Internal links">
-                {data.edges.map((edge, index) => renderEdge(edge, index))}
-              </g>
-              <g role="group" aria-label="Prepared internal links">
-                {visibleProposedEdges.map((edge, index) => renderEdge(edge, index, true))}
-              </g>
+                {layout.coreIds.size > 0 && (
+                  <g aria-hidden="true" className="graph-atmosphere">
+                    <circle
+                      cx="0"
+                      cy="0"
+                      r={layout.coreRadius * 1.15}
+                      fill="url(#graph-lens-core-glow)"
+                    />
+                    <circle
+                      className="graph-core-ring"
+                      cx="0"
+                      cy="0"
+                      r={layout.coreRadius}
+                      fill="none"
+                      stroke="rgb(var(--c-hairline-strong))"
+                      strokeWidth="1"
+                      strokeDasharray="4 8"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
+                )}
 
-              {groupIsolated && effectiveFilter !== "prepared" && layout.band && (
+                <MapEdges
+                  activeIds={activeIds}
+                  edges={data.edges}
+                  nodeById={nodeById}
+                  onSelectEdge={selectEdge}
+                  positions={layout.positions}
+                  preparedEdges={visibleProposedEdges}
+                  selectedArticleId={selectedArticleId}
+                  selectedEdgeKey={selectedEdgeKey}
+                  showDirection={showDirection}
+                />
+
                 <g
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={selectedGroup === "isolated"}
-                  aria-label={
-                    layout.band.count.toLocaleString() +
-                    " isolated pages. Open the page list to inspect them."
-                  }
-                  className="graph-group cursor-pointer"
-                  onClick={selectIsolatedGroup}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      selectIsolatedGroup();
-                    }
-                  }}
+                  className="graph-halo"
+                  aria-label="Isolated pages"
+                  pointerEvents={haloVisible ? undefined : "none"}
+                  style={{ "--graph-halo-force": haloForced ? 1 : 0 } as React.CSSProperties}
                 >
-                  <title>
-                    {layout.band.count.toLocaleString() +
-                      " isolated pages. Select to inspect their titles and structural signals."}
-                  </title>
-                  <rect
-                    className="graph-group-focus"
-                    x={layout.band.center.x - 105}
-                    y={layout.band.center.y - 21}
-                    width="210"
-                    height="42"
-                    rx="21"
-                    fill="none"
-                    stroke="rgb(var(--c-primary))"
-                    strokeWidth="2"
-                    opacity={selectedGroup === "isolated" ? 1 : 0}
-                    pointerEvents="none"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <rect
-                    x={layout.band.center.x - 98}
-                    y={layout.band.center.y - 14}
-                    width="196"
-                    height="28"
-                    rx="14"
-                    fill={
-                      effectiveFilter === "orphan"
-                        ? STATUS_FILL.orphan
-                        : "rgb(var(--c-surface-strong))"
-                    }
-                    stroke={
-                      effectiveFilter === "orphan"
-                        ? STATUS_COLOR.orphan
-                        : "rgb(var(--c-hairline-strong))"
-                    }
-                    strokeWidth="1.5"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <text
-                    x={layout.band.center.x}
-                    y={layout.band.center.y + 4}
-                    textAnchor="middle"
-                    fill="rgb(var(--c-ink))"
-                    fontSize="12"
-                    fontWeight="600"
-                    pointerEvents="none"
-                  >
-                    {layout.band.count.toLocaleString() + " isolated pages"}
-                  </text>
+                  {denseHalo ? (
+                    <path
+                      aria-hidden="true"
+                      d={denseHaloPath}
+                      stroke={STATUS_COLOR.orphan}
+                      strokeWidth={HALO_MARKER_SIZE}
+                      strokeLinecap="round"
+                      strokeOpacity="0.75"
+                      vectorEffect="non-scaling-stroke"
+                      pointerEvents="none"
+                    />
+                  ) : (
+                    <MapNodes
+                      activeIds={activeIds}
+                      ids={haloIdList}
+                      neighborIds={selectedNeighborIds}
+                      nodeById={nodeById}
+                      onSelect={selectNode}
+                      positions={layout.positions}
+                      selectedArticleId={selectedArticleId}
+                      tabbableIds={tabbableIds}
+                      variant="halo"
+                    />
+                  )}
                 </g>
-              )}
 
-              <g aria-label="Pages">
-                {data.nodes.map((node) => {
-                  const position = layout.positions.get(node.article_id);
-                  if (!position) return null;
-                  const status = nodeStatus(node);
-                  const matching = activeNode(node);
-                  const selected = node.article_id === selectedArticleId;
-                  const neighbor = selectedNeighborIds.has(node.article_id);
-                  const hiddenByGroup =
-                    groupIsolated && !layout.linked.has(node.article_id) && !selected;
-                  if (hiddenByGroup) return null;
-                  const size = clamp(7 + Math.log2(nodeDegree(node) + 1) * 1.8, 7, 15);
-                  const labelPlacement = labelPlacements.get(node.article_id);
-                  const detail =
-                    STATUS_LABEL[status] +
-                    ". " +
-                    node.in_degree +
-                    " incoming and " +
-                    node.out_degree +
-                    " outgoing links.";
+                <g aria-label="Pages">
+                  <MapNodes
+                    activeIds={activeIds}
+                    ids={coreIdList}
+                    neighborIds={selectedNeighborIds}
+                    nodeById={nodeById}
+                    onSelect={selectNode}
+                    positions={layout.positions}
+                    selectedArticleId={selectedArticleId}
+                    tabbableIds={tabbableIds}
+                    variant="core"
+                  />
+                </g>
+              </svg>
 
-                  return (
-                    <g
-                      key={node.article_id}
-                      role="button"
-                      tabIndex={0}
-                      aria-pressed={selected}
-                      aria-label={node.article_title + ". " + detail}
-                      className="graph-node cursor-pointer"
-                      opacity={selected || matching ? 1 : neighbor ? 0.82 : 0.14}
-                      onClick={() => selectNode(node.article_id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          selectNode(node.article_id);
-                        }
-                      }}
+              {/* Titles live in their own layer, in screen pixels: they keep one
+                  size at every zoom, and they are hidden while the camera moves
+                  so the map is never read through drifting text. */}
+              <svg
+                aria-hidden="true"
+                className="graph-labels pointer-events-none absolute inset-0 h-full w-full"
+                viewBox={"0 0 " + frame.width + " " + frame.height}
+              >
+                {labels.map((label) => (
+                  <g key={label.articleId}>
+                    <line
+                      x1={label.connector.x1}
+                      y1={label.connector.y1}
+                      x2={label.connector.x2}
+                      y2={label.connector.y2}
+                      stroke="rgb(var(--c-hairline-strong))"
+                      strokeWidth="1"
+                    />
+                    <rect
+                      x={label.plate.x}
+                      y={label.plate.y}
+                      width={label.plate.width}
+                      height={label.plate.height}
+                      rx="6"
+                      fill="rgb(var(--c-surface-card))"
+                      fillOpacity="0.94"
+                      stroke="rgb(var(--c-hairline))"
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={label.textX}
+                      y={label.textY}
+                      fill="rgb(var(--c-ink))"
+                      fontSize="12"
+                      fontWeight="500"
                     >
-                      <title>{node.article_title + " · " + detail}</title>
-                      {selected && (
-                        <circle
-                          cx={position.x}
-                          cy={position.y}
-                          r={size + 9}
-                          fill="none"
-                          stroke="rgb(var(--c-primary))"
-                          strokeWidth="1.5"
-                          opacity="0.34"
-                          pointerEvents="none"
-                          vectorEffect="non-scaling-stroke"
+                      {label.text}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+
+              <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-hairline bg-surface-card/90 px-2.5 py-1.5 backdrop-blur-sm">
+                    {LEGEND_STATUSES.map((status) => (
+                      <span
+                        key={status}
+                        className="inline-flex items-center gap-1.5 text-caption-sm text-muted"
+                        title={STATUS_DESCRIPTION[status]}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="h-2.5 w-2.5 flex-none rounded-sm border"
+                          style={{
+                            backgroundColor: STATUS_FILL[status],
+                            borderColor: STATUS_COLOR[status],
+                          }}
                         />
-                      )}
-                      <rect
-                        className="graph-node-focus"
-                        x={position.x - size - 7}
-                        y={position.y - size - 7}
-                        width={(size + 7) * 2}
-                        height={(size + 7) * 2}
-                        rx="4"
-                        fill="none"
-                        stroke="rgb(var(--c-primary))"
-                        strokeWidth="2"
-                        opacity={selected ? 1 : 0}
-                        pointerEvents="none"
-                        vectorEffect="non-scaling-stroke"
+                        {STATUS_LABEL[status]}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div
+                    className="pointer-events-auto flex flex-none items-center gap-1 rounded-lg border border-hairline bg-surface-card/90 p-1 backdrop-blur-sm"
+                    role="group"
+                    aria-label="Network view controls"
+                  >
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm h-8 w-8 border-transparent p-0"
+                      aria-label="Zoom out"
+                      onClick={() => zoomBy(1 / ZOOM_STEP)}
+                    >
+                      <ZoomIcon mode="out" />
+                    </button>
+                    <span className="min-w-11 text-center text-caption-sm tabular-nums text-muted">
+                      {Math.round(viewport.scale * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm h-8 w-8 border-transparent p-0"
+                      aria-label="Zoom in"
+                      onClick={() => zoomBy(ZOOM_STEP)}
+                    >
+                      <ZoomIcon mode="in" />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm h-8 w-8 border-transparent p-0"
+                      aria-label="Fit whole site"
+                      title="Fit whole site"
+                      onClick={showWholeSite}
+                    >
+                      <FitIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm h-8 w-8 border-transparent p-0"
+                      aria-label="Reset zoom"
+                      title="Back to the linked core"
+                      onClick={showCore}
+                    >
+                      <ResetZoomIcon />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  {isolatedCount > 0 ? (
+                    <button
+                      type="button"
+                      aria-pressed={selectedGroup === "isolated"}
+                      aria-label={
+                        isolatedCount.toLocaleString() +
+                        " isolated pages. " +
+                        (haloVisible ? "In frame." : "Zoom out to see them.")
+                      }
+                      onClick={selectIsolatedGroup}
+                      className={
+                        "pointer-events-auto inline-flex items-center gap-2 rounded-pill border px-3 py-1.5 text-caption-sm transition-[background-color,border-color] duration-state ease-settle " +
+                        (selectedGroup === "isolated"
+                          ? "border-ink bg-surface-card text-ink"
+                          : "border-hairline bg-surface-card/90 text-muted hover:border-hairline-strong hover:text-ink")
+                      }
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="h-2 w-2 flex-none rounded-sm"
+                        style={{ backgroundColor: STATUS_COLOR.orphan }}
                       />
-                      <rect
-                        x={position.x - size / 2}
-                        y={position.y - size / 2}
-                        width={size}
-                        height={size}
-                        rx="2"
-                        fill={STATUS_FILL[status]}
-                        stroke={STATUS_COLOR[status]}
-                        strokeWidth={selected ? 2 : 1.5}
-                        vectorEffect="non-scaling-stroke"
-                      />
-                      {labelPlacement && (
-                        <text
-                          x={labelPlacement.x}
-                          y={labelPlacement.y}
-                          textAnchor={labelPlacement.textAnchor}
-                          fill="rgb(var(--c-ink))"
-                          fontSize="12"
-                          fontWeight="500"
-                          pointerEvents="none"
-                          paintOrder="stroke"
-                          stroke="rgb(var(--c-canvas-soft))"
-                          strokeWidth="4"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          {shortTitle(node.article_title)}
-                        </text>
-                      )}
-                    </g>
-                  );
-                })}
-              </g>
-            </svg>
+                      {isolatedCount.toLocaleString()} isolated{" "}
+                      {isolatedCount === 1 ? "page" : "pages"}
+                      <span className="text-muted-soft">
+                        {haloVisible ? "in frame" : "· zoom out"}
+                      </span>
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+
+                  <div className="pointer-events-auto flex flex-none items-center gap-1 rounded-lg border border-hairline bg-surface-card/90 p-1 backdrop-blur-sm">
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm border-transparent"
+                      aria-pressed={showNames}
+                      onClick={() => setShowNames((current) => !current)}
+                    >
+                      {showNames ? "Names on" : "Names off"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm border-transparent"
+                      aria-pressed={showDirection}
+                      onClick={() => setShowDirection((current) => !current)}
+                    >
+                      {showDirection ? "Direction on" : "Direction off"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : (
-            <div className="flex min-h-80 items-center justify-center text-caption-sm text-muted">
+            <div className="flex min-h-80 items-center justify-center rounded-xl border border-hairline bg-canvas-soft text-caption-sm text-muted">
               No active pages are available for this site.
             </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-caption-sm text-muted">
+            <span>
+              {normalizedQuery.length > 0
+                ? "Showing search results across " + data.article_count.toLocaleString() + " pages."
+                : !showNames
+                  ? "Titles are off. Point at a page, or select one, to name it."
+                  : viewport.scale < LABEL_MIN_SCALE
+                    ? "Titles are off at this distance. Zoom in, or point at a page to name it."
+                    : "Drag to pan, zoom to travel. Titles appear where they fit without covering the map."}
+            </span>
+            {denseHalo && (
+              <span>
+                Isolated pages are drawn as a field at this size — use search to open one.
+              </span>
+            )}
+          </div>
+
+          <details className="mt-2 rounded-lg border border-hairline bg-canvas-soft px-3 py-2">
+            <summary className="cursor-pointer text-caption-sm font-medium text-ink">
+              How to read this map
+            </summary>
+            <p className="mt-2 text-caption-sm leading-normal text-muted">
+              Every marker is a page, sized by how many internal links it carries. Lines are internal
+              links and arrowheads show their direction; dashed lines are prepared links that are not
+              published yet. The dotted circle is the edge of the linked core: everything outside it
+              is a page no internal link reaches.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {LEGEND_STATUSES.map((status) => (
+                <div key={status} className="text-caption-sm text-muted">
+                  <span className="font-medium text-ink">{STATUS_LABEL[status]}:</span>{" "}
+                  {STATUS_DESCRIPTION[status]}
+                </div>
+              ))}
+            </div>
+          </details>
+
+          {data.nodes.length > 0 && data.edges.length === 0 && visibleProposedEdges.length === 0 && (
+            <p className="mt-2 text-caption-sm text-muted">
+              No internal links are recorded yet, so the whole site is drawn as isolated pages — its
+              current orphan and underlinked candidates.
+            </p>
           )}
         </div>
 
@@ -1330,8 +1672,7 @@ export default function GraphLens({ data }: Props) {
                 <div className="min-w-0">
                   <h4 className="text-body-sm font-medium text-ink">Isolated pages</h4>
                   <p className="mt-1 text-caption-sm text-muted">
-                    {isolatedNodes.length.toLocaleString()} pages have no active or prepared internal
-                    link.
+                    {isolatedCount.toLocaleString()} pages have no active or prepared internal link.
                   </p>
                 </div>
                 <button type="button" className="btn btn-outline btn-sm" onClick={clearSelection}>
@@ -1353,7 +1694,7 @@ export default function GraphLens({ data }: Props) {
                       STATUS_LABEL[nodeStatus(node)]
                     }
                     className="flex w-full items-start gap-3 px-3 py-3 text-left transition-colors duration-feedback ease-settle first:rounded-t-lg last:rounded-b-lg hover:bg-surface-strong"
-                    onClick={() => selectNode(node.article_id)}
+                    onClick={() => openArticle(node.article_id)}
                   >
                     <span
                       aria-hidden="true"
@@ -1375,10 +1716,10 @@ export default function GraphLens({ data }: Props) {
                   </button>
                 ))}
               </div>
-              {isolatedNodes.length > isolatedPreviewNodes.length && (
+              {isolatedCount > isolatedPreviewNodes.length && (
                 <p className="mt-3 text-caption-sm text-muted">
-                  Showing {isolatedPreviewNodes.length} of {isolatedNodes.length.toLocaleString()}.
-                  Use search to find a specific page.
+                  Showing {isolatedPreviewNodes.length} of {isolatedCount.toLocaleString()}. Use
+                  search to find a specific page.
                 </p>
               )}
             </>
@@ -1391,11 +1732,7 @@ export default function GraphLens({ data }: Props) {
                     {selectedNode.article_title}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  onClick={clearSelection}
-                >
+                <button type="button" className="btn btn-outline btn-sm" onClick={clearSelection}>
                   Clear
                 </button>
               </div>
@@ -1409,8 +1746,13 @@ export default function GraphLens({ data }: Props) {
                   <p className="mt-1 text-muted">This dashed link is prepared but not live yet.</p>
                 </div>
               )}
-              <div className="mt-3 inline-flex rounded-pill bg-surface-strong px-2.5 py-1 text-caption-sm font-medium text-ink">
-                {STATUS_LABEL[nodeStatus(selectedNode)]}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="inline-flex rounded-pill bg-surface-strong px-2.5 py-1 text-caption-sm font-medium text-ink">
+                  {STATUS_LABEL[nodeStatus(selectedNode)]}
+                </span>
+                <span className="inline-flex rounded-pill border border-hairline px-2.5 py-1 text-caption-sm text-muted">
+                  {layout.haloIds.has(selectedNode.article_id) ? "Isolated" : "In the linked core"}
+                </span>
               </div>
               <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-hairline py-3 text-caption-sm">
                 <div>
@@ -1438,34 +1780,41 @@ export default function GraphLens({ data }: Props) {
                 >
                   Open page
                 </a>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => revealArticle(selectedNode.article_id)}
+                >
+                  Centre on map
+                </button>
               </div>
               <div className="mt-4 space-y-3 text-caption-sm">
                 <ConnectionList
                   label="Active links to"
                   nodes={selectedConnections.activeOutgoing}
                   emptyLabel="No active outgoing links recorded."
-                  onSelect={selectNode}
+                  onSelect={openArticle}
                 />
                 {selectedConnections.preparedOutgoing.length > 0 && (
                   <ConnectionList
                     label="Prepared links to"
                     nodes={selectedConnections.preparedOutgoing}
                     emptyLabel="No prepared outgoing links."
-                    onSelect={selectNode}
+                    onSelect={openArticle}
                   />
                 )}
                 <ConnectionList
                   label="Active links from"
                   nodes={selectedConnections.activeIncoming}
                   emptyLabel="No active incoming links recorded."
-                  onSelect={selectNode}
+                  onSelect={openArticle}
                 />
                 {selectedConnections.preparedIncoming.length > 0 && (
                   <ConnectionList
                     label="Prepared links from"
                     nodes={selectedConnections.preparedIncoming}
                     emptyLabel="No prepared incoming links."
-                    onSelect={selectNode}
+                    onSelect={openArticle}
                   />
                 )}
               </div>
@@ -1489,29 +1838,22 @@ export default function GraphLens({ data }: Props) {
                 </>
               ) : (
                 <p className="mt-2 text-caption-sm leading-normal text-muted">
-                  Select a square to inspect its structural signal, URL, and neighboring links.
+                  Select a page to inspect its structural signal, URL, and neighboring links.
                 </p>
+              )}
+              {isolatedCount > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm mt-2"
+                  onClick={selectIsolatedGroup}
+                >
+                  Show the isolated rim
+                </button>
               )}
             </>
           )}
         </aside>
       </div>
-
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-caption-sm text-muted">
-        <span>
-          {normalizedQuery.length > 0
-            ? "Showing search results across " + data.article_count.toLocaleString() + " pages."
-            : "Labels stay limited on large sites so topology remains readable."}
-        </span>
-        {data.nodes.length > 250 && <span>Dense map mode: use search, filters, and zoom to focus.</span>}
-      </div>
-
-      {data.nodes.length > 0 && data.edges.length === 0 && visibleProposedEdges.length === 0 && (
-        <p className="mt-3 text-caption-sm text-muted">
-          No internal links are recorded yet. The isolated pages above are the site&apos;s current
-          orphan and underlinked candidates.
-        </p>
-      )}
 
       <p className="sr-only" id="site-network-description">
         {mapSummary} Select a page in the map to inspect its title, structural status, and incoming

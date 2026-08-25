@@ -49,6 +49,13 @@ const mocks = vi.hoisted(() => ({
     isPending: false,
     mutateAsync: vi.fn(),
   },
+  graph: {
+    data: undefined as unknown,
+    isPending: false,
+    isError: false,
+    mutate: vi.fn(),
+    reset: vi.fn(),
+  },
   setCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
   clearCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
 }));
@@ -64,6 +71,10 @@ vi.mock("../hooks/useJobs", () => ({
   useActiveJobs: () => mocks.activeJobs,
   useCancelJob: () => mocks.cancelJob,
   useJob: () => ({ data: undefined }),
+}));
+
+vi.mock("../hooks/useGraph", () => ({
+  useGraphNetwork: () => mocks.graph,
 }));
 
 vi.mock("../hooks/usePipeline", () => ({
@@ -99,6 +110,9 @@ beforeEach(() => {
   mocks.cancelBatch.mutateAsync.mockReset();
   Object.assign(mocks.cancelJob, { isPending: false });
   mocks.cancelJob.mutateAsync.mockReset();
+  Object.assign(mocks.graph, { data: undefined, isPending: false, isError: false });
+  mocks.graph.mutate.mockReset();
+  mocks.graph.reset.mockReset();
   mocks.setCredentials.mutate.mockReset();
   mocks.clearCredentials.mutate.mockReset();
   window.history.replaceState({}, "", "/sites");
@@ -778,5 +792,46 @@ describe("SitesPage row affordances", () => {
     // Inside the label, every click meant to open the site would tick the box.
     const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
     expect(link.closest("label")).toBeNull();
+  });
+});
+
+describe("SitesPage link graph", () => {
+  const site = {
+    id: 42,
+    name: "Docs",
+    base_url: "https://docs.example.com",
+    platform: "wordpress",
+    crawl_frequency: "daily",
+    created_at: "2026-08-04T08:00:00Z",
+  };
+
+  it("opens the selected site's read-only graph from Actions", () => {
+    mocks.sites.data = [site];
+    mocks.graph.isPending = true;
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View link graph" }));
+
+    expect(mocks.graph.mutate).toHaveBeenCalledWith({ siteId: 42 });
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect(screen.getByLabelText("Loading Docs’s link graph…")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(mocks.graph.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a retry when the selected site's graph fails to load", () => {
+    mocks.sites.data = [site];
+    mocks.graph.isError = true;
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View link graph" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("The link graph could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(mocks.graph.mutate).toHaveBeenCalledTimes(2);
+    expect(mocks.graph.mutate).toHaveBeenLastCalledWith({ siteId: 42 });
   });
 });

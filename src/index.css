@@ -288,12 +288,71 @@ body {
   opacity: 1;
 }
 
-.graph-group:focus-visible .graph-group-focus {
+.graph-edge-hit:focus-visible .graph-edge-focus {
+  stroke-opacity: 0.28;
+}
+
+/* A page the pointer is on comes back to full strength even while a filter has
+   the rest of the site receded — pointing at something is a question about it. */
+.graph-node:hover {
   opacity: 1;
 }
 
-.graph-edge-hit:focus-visible .graph-edge-focus {
-  opacity: 0.28;
+/**
+ * The site map's camera, in CSS.
+ *
+ * `--graph-halo` is written by `GraphLens` on the map element once per animation
+ * frame: it is the reveal, the isolated rim coming up as the camera pulls back.
+ * `--graph-halo-force` is set from React and holds the rim visible when a search
+ * or a filter is asking about it, whatever the zoom says. `max()` of the two
+ * means neither can switch the other off.
+ */
+.graph-halo {
+  opacity: max(var(--graph-halo, 1), var(--graph-halo-force, 0));
+}
+
+/**
+ * Titles are hidden while the camera moves and fade back once it settles.
+ *
+ * They are drawn in screen pixels rather than map units, so during a flight they
+ * would slide across the map at a different speed from the pages they name —
+ * and a moving map is being watched, not read. Out fast, back at the system's
+ * arrival speed.
+ */
+.graph-labels {
+  opacity: 1;
+  transition: opacity theme(transitionDuration.arrive) theme(transitionTimingFunction.settle);
+}
+
+.graph-map.is-moving .graph-labels {
+  opacity: 0;
+  transition-duration: theme(transitionDuration.feedback);
+}
+
+/* A prepared link is an edit in flight, so its dashes travel. One period of the
+   `6 4` dash pattern per 10 units, two per cycle, which loops seamlessly. */
+.graph-edge-prepared {
+  animation: graphDash 1.8s linear infinite;
+}
+
+@keyframes graphDash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* The map arrives with the camera's opening move rather than snapping in. */
+.graph-world {
+  animation: graphMapIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes graphMapIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Lavender in both themes, but not the same lavender: light selects with the

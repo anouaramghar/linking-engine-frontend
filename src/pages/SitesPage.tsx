@@ -15,8 +15,10 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import SelectionControl from "../components/SelectionControl";
+import SiteGraphModal from "../components/sites/SiteGraphModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
 import { useActiveJobs, useCancelJob } from "../hooks/useJobs";
+import { useGraphNetwork } from "../hooks/useGraph";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { usePageState } from "../hooks/usePageState";
 import {
@@ -221,6 +223,8 @@ export default function SitesPage() {
   const activeJobsQuery = useActiveJobs();
   const activeJobs = useMemo(() => activeJobsQuery.data ?? [], [activeJobsQuery.data]);
   const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const graphNetwork = useGraphNetwork();
+  const [graphSite, setGraphSite] = useState<Site | null>(null);
   const activeJobsBySite = useMemo(() => {
     const index = new Map<number, JobRun>();
     for (const job of activeJobs) {
@@ -282,6 +286,20 @@ export default function SitesPage() {
   const retryPipelineSite = useRetryPipelineSite();
   const cancelBatch = useCancelPipelineBatch();
   const cancelJob = useCancelJob();
+
+  const openGraph = (site: Site) => {
+    setGraphSite(site);
+    graphNetwork.mutate({ siteId: site.id });
+  };
+
+  const closeGraph = () => {
+    setGraphSite(null);
+    graphNetwork.reset();
+  };
+
+  const retryGraph = () => {
+    if (graphSite) graphNetwork.mutate({ siteId: graphSite.id });
+  };
 
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -798,6 +816,10 @@ export default function SitesPage() {
                       ? []
                       : [
                           {
+                            label: "View link graph",
+                            onSelect: () => openGraph(site),
+                          },
+                          {
                             label:
                               site.suggestion_slots_available === 0
                                 ? "Generate suggestions — queue full"
@@ -909,6 +931,16 @@ export default function SitesPage() {
           />
         )}
       </div>
+      {graphSite && (
+        <SiteGraphModal
+          site={graphSite}
+          data={graphNetwork.data}
+          loading={graphNetwork.isPending}
+          error={graphNetwork.isError}
+          onRetry={retryGraph}
+          onClose={closeGraph}
+        />
+      )}
       <Suspense fallback={null}>
         {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
         {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}

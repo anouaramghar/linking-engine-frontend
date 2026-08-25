@@ -58,6 +58,7 @@ describe("SiteScheduleModal", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Timezone/ }), {
       target: { value: "Africa/Casablanca" },
     });
+    expect(screen.getByText(/the first occurrence is used/)).not.toBeNull();
     const form = screen.getByRole("form", { name: "Site refresh schedule" });
     expect(form.querySelector('[name="enabled"]')).not.toBeNull();
     expect(form.querySelector('[name="cadence"]')).not.toBeNull();

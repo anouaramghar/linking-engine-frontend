@@ -257,7 +257,9 @@ export default function SiteScheduleModal({
             </datalist>
             <span id={timezoneHintId} className="mt-1 block text-caption-sm leading-relaxed text-muted">
               Enter an IANA timezone, for example Africa/Casablanca or America/New_York. The
-              schedule uses this local time, including daylight-saving changes where applicable.
+              schedule uses this local time, including daylight-saving changes where applicable. If
+              daylight saving skips the selected time, it moves forward to the next valid time; if
+              the time repeats, the first occurrence is used.
             </span>
           </label>
 
