@@ -18,6 +18,7 @@ export type AgentProposalKind =
   | "review_suggestion"
   | "editorial_ranking_policy"
   | "external_link_policy"
+  | "site_schedule_update"
   | "site_job_start"
   | "pipeline_batch_start"
   | "pipeline_retry"
@@ -275,6 +276,28 @@ export const confirmProposal = async (
     Object.keys(value).every((key) => allowed.includes(key));
   const isIsoTimestamp = (value: unknown): value is string =>
     typeof value === "string" && value.trim() !== "" && !Number.isNaN(Date.parse(value));
+  const isScheduleTime = (value: unknown): value is string =>
+    typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value);
+  const validScheduleSnapshot = (value: unknown): value is Record<string, unknown> => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const snapshot = value as Record<string, unknown>;
+    if (!hasOnlyKeys(snapshot, ["exists", "enabled", "cadence", "weekday", "local_time", "timezone"])) {
+      return false;
+    }
+    if (snapshot.exists === false) return Object.keys(snapshot).length === 1;
+    return (
+      snapshot.exists === true &&
+      typeof snapshot.enabled === "boolean" &&
+      (snapshot.cadence === "daily" || snapshot.cadence === "weekly") &&
+      (snapshot.weekday === null || (Number.isInteger(snapshot.weekday) && Number(snapshot.weekday) >= 0 && Number(snapshot.weekday) <= 6)) &&
+      ((snapshot.cadence === "daily" && snapshot.weekday === null) ||
+        (snapshot.cadence === "weekly" && snapshot.weekday !== null)) &&
+      isScheduleTime(snapshot.local_time) &&
+      typeof snapshot.timezone === "string" &&
+      snapshot.timezone.trim() !== "" &&
+      snapshot.timezone.length <= 64
+    );
+  };
   const validManagedSite = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
     const site = value as Record<string, unknown>;
@@ -511,6 +534,45 @@ export const confirmProposal = async (
     const label = siteIngestion ? "crawl" : "analysis";
     return {
       message: `Started: ${label} job #${String(result.job_run_id)}.`,
+      undoAvailable: false,
+    };
+  }
+
+  const siteSchedule = path.match(/^\/sites\/(\d+)\/schedule$/);
+  if (
+    proposal.tool === "preview_site_schedule" &&
+    proposal.kind === "site_schedule_update" &&
+    proposal.risk === "sensitive" &&
+    proposal.method === "PUT" &&
+    siteSchedule
+  ) {
+    const payload = proposal.payload;
+    const context = proposal.context;
+    const weekday = payload.weekday;
+    const validWeekday =
+      weekday === null || (Number.isInteger(weekday) && Number(weekday) >= 0 && Number(weekday) <= 6);
+    if (
+      !hasOnlyKeys(payload, ["enabled", "cadence", "weekday", "local_time", "timezone", "expected"]) ||
+      typeof payload.enabled !== "boolean" ||
+      (payload.cadence !== "daily" && payload.cadence !== "weekly") ||
+      !validWeekday ||
+      (payload.cadence === "daily" && weekday !== null) ||
+      (payload.cadence === "weekly" && weekday === null) ||
+      !isScheduleTime(payload.local_time) ||
+      typeof payload.timezone !== "string" ||
+      payload.timezone.trim() === "" ||
+      payload.timezone.length > 64 ||
+      !validScheduleSnapshot(payload.expected) ||
+      !context ||
+      Number(context.site_id) !== Number(siteSchedule[1]) ||
+      typeof context.site_name !== "string" ||
+      !context.site_name.trim()
+    ) {
+      throw new Error("unsupported site schedule proposal");
+    }
+    await api.put(path, payload);
+    return {
+      message: `${payload.enabled ? "Scheduled" : "Paused"}: refresh for ${context.site_name}.`,
       undoAvailable: false,
     };
   }

@@ -216,16 +216,11 @@ export default function SelectedPage() {
         title="Selected links"
         sub={`${selectedSummary} · exact edits require approval`}
         actions={
-          <>
-            {batchReviewReady && (
-              <Link to={batchDestination} className="btn btn-primary btn-sm">
-                {batchLabel}
-              </Link>
-            )}
-            <QueueLink className="btn btn-outline btn-sm">
-              Back to review queue
-            </QueueLink>
-          </>
+          batchReviewReady ? (
+            <Link to={batchDestination} className="btn btn-primary btn-sm">
+              {batchLabel}
+            </Link>
+          ) : undefined
         }
       />
 

@@ -544,16 +544,18 @@ export default function ContentPoolPage() {
           <EmptyPanel>No sources match these filters.</EmptyPanel>
         )}
 
-        <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
-          <div>Source</div>
-          <div>Type</div>
-          <div className="xl:hidden">Details</div>
-          <div className="hidden xl:block">Articles</div>
-          <div className="hidden xl:block">Failures</div>
-          <div className="hidden xl:block">Last crawl</div>
-          <div>Status</div>
-          <div />
-        </div>
+        {visible.length > 0 && (
+          <div className={`${GRID} eyebrow hidden px-5 pb-3 lg:grid`}>
+            <div>Source</div>
+            <div>Type</div>
+            <div className="xl:hidden">Details</div>
+            <div className="hidden xl:block">Articles</div>
+            <div className="hidden xl:block">Failures</div>
+            <div className="hidden xl:block">Last crawl</div>
+            <div>Status</div>
+            <div />
+          </div>
+        )}
 
         <div className="flex flex-col gap-2.5">
           {visible.map((site) => {

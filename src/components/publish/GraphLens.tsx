@@ -400,6 +400,16 @@ function SignalLegend() {
         Every square is a page. Lines show internal links; arrowheads show their direction. Linked
         pages group into clusters. Pages with no internal link stay in the block below the clusters.
       </p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-caption-sm text-muted">
+        <span>
+          <span className="mr-1 inline-block w-6 border-t border-hairline-control align-middle" />
+          Active link
+        </span>
+        <span>
+          <span className="mr-1 inline-block w-6 border-t-2 border-dashed border-primary align-middle" />
+          Prepared link
+        </span>
+      </div>
     </details>
   );
 }
@@ -415,7 +425,26 @@ export default function GraphLens({ data }: Props) {
     () => new Map(data.nodes.map((node) => [node.article_id, node])),
     [data.nodes],
   );
-  const layout = useMemo(() => layoutFullNodes(data.nodes, data.edges), [data.nodes, data.edges]);
+  const proposedEdges = useMemo(
+    () => (data.proposed_edges ?? []).filter((edge) => edge.status === "new"),
+    [data.proposed_edges],
+  );
+  const visibleEdges = useMemo(() => {
+    const activeEdgeKeys = new Set(data.edges.map((edge) => edgeKey(edge.source_article_id, edge.target_article_id)));
+    const uniqueProposed = proposedEdges.filter(
+      (edge) => !activeEdgeKeys.has(edgeKey(edge.source_article_id, edge.target_article_id)),
+    );
+    return [
+      ...data.edges,
+      ...uniqueProposed.map((edge) => ({
+        source_article_id: edge.source_article_id,
+        target_article_id: edge.target_article_id,
+        proposed: true,
+      })),
+    ];
+  }, [data.edges, proposedEdges]);
+  const visibleProposedEdges = visibleEdges.filter((edge) => edge.proposed);
+  const layout = useMemo(() => layoutFullNodes(data.nodes, visibleEdges), [data.nodes, visibleEdges]);
   const selectedNode = selectedArticleId === null ? undefined : nodeById.get(selectedArticleId);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchingNodes = useMemo(
@@ -464,16 +493,16 @@ export default function GraphLens({ data }: Props) {
   }, [data.nodes, filter, layout.linked, matchingNodes, normalizedQuery, selectedArticleId]);
   const selectedConnections = useMemo(() => {
     if (selectedArticleId === null) return { incoming: [], outgoing: [] };
-    const incoming = data.edges
+    const incoming = visibleEdges
       .filter((edge) => edge.target_article_id === selectedArticleId)
       .map((edge) => nodeById.get(edge.source_article_id))
       .filter((node): node is GraphFeature => node !== undefined);
-    const outgoing = data.edges
+    const outgoing = visibleEdges
       .filter((edge) => edge.source_article_id === selectedArticleId)
       .map((edge) => nodeById.get(edge.target_article_id))
       .filter((node): node is GraphFeature => node !== undefined);
     return { incoming, outgoing };
-  }, [data.edges, nodeById, selectedArticleId]);
+  }, [nodeById, selectedArticleId, visibleEdges]);
   const activeNode = (node: GraphFeature) =>
     matchesFilter(node, filter) && matchesQuery(node, normalizedQuery);
   const focusEdge = (edge: GraphNetworkEdge) =>
@@ -486,11 +515,56 @@ export default function GraphLens({ data }: Props) {
     (normalizedQuery.length > 0 &&
       (matchingNodeIds.has(edge.source_article_id) || matchingNodeIds.has(edge.target_article_id)));
 
+  const renderEdge = (edge: GraphNetworkEdge, index: number, proposed = false) => {
+    const source = layout.positions.get(edge.source_article_id);
+    const target = layout.positions.get(edge.target_article_id);
+    if (!source || !target) return null;
+    const active = highlightedEdge(edge);
+    const focused = focusEdge(edge);
+    const sourceNode = nodeById.get(edge.source_article_id);
+    const targetNode = nodeById.get(edge.target_article_id);
+    const dimmed =
+      (sourceNode ? !activeNode(sourceNode) : true) &&
+      (targetNode ? !activeNode(targetNode) : true);
+    return (
+      <line
+        key={edgeKey(edge.source_article_id, edge.target_article_id) + ":" + index}
+        x1={source.x}
+        y1={source.y}
+        x2={target.x}
+        y2={target.y}
+        stroke={
+          focused
+            ? "rgb(var(--c-primary))"
+            : proposed
+              ? "rgb(var(--c-primary))"
+              : "rgb(var(--c-hairline-control))"
+        }
+        strokeWidth={focused ? 2.2 : proposed ? 2 : active ? 1.5 : 1}
+        strokeOpacity={focused ? 0.95 : proposed ? 0.9 : dimmed ? 0.08 : active ? 0.7 : 0.45}
+        strokeDasharray={proposed ? "6 4" : undefined}
+        vectorEffect="non-scaling-stroke"
+        markerEnd={
+          showDirection
+            ? focused || active
+              ? "url(#graph-lens-arrow-active)"
+              : "url(#graph-lens-arrow-muted)"
+            : undefined
+        }
+      />
+    );
+  };
+
   const mapSummary =
     data.article_count.toLocaleString() +
     " pages and " +
     data.edge_count.toLocaleString() +
     " internal links. " +
+    (visibleProposedEdges.length > 0
+      ? `${visibleProposedEdges.length.toLocaleString()} prepared internal ${
+          visibleProposedEdges.length === 1 ? "link" : "links"
+        } are overlaid. `
+      : "") +
     data.orphan_count.toLocaleString() +
     " orphans, " +
     data.underlinked_count.toLocaleString() +
@@ -510,8 +584,9 @@ export default function GraphLens({ data }: Props) {
         <div className="min-w-0">
           <h3 className="text-title-md font-medium text-ink">Full site graph</h3>
           <p className="mt-1 max-w-3xl text-caption-sm leading-normal text-muted">
-            See the whole active site as a connected system. Search or filter to bring important
-            pages forward, then select a page to inspect its place in the network.
+            See the whole active site as a connected system, with prepared internal links shown as
+            dashed lines. Search or filter to bring important pages forward, then select a page to
+            inspect its place in the network.
           </p>
         </div>
         <span className="flex-none text-caption-sm text-muted">{snapshotLabel(data.computed_at)}</span>
@@ -524,6 +599,14 @@ export default function GraphLens({ data }: Props) {
         <span>
           <strong className="font-medium text-ink">{data.edge_count.toLocaleString()}</strong> internal links
         </span>
+        {visibleProposedEdges.length > 0 && (
+          <span>
+            <strong className="font-medium text-primary">
+              {visibleProposedEdges.length.toLocaleString()}
+            </strong>{" "}
+            prepared internal {visibleProposedEdges.length === 1 ? "link" : "links"}
+          </span>
+        )}
         <span>
           <strong className="font-medium text-error-ink">{data.orphan_count.toLocaleString()}</strong> orphans
         </span>
@@ -531,6 +614,12 @@ export default function GraphLens({ data }: Props) {
           <strong className="font-medium text-success">{data.hub_count.toLocaleString()}</strong> hubs
         </span>
       </div>
+      {visibleProposedEdges.length > 0 && (
+        <p className="mt-2 text-caption-sm text-muted">
+          Structural signals describe the active site; dashed links are prepared edits and are not
+          published yet.
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Network health filters">
@@ -610,7 +699,7 @@ export default function GraphLens({ data }: Props) {
 
       <SignalLegend />
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-caption-sm text-muted">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-caption-sm text-muted">
         <span>
           {filter === "all" && normalizedQuery.length === 0
             ? "The map keeps every page visible; select a square to inspect it."
@@ -711,44 +800,18 @@ export default function GraphLens({ data }: Props) {
                   >
                     {layout.band.count.toLocaleString() +
                       (layout.band.count === 1 ? " page with no" : " pages with no") +
-                      " internal link"}
+                      (visibleProposedEdges.length > 0
+                        ? " active or prepared internal link"
+                        : " internal link")}
                   </text>
                 </g>
               )}
 
-              <g aria-label="Internal links">
-                {data.edges.map((edge, index) => {
-                  const source = layout.positions.get(edge.source_article_id);
-                  const target = layout.positions.get(edge.target_article_id);
-                  if (!source || !target) return null;
-                  const active = highlightedEdge(edge);
-                  const focused = focusEdge(edge);
-                  const sourceNode = nodeById.get(edge.source_article_id);
-                  const targetNode = nodeById.get(edge.target_article_id);
-                  const dimmed =
-                    (sourceNode ? !activeNode(sourceNode) : true) &&
-                    (targetNode ? !activeNode(targetNode) : true);
-                  return (
-                    <line
-                      key={edgeKey(edge.source_article_id, edge.target_article_id) + ":" + index}
-                      x1={source.x}
-                      y1={source.y}
-                      x2={target.x}
-                      y2={target.y}
-                      stroke={focused ? "rgb(var(--c-primary))" : "rgb(var(--c-hairline-control))"}
-                      strokeWidth={focused ? 2.2 : active ? 1.5 : 1}
-                      strokeOpacity={focused ? 0.95 : dimmed ? 0.08 : active ? 0.7 : 0.45}
-                      vectorEffect="non-scaling-stroke"
-                      markerEnd={
-                        showDirection
-                          ? focused || active
-                            ? "url(#graph-lens-arrow-active)"
-                            : "url(#graph-lens-arrow-muted)"
-                          : undefined
-                      }
-                    />
-                  );
-                })}
+              <g role="group" aria-label="Internal links">
+                {data.edges.map((edge, index) => renderEdge(edge, index))}
+              </g>
+              <g role="group" aria-label="Prepared internal links">
+                {visibleProposedEdges.map((edge, index) => renderEdge(edge, index, true))}
               </g>
 
               <g aria-label="Pages">
@@ -940,7 +1003,7 @@ export default function GraphLens({ data }: Props) {
         {data.nodes.length > 250 && <span>Dense map mode: use search, filters, and zoom to focus.</span>}
       </div>
 
-      {data.nodes.length > 0 && data.edges.length === 0 && (
+      {data.nodes.length > 0 && data.edges.length === 0 && visibleProposedEdges.length === 0 && (
         <p className="mt-3 text-caption-sm text-muted">
           No internal links are recorded yet. The isolated pages above are the site&apos;s current
           orphan and underlinked candidates.

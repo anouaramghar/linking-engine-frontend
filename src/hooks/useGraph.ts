@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-import { getGraphNetwork } from "../api/graph";
+import { getGraphNeighborhood, getGraphNetwork } from "../api/graph";
 import type { GraphNetwork } from "../types/graph";
 
 /**
@@ -32,7 +32,30 @@ export const useGraphNetwork = () => {
     );
   }, []);
 
-  const mutate = useCallback(({ siteId }: { siteId: number }) => run(() => getGraphNetwork(siteId)), [run]);
+  const mutate = useCallback(
+    ({ siteId, suggestionIds = [] }: { siteId: number; suggestionIds?: number[] }) => {
+      const ids = [...new Set(suggestionIds)].filter((id) => Number.isInteger(id) && id > 0);
+      run(() =>
+        getGraphNetwork(siteId).then((network) => {
+          if (ids.length === 0) return network;
+
+          // The full network keeps every active page visible. The neighborhood
+          // call supplies article ids for the prepared suggestions, so the
+          // overlay never guesses from display URLs and never turns external
+          // links into internal edges.
+          return getGraphNeighborhood(siteId, ids, 80)
+            .then((neighborhood) => ({
+              ...network,
+              proposed_edges: neighborhood.proposed_edges.filter(
+                (edge) => edge.status === "new",
+              ),
+            }))
+            .catch(() => network);
+        }),
+      );
+    },
+    [run],
+  );
 
   const reset = useCallback(() => {
     attempt.current += 1;

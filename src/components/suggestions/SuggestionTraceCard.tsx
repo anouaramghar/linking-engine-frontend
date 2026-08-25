@@ -505,7 +505,24 @@ export default function SuggestionTraceCard({ suggestion, trace, collapsible = f
             Ranking, safety, and lifecycle evidence.
           </span>
         </span>
-        <span className="badge flex-none">View evidence</span>
+        <span
+          className="flex h-11 w-11 flex-none items-center justify-center rounded-pill bg-surface-strong text-muted"
+          title="View evidence"
+        >
+          <span className="sr-only">View evidence</span>
+          <svg
+            aria-hidden="true"
+            className="evidence-chevron h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </span>
       </summary>
       <div className="mt-3">{card}</div>
     </details>

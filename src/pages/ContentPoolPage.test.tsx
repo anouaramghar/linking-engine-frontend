@@ -79,6 +79,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ContentPoolPage", () => {
+  it("hides table headings when there are no pool sources", () => {
+    render(<ContentPoolPage />);
+
+    expect(screen.getByText("Connect a trusted RSS, Atom, or Wikipedia source to get started."))
+      .toBeTruthy();
+    expect(screen.queryByText("Source", { exact: true })).toBeNull();
+    expect(screen.queryByText("Status", { exact: true })).toBeNull();
+  });
+
   it("shows only pool sources and exposes approval", async () => {
     mocks.sites.data = [
       { id: 1, name: "Owned", base_url: "https://owned.example.com", platform: "html" },

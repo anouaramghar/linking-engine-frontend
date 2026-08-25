@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const post = vi.hoisted(() => vi.fn());
+const put = vi.hoisted(() => vi.fn());
 const remove = vi.hoisted(() => vi.fn());
 
 vi.mock("./client", () => ({
   api: {
     post,
-    put: vi.fn(),
+    put,
     delete: remove,
     defaults: { baseURL: "/api/v1" },
   },
@@ -21,7 +22,61 @@ import { confirmProposal } from "./agent";
 describe("small dashboard-parity proposal confirmation", () => {
   beforeEach(() => {
     post.mockReset();
+    put.mockReset();
     remove.mockReset();
+  });
+
+  it("updates one exact site refresh schedule with its current-state guard", async () => {
+    const payload = {
+      enabled: true,
+      cadence: "weekly",
+      weekday: 2,
+      local_time: "03:15:00",
+      timezone: "UTC",
+      expected: {
+        exists: false,
+      },
+    };
+    put.mockResolvedValueOnce({ data: { id: 12, site_id: 8 } });
+
+    await expect(
+      confirmProposal({
+        tool: "preview_site_schedule",
+        kind: "site_schedule_update",
+        risk: "sensitive",
+        method: "PUT",
+        endpoint: "/api/v1/sites/8/schedule",
+        payload,
+        context: { site_id: 8, site_name: "Docs", next_run_at: "2026-08-26T03:15:00Z" },
+        impact: { site_count: 1 },
+      }),
+    ).resolves.toEqual({
+      message: "Scheduled: refresh for Docs.",
+      undoAvailable: false,
+    });
+    expect(put).toHaveBeenCalledWith("/sites/8/schedule", payload);
+  });
+
+  it("refuses a schedule proposal with an invalid expected snapshot", async () => {
+    await expect(
+      confirmProposal({
+        tool: "preview_site_schedule",
+        kind: "site_schedule_update",
+        risk: "sensitive",
+        method: "PUT",
+        endpoint: "/api/v1/sites/8/schedule",
+        payload: {
+          enabled: true,
+          cadence: "daily",
+          weekday: null,
+          local_time: "03:15:00",
+          timezone: "UTC",
+          expected: { exists: false, enabled: false },
+        },
+        context: { site_id: 8, site_name: "Docs", next_run_at: "2026-08-25T03:15:00Z" },
+      }),
+    ).rejects.toThrow("unsupported site schedule proposal");
+    expect(put).not.toHaveBeenCalled();
   });
 
   it("acknowledges only the exact unread alert occurrence", async () => {

@@ -110,7 +110,7 @@ describe("SuggestionPreview publication state", () => {
     expect(onReviewPublication).toHaveBeenCalledTimes(1);
   });
 
-  it("puts the decision before collapsed technical provenance", () => {
+  it("puts the decision after the technical provenance", () => {
     render(
       <SuggestionPreview
         suggestion={suggestion("pending")}
@@ -126,10 +126,13 @@ describe("SuggestionPreview publication state", () => {
 
     const action = screen.getByRole("button", { name: "Select for review" });
     const provenance = screen.getByText("Technical provenance").closest("details");
+    const source = screen.getByText("Source article");
 
     expect(provenance).not.toBeNull();
     expect(provenance?.open).toBe(false);
-    expect(action.compareDocumentPosition(provenance!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(action.compareDocumentPosition(source)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(action.compareDocumentPosition(provenance!)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(action.closest("section")?.className).not.toContain("sticky");
   });
 
   it("identifies an in-progress publication", () => {

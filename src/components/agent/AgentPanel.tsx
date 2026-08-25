@@ -50,6 +50,8 @@ const looksLikeQuestion = (text: string) => {
   );
 };
 
+const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
 function ToolTrace({ name, outcome }: { name: string; outcome: Record<string, unknown> }) {
   const summary = Object.entries(outcome)
     .map(([key, value]) => `${key}: ${String(value)}`)
@@ -97,6 +99,21 @@ const describeProposal = (proposal: AgentProposal): string => {
     const siteId = proposal.endpoint.match(/\/(?:sites|suggestions)\/(\d+)/)?.[1];
     const articles = proposal.impact?.active_article_count ?? 0;
     return `${ingestion ? "Crawl" : "Analyze"} site #${siteId}; current scope is ${articles} active article${articles === 1 ? "" : "s"}`;
+  }
+  if (proposal.kind === "site_schedule_update") {
+    const siteId = proposal.endpoint.match(/\/sites\/(\d+)\/schedule$/)?.[1];
+    const site = proposal.context?.site_name ?? `site #${siteId}`;
+    if (!proposal.payload.enabled) return `Pause automatic refresh for ${String(site)}`;
+    const weekday = Number(proposal.payload.weekday);
+    const cadence =
+      proposal.payload.cadence === "weekly"
+        ? `weekly on ${WEEKDAY_LABELS[weekday] ?? `weekday ${String(proposal.payload.weekday)}`}`
+        : "daily";
+    const nextRun =
+      typeof proposal.context?.next_run_at === "string"
+        ? `; next run ${proposal.context.next_run_at}`
+        : "";
+    return `Schedule ${String(site)} refresh ${cadence} at ${String(proposal.payload.local_time)} ${String(proposal.payload.timezone)}${nextRun}`;
   }
   if (proposal.kind === "article_analysis_start") {
     const articleId = proposal.context?.article_id;
@@ -155,6 +172,9 @@ const sensitiveProposalWarning = (proposal: AgentProposal): string => {
   }
   if (proposal.kind === "pipeline_cancel") {
     return "Sensitive action: unfinished work will stop. Completed site runs stay completed.";
+  }
+  if (proposal.kind === "site_schedule_update") {
+    return "Sensitive action: this changes future crawl-and-analysis runs. It does not publish and does not interrupt work already running.";
   }
   if (proposal.kind === "site_create" || proposal.kind === "site_bulk_create") {
     return "Sensitive action: this registers external site URLs. No credentials are attached and no crawl starts until separately confirmed.";
@@ -339,6 +359,7 @@ const AFFECTED_QUERIES: Record<AgentProposalKind, readonly (readonly string[])[]
   // A changed external-link rule re-scores what the queue may offer, so the
   // rows and their counts move although no suggestion was reviewed.
   external_link_policy: [["external-link-policy"], ["suggestions"]],
+  site_schedule_update: [["site-schedule"], ["sites"], ["jobs", "active"]],
   // A started job appears as an activity row first. Its output arrives later,
   // through the active-jobs feed that refreshes the numbers again then.
   site_job_start: [["jobs"], ["sites"]],

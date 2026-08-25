@@ -108,6 +108,30 @@ describe("GraphLens", () => {
     expect(screen.getAllByText(/5 pages and 5 internal links/)).not.toHaveLength(0);
   });
 
+  it("shows prepared internal links alongside the active graph", () => {
+    render(
+      <GraphLens
+        data={{
+          ...DATA,
+          proposed_edges: [
+            {
+              suggestion_id: 99,
+              source_article_id: 2,
+              target_article_id: 5,
+              status: "new",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(document.body.textContent).toContain("1 prepared internal link");
+    expect(screen.getByRole("group", { name: "Prepared internal links" })).not.toBeNull();
+    expect(
+      screen.getByRole("group", { name: "Prepared internal links" }).querySelectorAll("line"),
+    ).toHaveLength(1);
+  });
+
   it("highlights a category, lets the editor inspect a page, and zooms the map", async () => {
     const user = userEvent.setup();
     render(<GraphLens data={DATA} />);

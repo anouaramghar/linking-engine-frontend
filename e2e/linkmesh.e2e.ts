@@ -478,7 +478,7 @@ test("an operator selects a suggestion, approves its exact edit, and queues publ
     .click();
 
   await expect.poll(() => apiState.reviewRequests).toEqual([{ id: 501, status: "approved" }]);
-  await page.getByRole("link", { name: "Open selected links" }).click();
+  await page.getByRole("link", { name: /Selected links/ }).click();
 
   // The selected-links page is a review inbox between the queue and publication,
   // so the batch reaches /publish through it rather than directly.

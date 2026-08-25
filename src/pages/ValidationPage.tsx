@@ -21,10 +21,8 @@ import SuggestionCard from "../components/suggestions/SuggestionCard";
 import SuggestionGroup from "../components/suggestions/SuggestionGroup";
 import SuggestionPreview from "../components/suggestions/SuggestionPreview";
 import RejectionReasonDialog from "../components/suggestions/RejectionReasonDialog";
-import SelectionTray from "../components/suggestions/SelectionTray";
 import FlowSteps from "../components/publish/FlowSteps";
 import { useIncrementalList } from "../hooks/useIncrementalList";
-import { usePendingPublication } from "../hooks/usePublish";
 import {
   useBulkReview,
   useFilteredBulkReview,
@@ -295,9 +293,6 @@ export default function ValidationPage() {
     { ...scope, maxPercent: threshold },
     bulkCountsWanted,
   );
-  // Read-only here. The queue owns the exact-edit review surface; this query
-  // only tells it which selected site's work is ready to open.
-  const pendingPublicationQuery = usePendingPublication();
   // Only a *stale* answer pauses review: `isPlaceholderData` means these counts
   // still describe the previous filter, so acting on them would act on the
   // wrong rows. A background refetch is not that — reviewing a row invalidates
@@ -324,7 +319,6 @@ export default function ValidationPage() {
     scopedCountsQuery,
     acceptCountsQuery,
     rejectCountsQuery,
-    pendingPublicationQuery,
   ];
   const loading =
     sitesQuery.isPending ||
@@ -336,8 +330,7 @@ export default function ValidationPage() {
     acceptCountsQuery,
     rejectCountsQuery,
   ].some((query) => query.isError);
-  const supportQueryFailed =
-    bulkCountQueryFailed || pendingPublicationQuery.isError;
+  const supportQueryFailed = bulkCountQueryFailed;
   const actionMutationPending = Boolean(
     review.isPending ||
       bulkReview.isPending ||
@@ -352,7 +345,6 @@ export default function ValidationPage() {
     void suggestionsQuery.refetch();
     void fleetCountsQuery.refetch();
     void scopedCountsQuery.refetch();
-    void pendingPublicationQuery.refetch();
     if (bulkCountsWanted) {
       void acceptCountsQuery.refetch();
       void rejectCountsQuery.refetch();
@@ -968,11 +960,6 @@ export default function ValidationPage() {
     );
   };
 
-  // Same rule as the counts: reviewing a row invalidates this query, so a
-  // refetch in flight is the normal state after every decision. Only "no answer
-  // yet" and "the answer failed" hide the publish controls.
-  const publicationUnavailable =
-    pendingPublicationQuery.isPending || pendingPublicationQuery.isError;
   const selected =
     resolvedSuggestions.find((suggestion) => suggestion.id === selectedId) ?? null;
 
@@ -1134,8 +1121,8 @@ export default function ValidationPage() {
               className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
             >
               <span className="min-w-0 flex-1">
-                Some queue totals or publication status could not be loaded. The current list is
-                still available, but related bulk controls may be paused.
+                Some queue totals could not be loaded. The current list is still available, but
+                bulk controls may be paused.
               </span>
               <button
                 type="button"
@@ -1144,17 +1131,6 @@ export default function ValidationPage() {
               >
                 Retry supporting data
               </button>
-            </div>
-          )}
-
-          {publicationUnavailable && !pendingPublicationQuery.isError && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="mb-3 rounded-lg border border-hairline bg-surface-strong px-4 py-2.5 text-caption text-body"
-            >
-              Loading what is already selected. The link to the exact-edit review appears once it
-              arrives.
             </div>
           )}
 
@@ -1275,24 +1251,6 @@ export default function ValidationPage() {
 
           </div>
 
-          {!loading && !failed && !publicationUnavailable && (
-            <SelectionTray
-              siteId={siteFilter || undefined}
-              selected={
-                pendingPublicationQuery.totalSelectedSuggestions ??
-                (pendingPublicationQuery.data ?? []).reduce(
-                  (total, site) => total + site.selected_suggestions,
-                  0,
-                )
-              }
-              siteCount={
-                pendingPublicationQuery.totalSites ??
-                (pendingPublicationQuery.data ?? []).filter(
-                  (site) => site.selected_suggestions > 0,
-                ).length
-              }
-            />
-          )}
         </div>
 
         {selected && (

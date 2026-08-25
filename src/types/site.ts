@@ -75,6 +75,8 @@ export interface SiteSchedule {
   last_run_started_at: string | null;
   last_run_finished_at: string | null;
   last_run_error: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
 }
 
 export interface SiteScheduleUpdate {

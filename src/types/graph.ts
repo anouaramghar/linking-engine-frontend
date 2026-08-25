@@ -33,6 +33,13 @@ export interface GraphSummary {
 export interface GraphNetworkEdge {
   source_article_id: number;
   target_article_id: number;
+  /** Synthetic marker used when a prepared edge is overlaid in the review. */
+  proposed?: boolean;
+}
+
+export interface GraphProposedEdge extends GraphNetworkEdge {
+  suggestion_id: number;
+  status: "new" | "already_present";
 }
 
 export interface GraphNetwork {
@@ -48,4 +55,20 @@ export interface GraphNetwork {
   saturated_count: number;
   nodes: GraphFeature[];
   edges: GraphNetworkEdge[];
+  /** Prepared internal links overlaid by the review screen; not live yet. */
+  proposed_edges?: GraphProposedEdge[];
+}
+
+export interface GraphNeighborhood {
+  site_id: number;
+  snapshot_id: number;
+  graph_version: string;
+  computed_at: string;
+  requested_suggestion_ids: number[];
+  skipped_suggestion_ids: number[];
+  nodes: Array<GraphFeature & { focus: boolean }>;
+  existing_edges: GraphNetworkEdge[];
+  proposed_edges: GraphProposedEdge[];
+  truncated: boolean;
+  warnings: string[];
 }
