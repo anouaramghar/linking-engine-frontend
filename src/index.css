@@ -292,6 +292,10 @@ body {
   opacity: 1;
 }
 
+.graph-edge-hit:focus-visible .graph-edge-focus {
+  opacity: 0.28;
+}
+
 /* Lavender in both themes, but not the same lavender: light selects with the
    pastel and dark with a deep violet, each carrying the ink that can be read on
    it. A single ground here would put one of the two at ~1.7:1. */

@@ -522,7 +522,9 @@ describe("PublishPage approval", () => {
       80,
     );
     expect(
-      screen.getByRole("group", { name: "Prepared internal links" }).querySelectorAll("line"),
+      screen
+        .getByRole("group", { name: "Prepared internal links" })
+        .querySelectorAll("line.graph-edge-visible"),
     ).toHaveLength(5);
   });
 

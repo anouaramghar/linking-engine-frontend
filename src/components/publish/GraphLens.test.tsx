@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -126,10 +126,9 @@ describe("GraphLens", () => {
     );
 
     expect(document.body.textContent).toContain("1 prepared internal link");
-    expect(screen.getByRole("group", { name: "Prepared internal links" })).not.toBeNull();
-    expect(
-      screen.getByRole("group", { name: "Prepared internal links" }).querySelectorAll("line"),
-    ).toHaveLength(1);
+    const preparedLinks = screen.getByRole("group", { name: "Prepared internal links" });
+    expect(preparedLinks.querySelectorAll("line.graph-edge-visible")).toHaveLength(1);
+    expect(preparedLinks.querySelector("line.graph-edge-hit-target")).not.toBeNull();
   });
 
   it("focuses prepared links and opens their relationship in the inspector", async () => {
@@ -158,6 +157,37 @@ describe("GraphLens", () => {
     await user.click(screen.getByRole("button", { name: /Prepared link: Lost article to Popular article/ }));
     expect(screen.getByText("Prepared link selected")).not.toBeNull();
     expect(screen.getByText("Lost article → Popular article")).not.toBeNull();
+    expect(screen.getByText("Active links from")).not.toBeNull();
+    expect(screen.getByText("Prepared links from")).not.toBeNull();
+  });
+
+  it("returns to the full graph when prepared links disappear", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <GraphLens
+        data={{
+          ...DATA,
+          proposed_edges: [
+            {
+              suggestion_id: 99,
+              source_article_id: 2,
+              target_article_id: 5,
+              status: "new",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Prepared: 1/ }));
+    rerender(<GraphLens data={{ ...DATA, proposed_edges: [] }} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /All pages: 5/ }).getAttribute("aria-pressed")).toBe(
+        "true",
+      ),
+    );
+    expect(screen.queryByRole("button", { name: /Prepared: 1/ })).toBeNull();
   });
 
   it("highlights a category, lets the editor inspect a page, and zooms the map", async () => {
@@ -194,7 +224,7 @@ describe("GraphLens", () => {
 
     await user.click(screen.getByRole("button", { name: "Lost article" }));
     expect(screen.getByText("https://example.com/lost")).not.toBeNull();
-    expect(screen.getByText("No outgoing links recorded.")).not.toBeNull();
+    expect(screen.getByText("No active outgoing links recorded.")).not.toBeNull();
   });
 
   it("keeps a larger network bounded and deterministic", () => {
