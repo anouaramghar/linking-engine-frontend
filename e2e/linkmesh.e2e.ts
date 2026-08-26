@@ -491,10 +491,15 @@ test("an operator selects a suggestion, approves its exact edit, and queues publ
   await expect(page.getByRole("heading", { name: "Approve exact edits", level: 1 })).toBeVisible();
   await expect(page.getByRole("region", { name: "Exact edit review" })).toBeVisible();
 
-  // Every exact change must be read before the batch can be approved, so the
-  // approve action only appears once nothing is left unread.
-  await expect(page.getByText("0 of 1 read")).toBeVisible();
-  await page.getByRole("button", { name: "Read the next change" }).click();
+  // Approval is not gated on opening each change one at a time. The guarantee
+  // is that nothing is hidden: every selected edit is already on the page, with
+  // the words that become the link marked in their own sentence, so the batch
+  // is approvable as soon as it is prepared.
+  await expect(
+    page.getByText("Read our internal linking guide for the full workflow."),
+  ).toBeVisible();
+  await expect(page.locator("mark", { hasText: "internal linking guide" })).toBeVisible();
+  await expect(page.getByText("Ready to approve")).toBeVisible();
 
   await expect(page.getByRole("button", { name: "Approve and queue 1 exact edit" })).toBeVisible();
 
