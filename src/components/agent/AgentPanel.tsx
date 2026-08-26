@@ -380,13 +380,16 @@ const AFFECTED_QUERIES: Record<AgentProposalKind, readonly (readonly string[])[]
  */
 function ProposalCard({
   proposal,
+  result,
+  onConfirmed,
   onReaction,
 }: {
   proposal: AgentProposal;
+  result: AgentProposalResult | null;
+  onConfirmed: (result: AgentProposalResult) => void;
   onReaction?: (reaction: AvatarReaction) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [result, setResult] = useState<AgentProposalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
   const impactFacts = proposalImpactFacts(proposal);
@@ -395,7 +398,8 @@ function ProposalCard({
     setConfirming(true);
     setError(null);
     try {
-      setResult(await confirmProposal(proposal));
+      const confirmed = await confirmProposal(proposal);
+      onConfirmed(confirmed);
       // Only after the write is acknowledged, and never awaited: the refetches
       // it starts belong to the rest of the dashboard, so waiting for them
       // would hold this button busy — and a failed refetch would then be
@@ -618,6 +622,7 @@ export default function AgentPanel({
   const { data: user } = useSession();
   const [mcpEnvelope, setMcpEnvelope] = useState<string | null>(actionEnvelopeFromFragment);
   const [open, setOpen] = useState(mcpEnvelope !== null);
+  const [proposalResults, setProposalResults] = useState<Record<string, AgentProposalResult>>({});
   const [draft, setDraft] = useState("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [avatarOverride, setAvatarOverride] = useState<AvatarReaction | null>(null);
@@ -733,8 +738,13 @@ export default function AgentPanel({
 
   const handleClearConversation = () => {
     clearConversation();
+    setProposalResults({});
     clearAvatarOverride();
   };
+
+  const rememberProposalResult = useCallback((proposalKey: string, result: AgentProposalResult) => {
+    setProposalResults((current) => ({ ...current, [proposalKey]: result }));
+  }, []);
 
   // Hooks stay unconditional; a signed-out visitor just renders nothing —
   // there is no principal the tools could scope by.
@@ -1057,13 +1067,18 @@ export default function AgentPanel({
                           Stopped before Mesh finished the answer.
                         </p>
                       )}
-                      {message.proposals?.map((proposal, proposalIndex) => (
-                        <ProposalCard
-                          key={`${proposal.tool}-${proposalIndex}`}
-                          proposal={proposal}
-                          onReaction={triggerAvatarReaction}
-                        />
-                      ))}
+                      {message.proposals?.map((proposal, proposalIndex) => {
+                        const proposalKey = `${message.id}:${String(proposalIndex)}`;
+                        return (
+                          <ProposalCard
+                            key={proposalKey}
+                            proposal={proposal}
+                            result={proposalResults[proposalKey] ?? null}
+                            onConfirmed={(result) => rememberProposalResult(proposalKey, result)}
+                            onReaction={triggerAvatarReaction}
+                          />
+                        );
+                      })}
                       {!message.streaming &&
                         message.tools?.map((tool, toolIndex) => (
                           <BlockedActionCard

@@ -575,7 +575,7 @@ describe("AgentPanel", () => {
   });
 
   it("stages a bulk rule behind an explicit confirm, then reports the result", async () => {
-    streams("I can approve the strong ones when you are ready.", {
+    const stream = streams("I can approve the strong ones when you are ready.", {
       proposals: [
         {
           tool: "preview_bulk_review",
@@ -627,6 +627,14 @@ describe("AgentPanel", () => {
     await waitFor(() =>
       expect(screen.getByTestId("agent-avatar").getAttribute("data-animation")).toBe("celebrate"),
     );
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    // The transcript survives and reopening does not ask the agent for a new preview.
+    expect(screen.getByText("I can approve the strong ones when you are ready.")).not.toBeNull();
+    expect(stream).toHaveBeenCalledTimes(1);
+    // Closing the panel must not make an already-confirmed action actionable again.
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+    expect(screen.getByText(/Applied: 12 reviewed/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close Mesh" }));
   });
 
   it("confirms one suggestion review through the typed proposal path", async () => {
