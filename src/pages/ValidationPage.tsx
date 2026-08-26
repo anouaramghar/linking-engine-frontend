@@ -1076,22 +1076,24 @@ export default function ValidationPage() {
           </div>
 
           {notice && (
-            <Notice
-              notice={notice}
-              onDismiss={() => setNotice(null)}
-              onUndo={
-                notice.undoOperationId
-                  ? () => undoFiltered(notice.undoOperationId!)
-                  : notice.undoIds
-                    ? () => undo(notice.undoIds!)
-                    : undefined
-              }
-              undoPending={
-                bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending
-              }
-              onRetry={bulkRecovery?.failedIds.length ? retryFailedOnly : undefined}
-              retryPending={bulkReview.isPending}
-            />
+            <div className="w-full">
+              <Notice
+                notice={notice}
+                onDismiss={() => setNotice(null)}
+                onUndo={
+                  notice.undoOperationId
+                    ? () => undoFiltered(notice.undoOperationId!)
+                    : notice.undoIds
+                      ? () => undo(notice.undoIds!)
+                      : undefined
+                }
+                undoPending={
+                  bulkReview.isPending || filteredReview.isPending || filteredUndo.isPending
+                }
+                onRetry={bulkRecovery?.failedIds.length ? retryFailedOnly : undefined}
+                retryPending={bulkReview.isPending}
+              />
+            </div>
           )}
 
           {bulkRecovery && (

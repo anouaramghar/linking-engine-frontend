@@ -12,16 +12,51 @@ export interface NoticeState {
 }
 
 /**
- * A successful operation uses the success fill; a failure uses the error fill.
- *
- * Both invert, so both flip the focus ring with them — the app's ink ring is
- * invisible on either, and Undo is the last control that should be hard to
- * find with a keyboard.
+ * The notice stays on the card surface so it can acknowledge an action
+ * without becoming a full-width band of colour. The small mark and semantic
+ * border carry the tone; the message carries the state.
  */
-const TONE: Record<NoticeTone, string> = {
-  info: "bg-success text-on-dark focus-ring-inverse",
-  error: "bg-error text-on-dark focus-ring-inverse",
+const TONE: Record<NoticeTone, { container: string; icon: string }> = {
+  info: {
+    container: "border-success/30 bg-surface-card text-ink",
+    icon: "border-success/25 bg-tint-positive text-success",
+  },
+  error: {
+    container: "border-error/30 bg-surface-card text-error-ink",
+    icon: "border-error/25 bg-tint-negative text-error-ink",
+  },
 };
+
+const ACTION_CLASS =
+  "touch-target inline-flex min-h-9 flex-none items-center justify-center whitespace-nowrap rounded-pill border border-hairline-strong bg-surface-card px-3 text-caption-sm font-medium text-ink transition-[background-color,border-color,color,transform] duration-feedback ease-settle hover:border-ink hover:bg-surface-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50";
+
+function NoticeIcon({ tone }: { tone: NoticeTone }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex h-8 w-8 flex-none items-center justify-center rounded-full border ${TONE[tone].icon}`}
+    >
+      <svg
+        className="h-4 w-4"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {tone === "error" ? (
+          <>
+            <path d="M8 2.5 14 13H2L8 2.5Z" />
+            <path d="M8 6v3.25M8 11.25h.01" />
+          </>
+        ) : (
+          <path d="m4 8.25 2.5 2.5L12 5.25" />
+        )}
+      </svg>
+    </span>
+  );
+}
 
 /** Informational notices without recovery stay visible long enough to read. */
 const AUTO_DISMISS_MS = 8000;
@@ -130,42 +165,45 @@ export default function Notice({
         focused.current = false;
         if (!hovering.current) startAutoDismiss();
       }}
-      // The banner drops in from the edge it is anchored to rather than
+      // The notice drops in from the edge it is anchored to rather than
       // appearing between two frames. It reports something that just happened —
       // a batch approved, a publish rejected — and an outcome that materialises
       // with no arrival is one an operator can miss entirely while looking at
       // the row they were working on.
-      className={`mb-3 flex animate-noticeIn flex-wrap items-center gap-3 rounded-lg px-4 py-2.5 text-caption ${TONE[notice.tone]}`}
+      className={`mb-4 flex w-full max-w-full animate-noticeIn flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3.5 py-3 text-caption transition-[border-color,box-shadow] duration-state ease-settle hover:shadow-soft sm:px-4 ${TONE[notice.tone].container}`}
     >
-      <span className="min-w-0 flex-1">{notice.message}</span>
-      {canUndo && (
+      <NoticeIcon tone={notice.tone} />
+      <span className="min-w-0 flex-1 leading-snug">{notice.message}</span>
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {canUndo && (
+          <button type="button" onClick={onUndo} disabled={undoPending} className={ACTION_CLASS}>
+            {undoPending ? "Undoing…" : "Undo"}
+          </button>
+        )}
+        {onRetry && (
+          <button type="button" onClick={onRetry} disabled={retryPending} className={ACTION_CLASS}>
+            {retryPending ? "Retrying…" : retryLabel}
+          </button>
+        )}
         <button
           type="button"
-          onClick={onUndo}
-          disabled={undoPending}
-          className="touch-target inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
+          aria-label="Dismiss message"
+          onClick={onDismiss}
+          className="touch-target inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border border-transparent text-muted transition-[background-color,color,transform] duration-feedback ease-settle hover:bg-surface-strong hover:text-ink active:scale-[0.97]"
         >
-          {undoPending ? "Undoing…" : "Undo"}
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          >
+            <path d="m4.25 4.25 7.5 7.5M11.75 4.25l-7.5 7.5" />
+          </svg>
         </button>
-      )}
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          disabled={retryPending}
-          className="touch-target inline-flex min-h-8 flex-none items-center rounded-pill border border-on-dark/40 px-2.5 text-caption-sm font-medium hover:bg-on-dark/15 disabled:opacity-50"
-        >
-          {retryPending ? "Retrying…" : retryLabel}
-        </button>
-      )}
-      <button
-        type="button"
-        aria-label="Dismiss message"
-        onClick={onDismiss}
-        className="touch-target inline-flex h-8 w-8 flex-none items-center justify-center rounded-pill text-body-md leading-none text-on-dark hover:bg-on-dark/15"
-      >
-        &times;
-      </button>
+      </div>
     </div>
   );
 }
