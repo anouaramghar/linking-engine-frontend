@@ -154,7 +154,9 @@ function SuggestionCard({
                 }}
                 aria-label={`Review exact edit for suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
                 disabled={actionsDisabled}
-                className="btn btn-primary btn-sm"
+                // The batch review action owns primary emphasis on the Selected
+                // links page; this remains available as a row-level shortcut.
+                className="btn btn-outline btn-sm"
               >
                 Review exact edit
               </button>
