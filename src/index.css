@@ -617,6 +617,10 @@ input[type="number"] {
  * after the eighth take the base entrance with no delay.
  */
 .queue-row {
+  /* Vercel's long-list guidance: skip layout and paint for rows below the
+     viewport while retaining a stable estimate for scroll geometry. */
+  content-visibility: auto;
+  contain-intrinsic-size: 0 96px;
   animation: rowIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 

@@ -163,8 +163,7 @@ export default function ValidationPage() {
     loadedGroupKey,
     loadedGroupCount,
     rememberLoadedGroups,
-    scrollKey,
-    scrollTop,
+    scrollTopFor,
     rememberScrollTop,
   } = useQueueWorkspace();
   const {
@@ -474,8 +473,8 @@ export default function ValidationPage() {
   useEffect(() => {
     const node = queueRegion.current;
     if (!node || loading) return;
-    node.scrollTop = scrollKey === groupListKey ? scrollTop : 0;
-  }, [groupListKey, loading, scrollKey, scrollTop]);
+    node.scrollTop = scrollTopFor(groupListKey);
+  }, [groupListKey, loading, scrollTopFor]);
 
   // Names are looked up per rendered row, so the linear scan is hoisted into a
   // map rather than repeated for every suggestion in the queue.
