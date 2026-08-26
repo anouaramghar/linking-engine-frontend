@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GraphNetwork } from "../../types/graph";
 import GraphLens from "./GraphLens";
@@ -93,7 +93,32 @@ const DATA: GraphNetwork = {
 };
 
 describe("GraphLens", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("finishes an active camera move when the document becomes hidden", () => {
+    const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 41));
+    vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrame);
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+
+    try {
+      const { container } = render(<GraphLens data={DATA} />);
+      const frame = container.querySelector(".graph-map");
+      expect(frame?.classList.contains("is-moving")).toBe(true);
+
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(cancelAnimationFrame).toHaveBeenCalledWith(41);
+      expect(frame?.classList.contains("is-moving")).toBe(false);
+    } finally {
+      if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+    }
+  });
 
   it("shows the whole site and its structural signals", () => {
     render(<GraphLens data={DATA} />);

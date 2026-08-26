@@ -329,32 +329,6 @@ body {
   transition-duration: theme(transitionDuration.feedback);
 }
 
-/* A prepared link is an edit in flight, so its dashes travel. One period of the
-   `6 4` dash pattern per 10 units, two per cycle, which loops seamlessly. */
-.graph-edge-prepared {
-  animation: graphDash 1.8s linear infinite;
-}
-
-@keyframes graphDash {
-  to {
-    stroke-dashoffset: -20;
-  }
-}
-
-/* The map arrives with the camera's opening move rather than snapping in. */
-.graph-world {
-  animation: graphMapIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes graphMapIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 /* Lavender in both themes, but not the same lavender: light selects with the
    pastel and dark with a deep violet, each carrying the ink that can be read on
    it. A single ground here would put one of the two at ~1.7:1. */
@@ -910,7 +884,9 @@ input[type="number"] {
   color: var(--assistant-muted);
   font-size: 12px;
   font-weight: 500;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background theme(transitionDuration.feedback) theme(transitionTimingFunction.settle),
+    color theme(transitionDuration.feedback) theme(transitionTimingFunction.settle);
 }
 
 .assistant-header-action--wide {
@@ -1002,7 +978,9 @@ input[type="number"] {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background theme(transitionDuration.feedback) theme(transitionTimingFunction.settle),
+    color theme(transitionDuration.feedback) theme(transitionTimingFunction.settle);
 }
 
 .assistant-suggestion:hover:not(:disabled) {
@@ -1041,7 +1019,9 @@ input[type="number"] {
 .assistant-suggestion__arrow {
   flex: none;
   color: var(--assistant-muted);
-  transition: transform 150ms ease, color 150ms ease;
+  transition:
+    transform theme(transitionDuration.feedback) theme(transitionTimingFunction.settle),
+    color theme(transitionDuration.feedback) theme(transitionTimingFunction.settle);
 }
 
 .assistant-suggestion:hover:not(:disabled) .assistant-suggestion__arrow {

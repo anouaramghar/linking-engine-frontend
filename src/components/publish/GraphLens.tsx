@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { REDUCED_MOTION_QUERY } from "../../hooks/useTheme";
@@ -57,9 +57,9 @@ const MAX_LABELS = 22;
  */
 const HALO_MARKER_LIMIT = 700;
 const TAB_LIMIT = 40;
-const CAMERA_MS = 460;
+const CAMERA_MS = 200;
 /** The opening move: the whole site, then in to the core. */
-const INTRO_MS = 900;
+const INTRO_MS = 280;
 
 const STATUS_LABEL: Record<NodeStatus, string> = {
   orphan: "Orphan",
@@ -130,6 +130,26 @@ const edgeKey = (sourceArticleId: number, targetArticleId: number) =>
   sourceArticleId + ":" + targetArticleId;
 
 const nodeDegree = (node: GraphFeature) => node.in_degree + node.out_degree;
+
+const connectedNodes = (
+  edges: readonly GraphNetworkEdge[],
+  selectedArticleId: number,
+  nodeById: Map<number, GraphFeature>,
+) => {
+  const incoming: GraphFeature[] = [];
+  const outgoing: GraphFeature[] = [];
+  for (const edge of edges) {
+    if (edge.target_article_id === selectedArticleId) {
+      const source = nodeById.get(edge.source_article_id);
+      if (source) incoming.push(source);
+    }
+    if (edge.source_article_id === selectedArticleId) {
+      const target = nodeById.get(edge.target_article_id);
+      if (target) outgoing.push(target);
+    }
+  }
+  return { incoming, outgoing };
+};
 
 /**
  * A page marker is a zero-length stroked path, not a circle element.
@@ -576,6 +596,7 @@ export default function GraphLens({ data }: Props) {
   /** What the camera is showing right now, mid-flight included. */
   const shownRef = useRef<Viewport>({ scale: 1, x: 0, y: 0 });
   const animationRef = useRef(0);
+  const animationTargetRef = useRef<Viewport | null>(null);
   const mountedRef = useRef(false);
   const dragRef = useRef<{ moved: boolean; origin: Viewport; pointerId: number; x: number; y: number } | null>(null);
   const geometryRef = useRef({ aspect: 1, coreSpan: 1 });
@@ -645,29 +666,13 @@ export default function GraphLens({ data }: Props) {
     if (selectedArticleId === null) {
       return { activeIncoming: [], activeOutgoing: [], preparedIncoming: [], preparedOutgoing: [] };
     }
-    const resolve = (ids: number[]) =>
-      ids.map((id) => nodeById.get(id)).filter((node): node is GraphFeature => node !== undefined);
+    const active = connectedNodes(data.edges, selectedArticleId, nodeById);
+    const prepared = connectedNodes(visibleProposedEdges, selectedArticleId, nodeById);
     return {
-      activeIncoming: resolve(
-        data.edges
-          .filter((edge) => edge.target_article_id === selectedArticleId)
-          .map((edge) => edge.source_article_id),
-      ),
-      activeOutgoing: resolve(
-        data.edges
-          .filter((edge) => edge.source_article_id === selectedArticleId)
-          .map((edge) => edge.target_article_id),
-      ),
-      preparedIncoming: resolve(
-        visibleProposedEdges
-          .filter((edge) => edge.target_article_id === selectedArticleId)
-          .map((edge) => edge.source_article_id),
-      ),
-      preparedOutgoing: resolve(
-        visibleProposedEdges
-          .filter((edge) => edge.source_article_id === selectedArticleId)
-          .map((edge) => edge.target_article_id),
-      ),
+      activeIncoming: active.incoming,
+      activeOutgoing: active.outgoing,
+      preparedIncoming: prepared.incoming,
+      preparedOutgoing: prepared.outgoing,
     };
   }, [data.edges, nodeById, selectedArticleId, visibleProposedEdges]);
   const selectedNeighborIds = useMemo(
@@ -760,14 +765,30 @@ export default function GraphLens({ data }: Props) {
     [haloRevealAt],
   );
 
+  const finishCamera = useCallback(() => {
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    animationRef.current = 0;
+    const target = animationTargetRef.current;
+    animationTargetRef.current = null;
+    if (target) {
+      shownRef.current = target;
+      writeViewport(target);
+    }
+    frameElementRef.current?.classList.remove("is-moving");
+  }, [writeViewport]);
+
   const moveCamera = useCallback(
     (target: Viewport, duration: number) => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      animationRef.current = 0;
       const from = shownRef.current;
       const element = frameElementRef.current;
+      animationTargetRef.current = target;
       if (duration <= 0 || reducedMotion || typeof requestAnimationFrame === "undefined") {
         shownRef.current = target;
         writeViewport(target);
+        animationTargetRef.current = null;
+        element?.classList.remove("is-moving");
         return;
       }
 
@@ -793,12 +814,21 @@ export default function GraphLens({ data }: Props) {
         shownRef.current = target;
         writeViewport(target);
         animationRef.current = 0;
+        animationTargetRef.current = null;
         element?.classList.remove("is-moving");
       };
       animationRef.current = requestAnimationFrame(step);
     },
     [reducedMotion, writeViewport],
   );
+
+  useEffect(() => {
+    const finishWhenHidden = () => {
+      if (document.hidden) finishCamera();
+    };
+    document.addEventListener("visibilitychange", finishWhenHidden);
+    return () => document.removeEventListener("visibilitychange", finishWhenHidden);
+  }, [finishCamera]);
 
   // Declared before the camera: a resize or a new snapshot changes what one map
   // unit is worth on screen, and the camera writes through this.
@@ -839,6 +869,8 @@ export default function GraphLens({ data }: Props) {
   useLayoutEffect(
     () => () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      animationRef.current = 0;
+      animationTargetRef.current = null;
     },
     [],
   );
