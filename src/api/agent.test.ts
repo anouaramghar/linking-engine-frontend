@@ -527,6 +527,7 @@ describe("streamAgentMessage", () => {
     return {
       seen,
       onDelta: (text) => seen.push(`delta:${text}`),
+      onReasoning: (text) => seen.push(`reasoning:${text}`),
       onTool: (tool) => seen.push(`tool:${tool.name}`),
       onDone: (response) => seen.push(`done:${response.reply}`),
     };
@@ -541,6 +542,48 @@ describe("streamAgentMessage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("reports the model's thinking apart from its reply", async () => {
+    // The two are the same shape on the wire and must not read the same way:
+    // a reasoning model's draft is progress to show during the wait, not the
+    // answer, and it can contradict the answer it arrives at.
+    respondWith(
+      sse(
+        'event: reasoning\ndata: {"text":"They want a count. "}\n\n',
+        'event: delta\ndata: {"text":"Three."}\n\n',
+        'event: done\ndata: {"reply":"Three.","tools_used":[],"proposals":[]}\n\n',
+      ),
+    );
+
+    const report = handlers();
+    await streamAgentMessage("how busy?", [], report);
+
+    expect(report.seen).toEqual([
+      "reasoning:They want a count. ",
+      "delta:Three.",
+      "done:Three.",
+    ]);
+  });
+
+  it("ignores thinking a caller has nowhere to show", async () => {
+    // `onReasoning` is optional, so a caller that only wants the answer must
+    // not be handed a crash for a frame it did not ask for.
+    respondWith(
+      sse(
+        'event: reasoning\ndata: {"text":"Thinking."}\n\n',
+        'event: done\ndata: {"reply":"Three.","tools_used":[],"proposals":[]}\n\n',
+      ),
+    );
+
+    const seen: string[] = [];
+    await streamAgentMessage("how busy?", [], {
+      onDelta: (text) => seen.push(`delta:${text}`),
+      onTool: (tool) => seen.push(`tool:${tool.name}`),
+      onDone: (response) => seen.push(`done:${response.reply}`),
+    });
+
+    expect(seen).toEqual(["done:Three."]);
   });
 
   it("reports each event as it arrives, whatever the chunks were", async () => {

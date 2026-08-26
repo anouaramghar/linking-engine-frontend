@@ -33,6 +33,15 @@ export interface AgentTurnResult {
 export const MAX_AGENT_HISTORY_TURNS = 20;
 export const MAX_AGENT_MESSAGES = MAX_AGENT_HISTORY_TURNS * 2;
 
+/**
+ * How much of the model's thinking is kept while a turn runs.
+ *
+ * Only the tail is ever shown, and a reasoning model can think for thousands
+ * of words, so the rest is dropped as it arrives rather than accumulated for a
+ * turn nobody will scroll back through.
+ */
+export const MAX_AGENT_REASONING_CHARS = 2_000;
+
 interface UseAgentChatOptions {
   /** Defer the status request until the panel is actually visible. */
   enabled?: boolean;
@@ -51,6 +60,11 @@ interface UseAgentChatOptions {
  */
 export function useAgentChat({ enabled = false, context }: UseAgentChatOptions = {}) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  // Deliberately not part of the transcript: thinking belongs to the turn being
+  // waited on, not to the conversation, and putting it on the assistant message
+  // would also seat an empty reply under the question before there is anything
+  // to say there.
+  const [reasoning, setReasoning] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
@@ -77,6 +91,7 @@ export function useAgentChat({ enabled = false, context }: UseAgentChatOptions =
       if (!trimmed || pendingRef.current) return null;
       setError(null);
       setFailedMessage(null);
+      setReasoning("");
       pendingRef.current = true;
       setPending(true);
       const history = messages
@@ -123,6 +138,10 @@ export function useAgentChat({ enabled = false, context }: UseAgentChatOptions =
           history,
           {
             onDelta: (delta) => revise((m) => ({ ...m, content: m.content + delta })),
+            onReasoning: (thought) =>
+              setReasoning((current) =>
+                (current + thought).slice(-MAX_AGENT_REASONING_CHARS),
+              ),
             onTool: (tool) => revise((m) => ({ ...m, tools: [...(m.tools ?? []), tool] })),
             onDone: (response) =>
               revise((m) => ({
@@ -181,6 +200,9 @@ export function useAgentChat({ enabled = false, context }: UseAgentChatOptions =
         );
         return { prompt: trimmed };
       } finally {
+        // However the turn ended, there is no longer a turn to be thinking
+        // about — a leftover draft under the next question would be stale.
+        setReasoning("");
         streamRef.current = null;
         if (activeAssistantRef.current === assistantId) activeAssistantRef.current = null;
         if (cancelledAssistantRef.current === assistantId) {
@@ -211,6 +233,7 @@ export function useAgentChat({ enabled = false, context }: UseAgentChatOptions =
     activeAssistantRef.current = null;
     cancelledAssistantRef.current = null;
     setMessages([]);
+    setReasoning("");
     setError(null);
     setFailedMessage(null);
   }, []);
@@ -219,6 +242,7 @@ export function useAgentChat({ enabled = false, context }: UseAgentChatOptions =
 
   return {
     messages,
+    reasoning,
     pending,
     error,
     failedMessage,

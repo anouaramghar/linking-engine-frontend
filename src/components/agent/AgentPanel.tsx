@@ -37,6 +37,9 @@ type AvatarReaction = Exclude<AssistantAvatarAnimation, "idle" | "listening" | "
 
 const AVATAR_REACTION_DURATION_MS = 2600;
 
+/** How much of the model's current thought the waiting line shows. */
+const THINKING_TAIL_CHARS = 140;
+
 const actionEnvelopeFromFragment = () => {
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   return params.get("mcp-action");
@@ -657,6 +660,7 @@ export default function AgentPanel({
   );
   const {
     messages,
+    reasoning,
     pending,
     error,
     failedMessage,
@@ -673,6 +677,18 @@ export default function AgentPanel({
   const lastMessage = messages[messages.length - 1];
   const streamingReply =
     lastMessage?.role === "assistant" && lastMessage.streaming ? lastMessage : null;
+
+  // The end of what the model is thinking, on one line. The tail rather than
+  // the head because the head stops changing: what makes the wait readable is
+  // seeing the sentence it is on now, and a reasoning model can spend twenty
+  // seconds there before its first word of reply.
+  const thinkingTail = useMemo(() => {
+    const flattened = reasoning.replace(/\s+/g, " ").trim();
+    if (!flattened) return "";
+    return flattened.length > THINKING_TAIL_CHARS
+      ? `…${flattened.slice(-THINKING_TAIL_CHARS)}`
+      : flattened;
+  }, [reasoning]);
 
   const clearAvatarOverride = useCallback(() => {
     if (avatarReactionTimer.current !== null) {
@@ -1096,10 +1112,22 @@ export default function AgentPanel({
                     <span aria-hidden="true" className="assistant-thinking__avatar">
                       <AgentAvatar animation={avatarAnimation} size={28} />
                     </span>
-                    <span className="assistant-thinking__copy">
-                      {avatarAnimation === "working"
-                        ? "Mesh is working…"
-                        : "Mesh is thinking…"}
+                    <span className="assistant-thinking__lines">
+                      <span className="assistant-thinking__copy">
+                        {avatarAnimation === "working"
+                          ? "Mesh is working…"
+                          : "Mesh is thinking…"}
+                      </span>
+                      {/* The model's own draft, moving while it works. Hidden
+                          from assistive technology on purpose: this is a live
+                          region, and announcing a scratchpad that rewrites
+                          itself every few hundred milliseconds would bury the
+                          one sentence above that is worth hearing. */}
+                      {thinkingTail && (
+                        <span aria-hidden="true" className="assistant-thinking__thought">
+                          {thinkingTail}
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}

@@ -130,6 +130,15 @@ export const postAgentMessage = (
 export interface AgentStreamHandlers {
   /** A fragment of the reply, as the model writes it. */
   onDelta: (text: string) => void;
+  /**
+   * A fragment of the model thinking, before it has started answering.
+   *
+   * Never the reply, and never appended to it: a reasoning model talks itself
+   * through a draft it can go on to contradict. Optional because a caller that
+   * has nowhere to show progress is better off ignoring these than mistaking
+   * them for the answer.
+   */
+  onReasoning?: (text: string) => void;
   /** A tool the engine has just finished consulting. */
   onTool: (tool: AgentToolTrace) => void;
   /** The finished turn — the same body `postAgentMessage` resolves with. */
@@ -225,6 +234,8 @@ export const streamAgentMessage = async (
     const payload: unknown = JSON.parse(data);
     if (event === "delta") {
       handlers.onDelta(String((payload as { text?: unknown }).text ?? ""));
+    } else if (event === "reasoning") {
+      handlers.onReasoning?.(String((payload as { text?: unknown }).text ?? ""));
     } else if (event === "tool") {
       handlers.onTool(payload as AgentToolTrace);
     } else if (event === "error") {

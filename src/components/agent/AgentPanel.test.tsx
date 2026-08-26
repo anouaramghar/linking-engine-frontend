@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -300,6 +300,38 @@ describe("AgentPanel", () => {
     release?.();
     await screen.findByText("The queue is ready.");
     expect(asked(stream.mock.calls[0])).toEqual(["check the queue", []]);
+  });
+
+  it("shows what the model is thinking during the wait, then drops it", async () => {
+    // The reason the panel could look frozen: a reasoning model spends its
+    // first ~19s writing a draft nobody could see. The draft is progress, not
+    // the answer — so it stands in the waiting line and leaves with it.
+    let think: ((text: string) => void) | undefined;
+    let release: (() => void) | undefined;
+    vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+      (_message, _history, handlers) =>
+        new Promise((resolve) => {
+          think = (text) => handlers.onReasoning?.(text);
+          release = () => {
+            handlers.onDone({ reply: "Two sites.", tools_used: [], proposals: [] });
+            resolve();
+          };
+        }),
+    );
+
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+    await user.type(await screen.findByLabelText("Message Mesh"), "how many sites?{Enter}");
+
+    await screen.findByRole("status");
+    act(() => think?.("They want a count."));
+    await screen.findByText("They want a count.");
+
+    act(() => release?.());
+    await screen.findByText("Two sites.");
+    // Not left standing under the finished answer, and not folded into it.
+    expect(screen.queryByText("They want a count.")).toBeNull();
   });
 
   it("maps typing, consulting a tool, and successful replies to avatar reactions", async () => {
