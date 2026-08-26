@@ -35,6 +35,7 @@ export default function Modal({
 }: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const descriptionId = useId();
 
   const onKeyDown = useFocusTrap(panel, onClose);
 
@@ -53,6 +54,7 @@ export default function Modal({
         aria-modal="true"
         aria-label={ariaLabel}
         aria-labelledby={ariaLabel ? undefined : titleId}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDown={onKeyDown}
         className={`flex max-h-[85vh] w-full flex-col rounded-xl border border-hairline bg-canvas-soft p-5 focus:outline-none sm:p-8 ${panelClassName}`}
@@ -75,7 +77,9 @@ export default function Modal({
           {/* Held clear of the close control, which overhangs the header by its
               own touch target. */}
           {description && (
-            <div className="mt-2 pr-10 text-caption leading-normal text-muted">{description}</div>
+            <div id={descriptionId} className="mt-2 pr-10 text-caption leading-normal text-muted">
+              {description}
+            </div>
           )}
         </div>
         {/* The panel is capped at 85vh, so its body has to be the thing that
