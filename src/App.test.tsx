@@ -48,10 +48,13 @@ vi.mock("./hooks/useSession", () => ({
 vi.mock("./hooks/useAgentChat", () => ({
   useAgentChat: () => ({
     messages: [],
+    reasoning: "",
     pending: false,
     error: null,
+    failedMessage: null,
     clearError: vi.fn(),
     retry: vi.fn(),
+    cancel: vi.fn(),
     clearConversation: vi.fn(),
     send: vi.fn(),
     configured: true,
