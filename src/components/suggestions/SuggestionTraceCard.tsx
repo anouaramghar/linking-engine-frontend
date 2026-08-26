@@ -196,7 +196,9 @@ function CitationNeedPanel({ evidence }: { evidence: CitationNeedEvidence }) {
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-caption-sm font-medium text-ink">Citation-needed sentence</span>
-        <span className="badge">{pct(evidence.confidence)} confidence</span>
+        <span className="badge">
+          {pct(evidence.confidence)} detector confidence; not factual confidence or target relevance
+        </span>
       </div>
       <blockquote className="mt-2 break-words border-l-2 border-primary/40 pl-3 text-body-sm leading-normal text-body">
         {evidence.sentence}
@@ -211,9 +213,9 @@ function CitationNeedPanel({ evidence }: { evidence: CitationNeedEvidence }) {
         </ul>
       )}
       <p className="mt-2 text-caption-sm leading-normal text-muted">
-        The local rule-based detector says this sentence should carry a source. Target
-        relevance is evaluated separately; this signal does not claim that the proposed page
-        proves the sentence.
+        The local rule-based detector says this sentence should carry a source. This detector
+        confidence is not factual confidence or target relevance; this signal does not claim that
+        the proposed page proves the sentence.
       </p>
       <p className="mt-1 text-caption-sm text-muted">
         Detector: {evidence.detector_version} &middot; Source offsets {evidence.start}–
@@ -478,8 +480,11 @@ export default function SuggestionTraceCard({ suggestion, trace, collapsible = f
         {citationNeed && (
           <div className="rounded-lg bg-surface-strong px-3 py-2">
             <dt className="text-caption-sm text-muted">Citation need</dt>
-            <dd className="mt-0.5 text-body-sm font-medium text-ink">
-              {pct(citationNeed.confidence)}
+            <dd
+              className="mt-0.5 text-body-sm font-medium text-ink"
+              title="Detector confidence; not factual confidence or target relevance"
+            >
+              <span>{pct(citationNeed.confidence)}</span> detector
             </dd>
           </div>
         )}

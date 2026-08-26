@@ -784,7 +784,12 @@ export default function GraphLens({ data }: Props) {
       const from = shownRef.current;
       const element = frameElementRef.current;
       animationTargetRef.current = target;
-      if (duration <= 0 || reducedMotion || typeof requestAnimationFrame === "undefined") {
+      if (
+        duration <= 0 ||
+        reducedMotion ||
+        typeof requestAnimationFrame === "undefined" ||
+        (typeof document !== "undefined" && document.hidden)
+      ) {
         shownRef.current = target;
         writeViewport(target);
         animationTargetRef.current = null;

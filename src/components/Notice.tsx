@@ -28,7 +28,7 @@ const TONE: Record<NoticeTone, { container: string; icon: string }> = {
 };
 
 const ACTION_CLASS =
-  "touch-target inline-flex min-h-9 flex-none items-center justify-center whitespace-nowrap rounded-pill border border-hairline-strong bg-surface-card px-3 text-caption-sm font-medium text-ink transition-[background-color,border-color,color,transform] duration-feedback ease-settle hover:border-ink hover:bg-surface-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50";
+  "notice-action touch-target inline-flex min-h-9 flex-none items-center justify-center whitespace-nowrap rounded-pill border border-hairline-strong bg-surface-card px-3 text-caption-sm font-medium text-ink transition-[background-color,border-color,color,transform] duration-feedback ease-settle hover:border-ink hover:bg-surface-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50";
 
 function NoticeIcon({ tone }: { tone: NoticeTone }) {
   return (
@@ -189,7 +189,7 @@ export default function Notice({
           type="button"
           aria-label="Dismiss message"
           onClick={onDismiss}
-          className="touch-target inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border border-transparent text-muted transition-[background-color,color,transform] duration-feedback ease-settle hover:bg-surface-strong hover:text-ink active:scale-[0.97]"
+          className="notice-dismiss touch-target inline-flex h-9 w-9 flex-none items-center justify-center rounded-full border border-transparent text-muted transition-[background-color,color,transform] duration-feedback ease-settle hover:bg-surface-strong hover:text-ink active:scale-[0.97]"
         >
           <svg
             aria-hidden="true"

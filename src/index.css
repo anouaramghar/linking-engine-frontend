@@ -1742,7 +1742,9 @@ input[type="number"] {
   }
 
   /* The press keeps its colour change and loses its give. */
-  .btn:active {
+  .btn:active,
+  .notice-action:active,
+  .notice-dismiss:active {
     transform: none;
   }
 }

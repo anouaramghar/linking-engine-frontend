@@ -120,6 +120,21 @@ describe("GraphLens", () => {
     }
   });
 
+  it("does not start a camera animation while initially hidden", () => {
+    const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+    const requestAnimationFrame = vi.fn(() => 41);
+    vi.stubGlobal("requestAnimationFrame", requestAnimationFrame);
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+
+    try {
+      render(<GraphLens data={DATA} />);
+
+      expect(requestAnimationFrame).not.toHaveBeenCalled();
+    } finally {
+      if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+    }
+  });
+
   it("shows the whole site and its structural signals", () => {
     render(<GraphLens data={DATA} />);
 
