@@ -226,7 +226,7 @@ export default function NotificationBell({
               type="button"
               aria-label="Close notifications"
               onClick={() => close(true)}
-              className="-mr-1 flex h-8 w-8 flex-none items-center justify-center rounded-pill text-muted
+              className="touch-target -mr-1 flex h-8 w-8 flex-none items-center justify-center rounded-pill text-muted
                 transition-colors duration-state ease-settle hover:bg-surface-strong hover:text-ink"
             >
               <CloseIcon />

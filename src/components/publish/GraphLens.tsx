@@ -211,7 +211,7 @@ function SignalButton({
       aria-label={label + ": " + count + ". " + description}
       onClick={onClick}
       className={
-        "inline-flex min-h-9 items-center gap-2 rounded-pill border px-3 py-1.5 text-left transition-[background-color,border-color,box-shadow] duration-state ease-settle " +
+        "touch-target inline-flex min-h-9 items-center gap-2 rounded-pill border px-3 py-1.5 text-left transition-[background-color,border-color,box-shadow] duration-state ease-settle " +
         (active
           ? "border-ink bg-surface-card shadow-soft"
           : "border-hairline bg-canvas-soft hover:border-hairline-strong hover:bg-surface-card")
@@ -1606,7 +1606,7 @@ export default function GraphLens({ data }: Props) {
                       }
                       onClick={selectIsolatedGroup}
                       className={
-                        "pointer-events-auto inline-flex items-center gap-2 rounded-pill border px-3 py-1.5 text-caption-sm transition-[background-color,border-color] duration-state ease-settle " +
+                        "touch-target pointer-events-auto inline-flex items-center gap-2 rounded-pill border px-3 py-1.5 text-caption-sm transition-[background-color,border-color] duration-state ease-settle " +
                         (selectedGroup === "isolated"
                           ? "border-ink bg-surface-card text-ink"
                           : "border-hairline bg-surface-card/90 text-muted hover:border-hairline-strong hover:text-ink")

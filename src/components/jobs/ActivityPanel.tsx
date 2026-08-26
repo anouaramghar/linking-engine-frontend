@@ -160,7 +160,7 @@ function ActivityJobRow({
             type="button"
             onClick={() => onStop(job)}
             aria-label={`Stop ${siteName} ${kindLabel.toLowerCase()}`}
-            className="mt-0.5 flex-none rounded-md border border-hairline-strong px-2 py-1 text-caption-sm font-medium text-muted transition-colors duration-state ease-settle hover:border-error/50 hover:bg-error/5 hover:text-error-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="touch-target mt-0.5 flex-none rounded-md border border-hairline-strong px-2 py-1 text-caption-sm font-medium text-muted transition-colors duration-state ease-settle hover:border-error/50 hover:bg-error/5 hover:text-error-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Stop
           </button>

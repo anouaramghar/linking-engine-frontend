@@ -35,7 +35,7 @@ export default function HelpHint({ label, children }: HelpHintProps) {
     <details ref={detailsRef} className="help-hint ml-1">
       <summary
         aria-label={label}
-        className="disclosure-summary inline-flex h-5 w-5 items-center justify-center rounded-pill border border-hairline text-caption-sm normal-case text-muted hover:bg-surface-strong hover:text-ink"
+        className="disclosure-summary touch-target inline-flex h-5 w-5 items-center justify-center rounded-pill border border-hairline text-caption-sm normal-case text-muted hover:bg-surface-strong hover:text-ink"
       >
         ?
       </summary>

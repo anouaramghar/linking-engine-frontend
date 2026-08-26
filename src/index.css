@@ -417,6 +417,13 @@ input[type="number"] {
  * doesn't is composed from utilities at the call site.
  */
 @layer components {
+  /* Interactive controls get a compact desktop floor and expand to the
+     pointer-size contract below on coarse devices. */
+  .touch-target {
+    min-width: 24px;
+    min-height: 24px;
+  }
+
   /* {component.button-primary} / {component.button-outline} share a box: 44px
      on mobile and 40px from `sm` upward, with 20px of horizontal room and a
      pill. The outline's border eats into the same outer box. */
