@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentPanel from "./AgentPanel";
@@ -68,7 +69,9 @@ const renderPanel = () => {
   return {
     ...render(
       <QueryClientProvider client={client}>
-        <AgentPanel />
+        <MemoryRouter>
+          <AgentPanel />
+        </MemoryRouter>
       </QueryClientProvider>,
     ),
     client,
@@ -84,6 +87,28 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
   getSession.mockResolvedValue({ telegram_id: 42, is_staff: true });
 });
+
+/**
+ * Park a turn in the middle of the model's thinking and hand back the way to
+ * feed it. Nothing resolves: the thinking line is only on screen while a turn
+ * is still owed a reply.
+ */
+const streamThinking = async (user = userEvent.setup()) => {
+  let think: ((text: string) => void) | undefined;
+  vi.mocked(agentApi.streamAgentMessage).mockImplementation(
+    (_message, _history, handlers) =>
+      new Promise(() => {
+        think = (text) => handlers.onReasoning?.(text);
+      }),
+  );
+
+  renderPanel();
+  await user.click(await screen.findByRole("button", { name: "Open Mesh" }));
+  await user.type(await screen.findByLabelText("Message Mesh"), "how many sites?{Enter}");
+  await screen.findByRole("status");
+
+  return (text: string) => think?.(text);
+};
 
 describe("AgentPanel", () => {
   it("offers a launcher only for a signed-in operator", async () => {
@@ -332,6 +357,63 @@ describe("AgentPanel", () => {
     await screen.findByText("Two sites.");
     // Not left standing under the finished answer, and not folded into it.
     expect(screen.queryByText("They want a count.")).toBeNull();
+  });
+
+  it("joins a long think at the sentence it is on, with no ellipsis to explain", async () => {
+    const think = await streamThinking();
+
+    const latest =
+      "I should call get_queue_counts for site 1, because that returns per-status " +
+      "counts and tells me whether the review backlog is the thing to report.";
+    act(() => think(`Checking the queue now. ${latest}`));
+
+    // Dropping the stale opener costs nothing and buys a clean first word.
+    expect((await screen.findByText(/per-status/)).textContent).toBe(latest);
+  });
+
+  it("never joins a long think mid-token", async () => {
+    // A raw slice lands inside whatever the model was naming — "…t_queue_counts
+    // site_id=1" — which reads as damage rather than as thinking.
+    const think = await streamThinking();
+
+    const thought =
+      "The operator is asking how many sites are connected and I need to decide whether " +
+      "that count comes from the site registry or from the health probe before I answer " +
+      "with a number they will act on";
+    act(() => think(thought));
+
+    const shown = (await screen.findByText(/health probe/)).textContent ?? "";
+    expect(shown.startsWith("…")).toBe(true);
+    const tail = shown.slice(1);
+    expect(thought.endsWith(tail)).toBe(true);
+    // Whatever was cut, the cut fell on a space: the tail opens on a whole word.
+    expect(thought.at(-tail.length - 1)).toBe(" ");
+  });
+
+  it("opens the whole retained draft on request, and puts it away again", async () => {
+    // Two clamped lines are a progress signal. An operator who wants to know
+    // why Mesh is about to propose something needs to read the rest of it.
+    const user = userEvent.setup();
+    const think = await streamThinking(user);
+
+    const opening = "First I check which sites are connected. ";
+    act(() => think(`${opening}${"Then I weigh the queue depth. ".repeat(8)}`));
+
+    // Collapsed, only the tail is there: the opening has scrolled out of it.
+    expect(screen.queryByText(new RegExp(opening.trim()))).toBeNull();
+
+    const toggle = await screen.findByRole("button", { name: "Show thinking" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
+
+    const draft = await screen.findByText(new RegExp(opening.trim()));
+    expect(draft.textContent).toContain("Then I weigh the queue depth.");
+    expect(
+      (await screen.findByRole("button", { name: "Hide thinking" })).getAttribute("aria-expanded"),
+    ).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "Hide thinking" }));
+    expect(screen.queryByText(new RegExp(opening.trim()))).toBeNull();
   });
 
   it("maps typing, consulting a tool, and successful replies to avatar reactions", async () => {

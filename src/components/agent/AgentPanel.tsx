@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { useQueryClient } from "@tanstack/react-query";
 import { BorderBeam } from "border-beam";
+import { Link } from "react-router-dom";
 import type { AnimationKey } from "@bible-strong/avatar-core";
 import {
   confirmProposal,
@@ -37,8 +38,32 @@ type AvatarReaction = Exclude<AssistantAvatarAnimation, "idle" | "listening" | "
 
 const AVATAR_REACTION_DURATION_MS = 2600;
 
-/** How much of the model's current thought the waiting line shows. */
-const THINKING_TAIL_CHARS = 140;
+/** How much of the model's current thought the collapsed waiting line shows. */
+const THINKING_TAIL_CHARS = 160;
+
+/**
+ * The tail of the model's draft, cut where a reader can actually join it.
+ *
+ * A raw slice lands mid-token — "…t_queue_counts site_id=1" — which reads as
+ * damage rather than as thinking. So the cut is moved forward to the next
+ * sentence when one starts early enough to leave a useful tail, and to the
+ * next whole word otherwise. A sentence-aligned tail needs no leading ellipsis:
+ * it already begins where a sentence begins.
+ */
+const thinkingTailOf = (reasoning: string) => {
+  const flattened = reasoning.replace(/\s+/g, " ").trim();
+  if (flattened.length <= THINKING_TAIL_CHARS) return flattened;
+
+  const slice = flattened.slice(-THINKING_TAIL_CHARS);
+  const sentence = /[.!?]["')\]]?\s+/.exec(slice);
+  if (sentence) {
+    const start = sentence.index + sentence[0].length;
+    if (start <= THINKING_TAIL_CHARS / 2) return slice.slice(start);
+  }
+
+  const word = slice.indexOf(" ");
+  return `…${word === -1 ? slice : slice.slice(word + 1)}`;
+};
 
 const actionEnvelopeFromFragment = () => {
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -329,12 +354,12 @@ function BlockedActionCard({ tool }: { tool: AgentToolTrace }) {
       </p>
       {details.href && details.hrefLabel && (
         <div className="assistant-proposal__actions">
-          <a
-            href={details.href}
-            className="assistant-secondary-button assistant-secondary-button--link"
+          <Link
+            to={details.href}
+            className="touch-target assistant-secondary-button assistant-secondary-button--link"
           >
             {details.hrefLabel}
-          </a>
+          </Link>
         </div>
       )}
     </section>
@@ -546,7 +571,11 @@ function McpActionCard({
             >
               {issuing ? "Issuing…" : "Confirm and issue receipt"}
             </button>
-            <button type="button" onClick={onDismiss} className="assistant-secondary-button">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="touch-target assistant-secondary-button"
+            >
               Decline
             </button>
           </div>
@@ -588,7 +617,11 @@ function McpActionCard({
             >
               {copied ? "Copied" : "Copy receipt"}
             </button>
-            <button type="button" onClick={onDismiss} className="assistant-secondary-button">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="touch-target assistant-secondary-button"
+            >
               Done
             </button>
           </div>
@@ -609,22 +642,25 @@ function McpActionCard({
  * Dashboard chat uses the read-only registry. Its proposal cards execute only
  * after a click; signed MCP links use the separate one-time receipt flow.
  */
-interface AgentPanelProps {
+export interface AgentPanelProps {
   /** The shell owns the theme hook so the beam follows explicit preferences. */
   resolvedTheme?: ResolvedTheme;
   /** Passed by the shell so the panel follows route changes without owning navigation. */
   currentPath?: string;
   currentSearch?: string;
+  /** The host uses this to open the panel immediately after its lazy module mounts. */
+  initialOpen?: boolean;
 }
 
 export default function AgentPanel({
   resolvedTheme = "light",
   currentPath,
   currentSearch,
+  initialOpen = false,
 }: AgentPanelProps) {
   const { data: user } = useSession();
   const [mcpEnvelope, setMcpEnvelope] = useState<string | null>(actionEnvelopeFromFragment);
-  const [open, setOpen] = useState(mcpEnvelope !== null);
+  const [open, setOpen] = useState(initialOpen || mcpEnvelope !== null);
   const [proposalResults, setProposalResults] = useState<Record<string, AgentProposalResult>>({});
   const [draft, setDraft] = useState("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -632,6 +668,9 @@ export default function AgentPanel({
   const [mcpPreview, setMcpPreview] = useState<AgentActionPreview | null>(null);
   const [mcpLoading, setMcpLoading] = useState(mcpEnvelope !== null);
   const [mcpError, setMcpError] = useState<string | null>(null);
+  // Sticky across turns on purpose: an operator who opened the draft once is
+  // watching how Mesh works, and wants the next turn opened too.
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -639,7 +678,9 @@ export default function AgentPanel({
   const avatarReactionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasOpen = useRef(false);
   const stickToBottom = useRef(true);
+  const thinkingDraftRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const thinkingDraftId = useId();
   const viewContext = useMemo(
     () =>
       getAgentViewContext(
@@ -682,13 +723,7 @@ export default function AgentPanel({
   // the head because the head stops changing: what makes the wait readable is
   // seeing the sentence it is on now, and a reasoning model can spend twenty
   // seconds there before its first word of reply.
-  const thinkingTail = useMemo(() => {
-    const flattened = reasoning.replace(/\s+/g, " ").trim();
-    if (!flattened) return "";
-    return flattened.length > THINKING_TAIL_CHARS
-      ? `…${flattened.slice(-THINKING_TAIL_CHARS)}`
-      : flattened;
-  }, [reasoning]);
+  const thinkingTail = useMemo(() => thinkingTailOf(reasoning), [reasoning]);
 
   const clearAvatarOverride = useCallback(() => {
     if (avatarReactionTimer.current !== null) {
@@ -785,6 +820,15 @@ export default function AgentPanel({
       setShowJumpToLatest(true);
     }
   }, [messages, pending]);
+
+  // The opened draft follows the thought, not the other way round: the model
+  // writes at the bottom, so that is where the box has to stay parked. It
+  // scrolls inside its own box, which is what keeps a long think from pushing
+  // the transcript around while the operator is reading it.
+  useEffect(() => {
+    const box = thinkingDraftRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [reasoning, thinkingExpanded]);
 
   if (!user) return null;
 
@@ -927,7 +971,7 @@ export default function AgentPanel({
               {failedMessage && (
                 <button
                   type="button"
-                  className="assistant-recovery-action"
+                  className="touch-target assistant-recovery-action"
                   onClick={editFailedMessage}
                 >
                   Edit failed question
@@ -1108,27 +1152,56 @@ export default function AgentPanel({
                 {/* Only until the reply starts landing: once words are
                     arriving, they say what this line was standing in for. */}
                 {pending && !streamingReply?.content && (
-                  <div role="status" className="assistant-thinking">
+                  <div className="assistant-thinking">
                     <span aria-hidden="true" className="assistant-thinking__avatar">
                       <AgentAvatar animation={avatarAnimation} size={28} />
                     </span>
-                    <span className="assistant-thinking__lines">
-                      <span className="assistant-thinking__copy">
-                        {avatarAnimation === "working"
-                          ? "Mesh is working…"
-                          : "Mesh is thinking…"}
-                      </span>
-                      {/* The model's own draft, moving while it works. Hidden
-                          from assistive technology on purpose: this is a live
-                          region, and announcing a scratchpad that rewrites
-                          itself every few hundred milliseconds would bury the
-                          one sentence above that is worth hearing. */}
-                      {thinkingTail && (
-                        <span aria-hidden="true" className="assistant-thinking__thought">
-                          {thinkingTail}
+                    <div className="assistant-thinking__lines">
+                      <div className="assistant-thinking__head">
+                        {/* Only this line is live. The draft below rewrites
+                            itself every few hundred milliseconds, and
+                            announcing a scratchpad would bury the one sentence
+                            here that is worth hearing. */}
+                        <span role="status" className="assistant-thinking__copy">
+                          {avatarAnimation === "working"
+                            ? "Mesh is working…"
+                            : "Mesh is thinking…"}
                         </span>
-                      )}
-                    </span>
+                        {thinkingTail && (
+                          <button
+                            type="button"
+                            onClick={() => setThinkingExpanded((shown) => !shown)}
+                            aria-expanded={thinkingExpanded}
+                            aria-controls={thinkingDraftId}
+                            className="assistant-thinking__toggle"
+                          >
+                            {thinkingExpanded ? "Hide thinking" : "Show thinking"}
+                          </button>
+                        )}
+                      </div>
+                      {/* Collapsed, the draft is a progress signal: the tail of
+                          the current thought, two lines at most. Opened, it is
+                          something to read — everything still retained, in a
+                          box that scrolls on its own. */}
+                      {thinkingTail &&
+                        (thinkingExpanded ? (
+                          <div
+                            id={thinkingDraftId}
+                            ref={thinkingDraftRef}
+                            className="assistant-thinking__draft"
+                          >
+                            {reasoning.trim()}
+                          </div>
+                        ) : (
+                          <span
+                            id={thinkingDraftId}
+                            aria-hidden="true"
+                            className="assistant-thinking__thought"
+                          >
+                            {thinkingTail}
+                          </span>
+                        ))}
+                    </div>
                   </div>
                 )}
                 {showJumpToLatest && (
