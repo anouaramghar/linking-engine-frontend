@@ -275,11 +275,18 @@ body {
 
    Written as `rgb(var(--c-ink))` rather than `theme(colors.ink)` so the ring
    tracks the active theme: `theme()` is resolved once at build time, which
-   would freeze the ring at whichever value the light palette happened to hold. */
+   would freeze the ring at whichever value the light palette happened to hold.
+
+   The ring carries no radius of its own, and must not be given one. CSS has no
+   outline-radius: an outline takes the shape of the element it surrounds, so
+   rounding the ring means rounding the element, and a `border-radius` here
+   outranks every `rounded-*` utility — this rule is unlayered and lands after
+   the utilities at equal specificity. A 2px value once sat here and squared off
+   every pill and card at the moment it received focus, which is a shape change
+   sprung on the one user who navigates by watching this ring move. */
 :focus-visible {
   outline: 2px solid var(--focus-ring, rgb(var(--c-ink)));
   outline-offset: 2px;
-  border-radius: 2px;
 }
 
 /* SVG graphics do not consistently paint the browser outline. Keep the same
