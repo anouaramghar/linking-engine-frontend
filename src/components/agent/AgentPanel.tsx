@@ -20,7 +20,7 @@ import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type { ResolvedTheme } from "../../hooks/useTheme";
 import { useSession } from "../../hooks/useSession";
 import AgentAvatar from "./AgentAvatar";
-import AgentMarkdown from "./AgentMarkdown";
+import AgentTypewriter from "./AgentTypewriter";
 import { getAgentViewContext } from "./agentContext";
 import Notice from "../Notice";
 
@@ -821,6 +821,17 @@ export default function AgentPanel({
     }
   }, [messages, pending]);
 
+  const keepConversationAtLatest = useCallback(() => {
+    const log = logRef.current;
+    if (!log) return;
+    if (stickToBottom.current) {
+      log.scrollTop = log.scrollHeight;
+      setShowJumpToLatest(false);
+    } else {
+      setShowJumpToLatest(true);
+    }
+  }, []);
+
   // The opened draft follows the thought, not the other way round: the model
   // writes at the bottom, so that is where the box has to stay parked. It
   // scrolls inside its own box, which is what keeps a long think from pushing
@@ -1118,7 +1129,11 @@ export default function AgentPanel({
                       {/* The operator's own words are shown exactly as typed; only the
                           agent writes Markdown, and only its replies are read as such. */}
                       {message.role === "assistant" ? (
-                        <AgentMarkdown content={message.content} />
+                        <AgentTypewriter
+                          content={message.content}
+                          streaming={message.streaming === true}
+                          onReveal={keepConversationAtLatest}
+                        />
                       ) : (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       )}
