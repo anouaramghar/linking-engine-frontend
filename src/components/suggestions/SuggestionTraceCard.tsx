@@ -1,5 +1,10 @@
 import { pct } from "../../lib/utils";
-import type { Suggestion, SuggestionEvent } from "../../types/suggestion";
+import type {
+  CitationNeedEvidence,
+  LiveURLEvidence,
+  Suggestion,
+  SuggestionEvent,
+} from "../../types/suggestion";
 import { LogoLoadingIndicator } from "../LogoLoadingAnimation";
 
 export interface SuggestionTraceState {
@@ -28,6 +33,8 @@ const EVENT_LABEL: Record<string, string> = {
   expired: "Expired",
   status_changed: "Status changed",
   policy_expired: "Blocked by external policy",
+  live_url_checked: "Live URL rechecked",
+  live_url_expired: "Blocked by live URL check",
 };
 
 const eventLabel = (event: SuggestionEvent) => {
@@ -86,6 +93,11 @@ const CHECK_LABEL: Record<string, string> = {
   competitor: "Competitor domain",
   owned_domain: "Domain we manage",
   approved_source: "Approved pool source",
+  reachable: "Reachable now",
+  http_status: "HTTP status",
+  redirect_count: "Redirects followed",
+  final_url: "Final URL",
+  checked_at: "Checked at",
 };
 
 /**
@@ -102,13 +114,114 @@ const checkValue = (key: string, value: boolean | number | string | null) => {
   if (value === null || value === undefined) return "Unknown";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (key === "domain_age_days") return `${value} days`;
+  if (key === "checked_at" && typeof value === "string") return eventTime(value);
   return String(value);
 };
 
 const checkIsAdverse = (key: string, value: boolean | number | string | null) => {
   if (typeof value !== "boolean") return false;
-  return BLOCKING_WHEN_TRUE.has(key) ? value : key === "https" && !value;
+  return BLOCKING_WHEN_TRUE.has(key)
+    ? value
+    : (key === "https" || key === "reachable") && !value;
 };
+
+const liveURLEvidence = (value: unknown): LiveURLEvidence | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<LiveURLEvidence>;
+  if (
+    typeof candidate.domain !== "string" ||
+    typeof candidate.eligible !== "boolean" ||
+    !Array.isArray(candidate.reasons) ||
+    !candidate.checks ||
+    typeof candidate.checks !== "object"
+  ) {
+    return undefined;
+  }
+  return candidate as LiveURLEvidence;
+};
+
+const latestLiveURLEvidence = (events: SuggestionEvent[] | undefined) => {
+  if (!events) return undefined;
+  return events
+    .filter(
+      (event) =>
+        event.event_type === "live_url_checked" || event.event_type === "live_url_expired",
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+    )
+    .map((event) => liveURLEvidence(event.details.live_url))
+    .find((evidence) => evidence !== undefined);
+};
+
+const citationNeedEvidence = (value: unknown): CitationNeedEvidence | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<CitationNeedEvidence>;
+  if (
+    typeof candidate.sentence !== "string" ||
+    typeof candidate.start !== "number" ||
+    typeof candidate.end !== "number" ||
+    typeof candidate.confidence !== "number" ||
+    !Number.isInteger(candidate.start) ||
+    !Number.isInteger(candidate.end) ||
+    candidate.start < 0 ||
+    candidate.end <= candidate.start ||
+    !Number.isFinite(candidate.confidence) ||
+    candidate.confidence < 0 ||
+    candidate.confidence > 1 ||
+    !Array.isArray(candidate.reasons) ||
+    !candidate.reasons.every((reason) => typeof reason === "string") ||
+    typeof candidate.detector_version !== "string"
+  ) {
+    return undefined;
+  }
+  return candidate as CitationNeedEvidence;
+};
+
+const CITATION_REASON_LABEL: Record<string, string> = {
+  research_or_attribution: "Research or attribution",
+  quantitative_claim: "Quantitative claim",
+  health_or_safety_claim: "Health or safety claim",
+  time_sensitive_claim: "Time-sensitive claim",
+  causal_claim: "Causal claim",
+  comparative_claim: "Comparative claim",
+};
+
+function CitationNeedPanel({ evidence }: { evidence: CitationNeedEvidence }) {
+  return (
+    <div
+      className="mt-3 rounded-lg border border-hairline px-3 py-3"
+      aria-label="Citation need evidence"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-caption-sm font-medium text-ink">Citation-needed sentence</span>
+        <span className="badge">{pct(evidence.confidence)} confidence</span>
+      </div>
+      <blockquote className="mt-2 break-words border-l-2 border-primary/40 pl-3 text-body-sm leading-normal text-body">
+        {evidence.sentence}
+      </blockquote>
+      {evidence.reasons.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Citation need signals">
+          {evidence.reasons.map((reason) => (
+            <li key={reason} className="badge">
+              {CITATION_REASON_LABEL[reason] ?? reason.replaceAll("_", " ")}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-caption-sm leading-normal text-muted">
+        The local rule-based detector says this sentence should carry a source. Target
+        relevance is evaluated separately; this signal does not claim that the proposed page
+        proves the sentence.
+      </p>
+      <p className="mt-1 text-caption-sm text-muted">
+        Detector: {evidence.detector_version} &middot; Source offsets {evidence.start}–
+        {evidence.end}
+      </p>
+    </div>
+  );
+}
 
 const finalOrderLabel = (value: string | undefined, method: string) => {
   if (value === "bm25_512") return "BM25-512";
@@ -225,7 +338,11 @@ function ExternalChecks({
     <div className="mt-3 rounded-lg border border-hairline px-3 py-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-caption-sm font-medium text-ink">{title}</span>
-        <span className={`text-caption-sm ${eligible ? "text-muted" : "text-error-ink"}`}>
+        <span
+          className={`min-w-0 break-all text-right text-caption-sm ${
+            eligible ? "text-muted" : "text-error-ink"
+          }`}
+        >
           {domain} &middot; {eligible ? "Passed" : "Blocked"}
         </span>
       </div>
@@ -237,12 +354,15 @@ function ExternalChecks({
         </ul>
       )}
       {entries.length > 0 && (
-        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-caption-sm">
+        <dl className="mt-2 grid gap-y-1 text-caption-sm">
           {entries.map(([key, value]) => (
-            <div key={key} className="flex items-baseline justify-between gap-2">
-              <dt className="min-w-0 truncate text-muted">{checkLabel(key)}</dt>
+            <div
+              key={key}
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-3"
+            >
+              <dt className="min-w-0 text-muted">{checkLabel(key)}</dt>
               <dd
-                className={`font-medium ${
+                className={`min-w-0 break-all text-right font-medium ${
                   checkIsAdverse(key, value) ? "text-error-ink" : "text-body"
                 }`}
               >
@@ -279,6 +399,8 @@ export default function SuggestionTraceCard({ suggestion, trace, collapsible = f
   const bm25 = suggestion.score_components?.bm25_score;
   const externalTrust = suggestion.score_components?.external_trust;
   const externalSafety = suggestion.score_components?.external_safety;
+  const liveURL = latestLiveURLEvidence(trace.data) ?? suggestion.score_components?.live_url;
+  const citationNeed = citationNeedEvidence(suggestion.score_components?.citation_need);
   const graph = suggestion.score_components?.graph;
   const timing = timingStat(suggestion, trace.data);
 
@@ -342,6 +464,25 @@ export default function SuggestionTraceCard({ suggestion, trace, collapsible = f
             </dd>
           </div>
         )}
+        {liveURL && (
+          <div
+            className="rounded-lg bg-surface-strong px-3 py-2"
+            title={`Live URL check for ${liveURL.domain}`}
+          >
+            <dt className="text-caption-sm text-muted">Live URL</dt>
+            <dd className="mt-0.5 text-body-sm font-medium text-ink">
+              {liveURL.eligible ? "Passed" : "Blocked"}
+            </dd>
+          </div>
+        )}
+        {citationNeed && (
+          <div className="rounded-lg bg-surface-strong px-3 py-2">
+            <dt className="text-caption-sm text-muted">Citation need</dt>
+            <dd className="mt-0.5 text-body-sm font-medium text-ink">
+              {pct(citationNeed.confidence)}
+            </dd>
+          </div>
+        )}
         <div className="rounded-lg bg-surface-strong px-3 py-2">
           <dt className="text-caption-sm text-muted">
             {suggestion.method === "hybrid_bm25" && bm25 !== undefined
@@ -388,6 +529,16 @@ export default function SuggestionTraceCard({ suggestion, trace, collapsible = f
           checks={externalSafety.checks}
         />
       )}
+      {liveURL && (
+        <ExternalChecks
+          title="Live URL checks"
+          domain={liveURL.domain}
+          eligible={liveURL.eligible}
+          reasons={liveURL.reasons}
+          checks={liveURL.checks}
+        />
+      )}
+      {citationNeed && <CitationNeedPanel evidence={citationNeed} />}
 
       {graph && (
         <div className="mt-3 rounded-lg border border-hairline px-3 py-2">
