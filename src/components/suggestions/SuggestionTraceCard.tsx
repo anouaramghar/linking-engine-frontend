@@ -1,5 +1,6 @@
 import { pct } from "../../lib/utils";
 import type {
+  CitationNeedEvidence,
   LiveURLEvidence,
   Suggestion,
   SuggestionEvent,
@@ -151,6 +152,74 @@ const latestLiveURLEvidence = (events: SuggestionEvent[] | undefined) => {
     .map((event) => liveURLEvidence(event.details.live_url))
     .find((evidence) => evidence !== undefined);
 };
+
+const citationNeedEvidence = (value: unknown): CitationNeedEvidence | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<CitationNeedEvidence>;
+  if (
+    typeof candidate.sentence !== "string" ||
+    typeof candidate.start !== "number" ||
+    typeof candidate.end !== "number" ||
+    typeof candidate.confidence !== "number" ||
+    !Number.isInteger(candidate.start) ||
+    !Number.isInteger(candidate.end) ||
+    candidate.start < 0 ||
+    candidate.end <= candidate.start ||
+    !Number.isFinite(candidate.confidence) ||
+    candidate.confidence < 0 ||
+    candidate.confidence > 1 ||
+    !Array.isArray(candidate.reasons) ||
+    !candidate.reasons.every((reason) => typeof reason === "string") ||
+    typeof candidate.detector_version !== "string"
+  ) {
+    return undefined;
+  }
+  return candidate as CitationNeedEvidence;
+};
+
+const CITATION_REASON_LABEL: Record<string, string> = {
+  research_or_attribution: "Research or attribution",
+  quantitative_claim: "Quantitative claim",
+  health_or_safety_claim: "Health or safety claim",
+  time_sensitive_claim: "Time-sensitive claim",
+  causal_claim: "Causal claim",
+  comparative_claim: "Comparative claim",
+};
+
+function CitationNeedPanel({ evidence }: { evidence: CitationNeedEvidence }) {
+  return (
+    <div
+      className="mt-3 rounded-lg border border-hairline px-3 py-3"
+      aria-label="Citation need evidence"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-caption-sm font-medium text-ink">Citation-needed sentence</span>
+        <span className="badge">{pct(evidence.confidence)} confidence</span>
+      </div>
+      <blockquote className="mt-2 break-words border-l-2 border-primary/40 pl-3 text-body-sm leading-normal text-body">
+        {evidence.sentence}
+      </blockquote>
+      {evidence.reasons.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Citation need signals">
+          {evidence.reasons.map((reason) => (
+            <li key={reason} className="badge">
+              {CITATION_REASON_LABEL[reason] ?? reason.replaceAll("_", " ")}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-caption-sm leading-normal text-muted">
+        The local rule-based detector says this sentence should carry a source. Target
+        relevance is evaluated separately; this signal does not claim that the proposed page
+        proves the sentence.
+      </p>
+      <p className="mt-1 text-caption-sm text-muted">
+        Detector: {evidence.detector_version} &middot; Source offsets {evidence.start}–
+        {evidence.end}
+      </p>
+    </div>
+  );
+}
 
 const finalOrderLabel = (value: string | undefined, method: string) => {
   if (value === "bm25_512") return "BM25-512";
@@ -329,6 +398,7 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
   const externalTrust = suggestion.score_components?.external_trust;
   const externalSafety = suggestion.score_components?.external_safety;
   const liveURL = latestLiveURLEvidence(trace.data) ?? suggestion.score_components?.live_url;
+  const citationNeed = citationNeedEvidence(suggestion.score_components?.citation_need);
   const graph = suggestion.score_components?.graph;
   const timing = timingStat(suggestion, trace.data);
 
@@ -390,6 +460,14 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
             </dd>
           </div>
         )}
+        {citationNeed && (
+          <div className="rounded-lg bg-surface-strong px-3 py-2">
+            <dt className="text-caption-sm text-muted">Citation need</dt>
+            <dd className="mt-0.5 text-body-sm font-medium text-ink">
+              {pct(citationNeed.confidence)}
+            </dd>
+          </div>
+        )}
         <div className="rounded-lg bg-surface-strong px-3 py-2">
           <dt className="text-caption-sm text-muted">
             {suggestion.method === "hybrid_bm25" && bm25 !== undefined
@@ -445,6 +523,7 @@ export default function SuggestionTraceCard({ suggestion, trace }: Props) {
           checks={liveURL.checks}
         />
       )}
+      {citationNeed && <CitationNeedPanel evidence={citationNeed} />}
 
       {graph && (
         <div className="mt-3 rounded-lg border border-hairline px-3 py-2">

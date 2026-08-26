@@ -41,6 +41,16 @@ export interface LiveURLEvidence {
   reason_code?: string | null;
 }
 
+export interface CitationNeedEvidence {
+  /** Exact sentence copied from the source article at generation time. */
+  sentence: string;
+  start: number;
+  end: number;
+  confidence: number;
+  reasons: string[];
+  detector_version: string;
+}
+
 /**
  * How a non-cosine ranker chose a row. Only `hybrid_bm25` writes this today; the
  * fields are optional because the engine may add more and older rows have none.
@@ -75,6 +85,7 @@ export interface SuggestionScoreComponents {
     checks: Record<string, boolean>;
   };
   live_url?: LiveURLEvidence;
+  citation_need?: CitationNeedEvidence;
   graph?: {
     algorithm_version?: string;
     snapshot_id?: number;
