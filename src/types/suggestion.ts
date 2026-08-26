@@ -33,6 +33,14 @@ export type RejectionReason =
   | "duplicate"
   | "other";
 
+export interface LiveURLEvidence {
+  domain: string;
+  eligible: boolean;
+  reasons: string[];
+  checks: Record<string, boolean | number | string | null>;
+  reason_code?: string | null;
+}
+
 /**
  * How a non-cosine ranker chose a row. Only `hybrid_bm25` writes this today; the
  * fields are optional because the engine may add more and older rows have none.
@@ -66,6 +74,7 @@ export interface SuggestionScoreComponents {
     reasons: string[];
     checks: Record<string, boolean>;
   };
+  live_url?: LiveURLEvidence;
   graph?: {
     algorithm_version?: string;
     snapshot_id?: number;
