@@ -31,6 +31,9 @@ const suggestion = (overrides: Partial<Suggestion> = {}): Suggestion => ({
   anchor_text: null,
   created_at: "2026-07-16T10:00:00Z",
   ...overrides,
+  // A baseline_cosine row ranks on its cosine score, so the two move together
+  // unless a test pins the rank score itself.
+  rank_score: overrides.rank_score ?? overrides.score ?? 0.9,
 });
 
 const mocks = vi.hoisted(() => ({

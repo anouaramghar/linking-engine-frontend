@@ -1,6 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BulkReviewChunkError } from "../api/suggestions";
@@ -12,6 +18,11 @@ import ValidationPage from "./ValidationPage";
 function PublishStub() {
   const { siteId } = useParams();
   return <div>Legacy approval link for site {siteId}</div>;
+}
+
+function QueueLocationProbe() {
+  const [searchParams] = useSearchParams();
+  return <span data-testid="queue-location">{searchParams.toString()}</span>;
 }
 
 /**
@@ -29,9 +40,12 @@ const renderQueue = (initialEntry = "/") => {
         <Route
           path="/"
           element={
-            <QueueWorkspaceProvider>
-              <ValidationPage />
-            </QueueWorkspaceProvider>
+            <>
+              <QueueLocationProbe />
+              <QueueWorkspaceProvider>
+                <ValidationPage />
+              </QueueWorkspaceProvider>
+            </>
           }
         />
         <Route path="/publish" element={<div>Approval site list</div>} />
@@ -76,10 +90,6 @@ const mocks = vi.hoisted(() => ({
   bulkMutate: vi.fn(),
   filteredBulkMutate: vi.fn(),
   filteredUndoMutate: vi.fn(),
-  prepareMutate: vi.fn(),
-  prepareReset: vi.fn(),
-  approveMutate: vi.fn(),
-  queueMutate: vi.fn(),
   /** Ids the engine reports it could not review, as a live publish would. */
   bulkSkipped: [] as number[],
   /** Undefined derives ids from the rule; null models a result over the cap. */
@@ -88,12 +98,6 @@ const mocks = vi.hoisted(() => ({
   filteredUndoOperationId: null as string | null,
   bulkError: null as unknown,
   filteredBulkError: null as unknown,
-  pendingPublication: [] as {
-    site_id: number;
-    selected_suggestions: number;
-    approved_plans: number;
-    can_publish?: boolean;
-  }[],
   /** Every count query the page asked for, and whether it was allowed to run. */
   countsQueries: [] as {
     filters: { siteId?: number; minPercent?: number; maxPercent?: number };
@@ -111,7 +115,6 @@ const mocks = vi.hoisted(() => ({
   } | null,
   /** Models the background refetch every review mutation sets off. */
   countsFetching: false,
-  publicationPlans: {} as Record<string, unknown>,
   sitesQuery: {} as Record<string, unknown>,
   suggestionsQuery: {} as Record<string, unknown>,
 }));
@@ -209,26 +212,6 @@ vi.mock("../hooks/useSites", () => ({
   useSites: () => ({ data: [SITE], ...mocks.sitesQuery }),
 }));
 
-vi.mock("../hooks/usePublish", () => ({
-  usePendingPublication: () => ({
-    data: mocks.pendingPublication,
-    isPending: false,
-    isError: false,
-    isFetching: mocks.countsFetching,
-    refetch: vi.fn(),
-  }),
-  usePreparePublicationPlans: () => ({
-    data: undefined,
-    isPending: false,
-    isError: false,
-    mutate: mocks.prepareMutate,
-    reset: mocks.prepareReset,
-    ...mocks.publicationPlans,
-  }),
-  useApprovePlans: () => ({ mutate: mocks.approveMutate, isPending: false }),
-  useQueueApprovedPlans: () => ({ mutate: mocks.queueMutate, isPending: false }),
-}));
-
 const query = (overrides: Record<string, unknown> = {}) => ({
   isPending: false,
   isError: false,
@@ -250,6 +233,9 @@ const suggestion = (id: number, overrides: Partial<Suggestion> = {}): Suggestion
   anchor_text: "anchor",
   created_at: "2026-07-16T10:00:00Z",
   ...overrides,
+  // A baseline_cosine row ranks on its cosine score, so the two move together
+  // unless a test pins the rank score itself.
+  rank_score: overrides.rank_score ?? overrides.score ?? 0.8,
 });
 
 beforeEach(() => {
@@ -265,20 +251,14 @@ beforeEach(() => {
   mocks.bulkMutate.mockReset();
   mocks.filteredBulkMutate.mockReset();
   mocks.filteredUndoMutate.mockReset();
-  mocks.prepareMutate.mockReset();
-  mocks.prepareReset.mockReset();
-  mocks.approveMutate.mockReset();
-  mocks.queueMutate.mockReset();
   mocks.bulkSkipped = [];
   mocks.filteredReviewedIds = undefined;
   mocks.filteredReviewedCount = undefined;
   mocks.filteredUndoOperationId = null;
   mocks.bulkError = null;
   mocks.filteredBulkError = null;
-  mocks.pendingPublication = [];
   mocks.countsOverride = null;
   mocks.countsQueries = [];
-  mocks.publicationPlans = {};
   mocks.reviewMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   mocks.exposureMutate.mockImplementation((_variables, options) => options?.onSuccess?.());
   // Mirrors the real endpoint: a batch reports what it applied and what it had
@@ -347,14 +327,11 @@ afterEach(() => {
 });
 
 describe("ValidationPage live review state", () => {
-  // Reviewing a row invalidates the counts and the publication summary, so
-  // every decision leaves them refetching. If that state paused the queue, an
-  // editor working down it with `a` would be locked out after every row.
+  // Reviewing a row invalidates the counts, so every decision leaves them
+  // refetching. If that state paused the queue, an editor working down it with
+  // `a` would be locked out after every row.
   it("keeps reviewing while the counts refetch behind a decision", () => {
     mocks.countsFetching = true;
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 2, approved_plans: 0 },
-    ];
     renderQueue();
 
     expect(
@@ -366,9 +343,6 @@ describe("ValidationPage live review state", () => {
       (screen.getByRole("button", { name: /^Select ≥/ }) as HTMLButtonElement).disabled,
     ).toBe(false);
     expect(screen.queryByText(/Review actions are paused/)).toBeNull();
-    // Publication review is opened from the selected suggestion detail, not a
-    // second toolbar attached to the queue.
-    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
   });
 
   it("pauses review actions while filtered results are being replaced", () => {
@@ -447,6 +421,14 @@ describe("ValidationPage live review state", () => {
     expect(within(groups[1]).getByText(/\/2025\/hello-world-2\//)).not.toBeNull();
     expect(within(groups[0]).getByText("2 suggestions")).not.toBeNull();
     expect(within(groups[1]).getByText("1 suggestion")).not.toBeNull();
+  });
+
+  it("does not offer article generation from a suggestion group", () => {
+    renderQueue();
+
+    expect(
+      screen.queryByRole("button", { name: "Generate suggestions for Source 1" }),
+    ).toBeNull();
   });
 
   it("collapses a source group without hiding other articles", async () => {
@@ -761,90 +743,24 @@ describe("ValidationPage live review state", () => {
   it("shows the real scoring signal without advertising unsupported future methods", () => {
     renderQueue();
 
-    expect(document.body.textContent).toContain("Semantic match");
+    expect(document.body.textContent).toContain("Rank score");
     expect(document.body.textContent).not.toContain("GraphSAGE");
     expect(document.body.textContent).not.toContain("External links");
     expect(document.body.textContent).not.toContain("Generate anchors");
   });
 });
 
-describe("ValidationPage hand-over to approval", () => {
-  const tray = () => screen.queryByRole("link", { name: "Open selected links" });
-
-  it("stays quiet while nothing is selected or approved", () => {
+describe("ValidationPage selection workflow", () => {
+  it("does not render a separate selected-links banner", async () => {
+    const user = userEvent.setup();
     renderQueue();
 
-    expect(tray()).toBeNull();
-    expect(document.body.textContent).not.toContain("waiting for review");
-    expect(document.body.textContent).not.toContain("waiting to be published");
-  });
+    await user.click(
+      screen.getByRole("button", { name: /Select suggestion from Example site: Source 1/ }),
+    );
 
-  it("keeps every publication control off the queue", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 24, approved_plans: 0 },
-    ];
-    renderQueue();
-
-    // Selecting rows is not consent to write to a customer's site, so the tray
-    // navigates and nothing here can approve or queue anything.
-    expect(screen.queryByRole("button", { name: /^Publish \d+ site/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Publish this site" })).toBeNull();
-    expect(screen.queryByText(/ready for exact-edit review/)).toBeNull();
-    expect(mocks.prepareMutate).not.toHaveBeenCalled();
-  });
-
-  it("says what is selected and points at the scalable publication inbox", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 24, approved_plans: 0 },
-    ];
-    renderQueue();
-
-    expect(document.body.textContent).toContain("24 links selected on 1 site");
-    expect(tray()?.getAttribute("href")).toBe("/selected");
-  });
-
-  it("points at the site list when more than one site is waiting", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 4, approved_plans: 0 },
-      { site_id: 2, selected_suggestions: 9, approved_plans: 0 },
-    ];
-    renderQueue();
-
-    expect(document.body.textContent).toContain("13 links selected on 2 sites");
-    const reviewLinks = screen.getAllByRole("link", { name: "Open selected links" });
-    expect(reviewLinks).toHaveLength(1);
-    expect(reviewLinks[0].getAttribute("href")).toBe("/selected");
-  });
-
-  it("opens the filtered site's exact edits directly", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 3, approved_plans: 0 },
-      { site_id: 2, selected_suggestions: 9, approved_plans: 0 },
-    ];
-    renderQueue("/?site=1&status=approved");
-
-    expect(tray()?.getAttribute("href")).toBe("/selected?site=1");
-  });
-
-  it("keeps the review action visible outside the long scrolling queue", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 35, approved_plans: 0 },
-    ];
-    renderQueue();
-
-    const queueScroller = screen.getByRole("region", { name: "Suggestion queue" });
-    const reviewLink = screen.getByRole("link", { name: "Open selected links" });
-
-    expect(queueScroller.contains(reviewLink)).toBe(false);
-  });
-
-  it("leaves connection diagnosis to the publication inbox", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
-    ];
-    renderQueue();
-
-    expect(tray()?.getAttribute("href")).toBe("/selected");
+    expect(screen.queryByRole("link", { name: "Open selected links" })).toBeNull();
+    expect(screen.queryByText("Exact edits still need approval.")).toBeNull();
   });
 
   it("shows progress while a selection is being saved", async () => {
@@ -861,9 +777,6 @@ describe("ValidationPage hand-over to approval", () => {
 
   it("confirms a saved selection without opening a second surface", async () => {
     const user = userEvent.setup();
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
-    ];
     renderQueue();
 
     await user.click(
@@ -876,46 +789,28 @@ describe("ValidationPage hand-over to approval", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("does not prepare, approve, or queue until the operator follows the inbox CTA", async () => {
+  it("keeps the exact-edit action visible from an approved queue item", async () => {
     const user = userEvent.setup();
-    renderQueue();
-
-    await user.click(
-      screen.getByRole("button", { name: /Select suggestion from Example site: Source 1/ }),
-    );
-
-    expect(mocks.approveMutate).not.toHaveBeenCalled();
-    expect(mocks.queueMutate).not.toHaveBeenCalled();
-    expect(mocks.prepareMutate).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("does not put a second exact-edit action inside an approved row", async () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 1, approved_plans: 0 },
-    ];
     mocks.suggestions[0] = suggestion(1, { status: "approved" });
-    renderQueue("/?status=approved");
+    renderQueue("/?status=approved&suggestion=1");
 
-    expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
-    expect(tray()?.getAttribute("href")).toBe("/selected");
+    const preview = screen.getByRole("complementary", { name: "Suggestion detail" });
+    expect(
+      screen.getByRole("button", {
+        name: /Review exact edit for suggestion from Example site: Source 1 to Target 1/,
+      }),
+    ).not.toBeNull();
+    expect(within(preview).getByRole("button", { name: "Review exact edit" })).not.toBeNull();
+
+    await user.click(within(preview).getByRole("button", { name: "Review exact edit" }));
+
+    expect(screen.getByText("Legacy approval link for site 1")).not.toBeNull();
   });
 
   it("ignores legacy review query parameters", () => {
     renderQueue("/?status=approved&review=1");
 
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(mocks.prepareMutate).not.toHaveBeenCalled();
-  });
-
-  it("does not eagerly prepare an unpublishable site", () => {
-    mocks.pendingPublication = [
-      { site_id: 1, selected_suggestions: 3, approved_plans: 0, can_publish: false },
-    ];
-    renderQueue();
-
-    expect(screen.queryByRole("button", { name: "Review exact edit" })).toBeNull();
-    expect(mocks.prepareMutate).not.toHaveBeenCalled();
   });
 });
 

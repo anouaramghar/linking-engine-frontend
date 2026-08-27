@@ -37,13 +37,12 @@ function SuggestionCard({
   showStatusBadge = true,
 }: Props) {
   const meta = STATUS_META[s.status];
-  const finalRank = s.final_rank ?? null;
 
   return (
     <li
       data-suggestion-id={s.id}
       aria-current={selected || undefined}
-      className={`card flex animate-rowIn flex-col items-stretch gap-2.5 px-3.5 py-3 transition-shadow hover:shadow-soft sm:px-4 lg:flex-row lg:items-center lg:gap-4 ${
+      className={`card queue-row flex flex-col items-stretch gap-2.5 px-3.5 py-3 hover:shadow-soft sm:px-4 lg:flex-row lg:items-center lg:gap-4 ${
         selected ? "border-ink" : ""
       }`}
     >
@@ -54,11 +53,7 @@ function SuggestionCard({
         <button
           type="button"
           onClick={() => onOpen(s.id)}
-          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}${
-            finalRank === null
-              ? `; semantic match ${pct(s.score)}`
-              : `; final rank #${finalRank}; semantic match ${pct(s.score)}`
-          }`}
+          aria-label={`Open suggestion: ${s.source_article.title} to ${s.target_article.title}; rank score ${pct(s.rank_score)}`}
           className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
         >
           <span className="min-w-0 flex-1">
@@ -82,20 +77,28 @@ function SuggestionCard({
               )}
             </span>
           </span>
-          <span className="flex w-[96px] flex-none flex-col items-end text-right sm:w-[120px]">
-            {finalRank !== null && (
-              <span className="block text-caption-sm font-medium text-ink">
-                Final rank #{finalRank}
-              </span>
-            )}
-            <span className="block tabular-nums text-body-md font-medium text-ink">{pct(s.score)}</span>
-            <span className="mb-1 mt-1 block h-[3px] w-full overflow-hidden rounded-pill bg-hairline">
+          <span className="flex w-score flex-none flex-col items-end text-right">
+            <span className="block tabular-nums text-body-md font-medium text-ink">
+              {pct(s.rank_score)}
+            </span>
+            <span className="mb-1 mt-1 block h-meter w-full overflow-hidden rounded-pill bg-hairline">
+              {/* The rank score is the one measured quantity on the row, and it
+                  used to arrive already drawn. Sweeping it out of the track from
+                  the left makes a page of rows read as a page of readings — and
+                  the sweep is `scaleX` on a span already sized to the score, so
+                  the hundred meters the queue can mount cost transforms rather
+                  than a hundred width-driven layouts. */}
               <span
-                className="block h-full rounded-pill bg-primary"
-                style={{ width: pct(s.score) }}
+                className="block h-full origin-left animate-meterFill rounded-pill bg-primary"
+                style={{ width: pct(s.rank_score) }}
               />
             </span>
-            <span className="block text-caption-sm text-muted">Semantic match</span>
+            {/* The queue is ordered by this number, so a page of rows descends
+                visibly. Cosine similarity is still on the row's detail panel;
+                it is not here because it barely moves — a whole queue lands in
+                a band a few points wide, which draws a hundred identical
+                meters and tells an editor nothing about which to read first. */}
+            <span className="block text-caption-sm text-muted">Rank score</span>
           </span>
         </button>
       </div>
@@ -103,7 +106,9 @@ function SuggestionCard({
           status badge or Undo action replaces Select and Reject. */}
       <div
         className={`flex w-full flex-none flex-wrap items-center justify-end gap-2 ${
-          s.status === "approved" && onReviewPublication ? "lg:w-[290px]" : "lg:w-[220px]"
+          s.status === "approved" && onReviewPublication
+            ? "lg:w-decision-review"
+            : "lg:w-decision"
         }`}
       >
         {s.status === "pending" ? (
@@ -135,7 +140,11 @@ function SuggestionCard({
           </>
         ) : (
           <>
-            {showStatusBadge && <span className="badge">{meta.label}</span>}
+            {/* The tint is a utility over `.badge`'s component-layer fill, so
+                a status with no tint keeps the neutral pill unchanged. */}
+            {showStatusBadge && (
+              <span className={`badge ${meta.tint}`}>{meta.label}</span>
+            )}
             {s.status === "approved" && onReviewPublication && (
               <button
                 type="button"
@@ -145,7 +154,9 @@ function SuggestionCard({
                 }}
                 aria-label={`Review exact edit for suggestion from ${siteName}: ${s.source_article.title} to ${s.target_article.title}`}
                 disabled={actionsDisabled}
-                className="btn btn-primary btn-sm"
+                // The batch review action owns primary emphasis on the Selected
+                // links page; this remains available as a row-level shortcut.
+                className="btn btn-outline btn-sm"
               >
                 Review exact edit
               </button>

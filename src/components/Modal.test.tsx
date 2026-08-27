@@ -105,8 +105,10 @@ describe("Modal", () => {
     // In the body it slid under the heading the moment anything below it grew,
     // which is how the column list ended up half-hidden behind the title.
     const description = screen.getByText(/Columns: name, base_url/);
+    const dialog = screen.getByRole("dialog");
     const scroller = screen.getByText("Body").parentElement!;
     expect(scroller.contains(description)).toBe(false);
+    expect(dialog.getAttribute("aria-describedby")).toBe(description.id);
   });
 
   it("can protect a review from accidental backdrop dismissal", () => {

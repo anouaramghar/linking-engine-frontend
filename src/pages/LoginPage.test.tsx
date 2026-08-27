@@ -90,7 +90,7 @@ describe("LoginPage", () => {
   });
 
   it("counts down the code lifetime and prevents submitting an expired code", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(new Date("2026-08-11T12:00:00Z"));
     vi.stubGlobal("open", vi.fn(() => null));
     startLogin.mockResolvedValue(LOGIN_START);

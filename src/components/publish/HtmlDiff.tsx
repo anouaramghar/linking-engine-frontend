@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   countChanges,
@@ -37,8 +37,8 @@ const TOKEN_CLASS: Record<Token["kind"], string> = {
  *
  * Green for what the approval writes and red for what it replaces is the one
  * convention a diff is allowed to borrow — but colour never carries it alone:
- * every tinted row also carries a `+` or a `−` in the gutter, and the two panes
- * are labelled in words above them.
+ * every tinted row also carries a `+` or a `−` in the gutter, and the file
+ * versions are labelled in words above the unified view.
  */
 const ROW = {
   same: { tint: "", mark: "", sign: "", signInk: "text-muted-soft" },
@@ -55,13 +55,6 @@ const ROW = {
     signInk: "text-error",
   },
 } as const;
-
-/** How a row is painted in one pane, which is not how it is painted in the other. */
-const sideStyle = (kind: ViewRow["kind"], side: "left" | "right") => {
-  if (kind === "same" || kind === "skipped") return ROW.same;
-  if (kind === "changed") return side === "left" ? ROW.removed : ROW.added;
-  return kind === "added" ? ROW.added : ROW.removed;
-};
 
 /**
  * One line, coloured, with the part that changed marked inside it.
@@ -107,62 +100,75 @@ function Line({ line, mark }: { line: DiffLine; mark: string }) {
   );
 }
 
-/**
- * One pane of the diff.
- *
- * Both panes are drawn from the same rows, so a line the other side does not
- * have is a hole here rather than a shift: line 12 on the left stays level with
- * line 12 on the right all the way down the article.
- */
-function Pane({
-  label,
-  filename,
-  side,
-  rows,
-  scrollRef,
-  onScroll,
+/** One line in the unified diff, with old and new line numbers in the gutter. */
+function UnifiedLine({
+  line,
+  oldNumber,
+  newNumber,
+  style,
 }: {
-  label: string;
-  filename: string;
-  side: "left" | "right";
-  rows: ViewRow[];
-  scrollRef: React.RefObject<HTMLDivElement | null>;
-  onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
+  line: DiffLine;
+  oldNumber?: number;
+  newNumber?: number;
+  style: (typeof ROW)[keyof typeof ROW];
 }) {
   return (
+    <div className={`flex h-5 font-mono text-caption-sm leading-5 ${style.tint}`}>
+      <span
+        aria-hidden="true"
+        className={`sticky left-0 flex w-[5.5rem] flex-none items-center border-r border-hairline bg-surface-strong pl-2 pr-1 ${style.signInk}`}
+      >
+        <span className="w-8 flex-none select-none text-right text-muted">{oldNumber ?? ""}</span>
+        <span className="w-8 flex-none select-none text-right text-muted">{newNumber ?? ""}</span>
+        <span className="w-4 flex-none text-center">{style.sign}</span>
+      </span>
+      <Line line={line} mark={style.mark} />
+    </div>
+  );
+}
+
+/**
+ * A single, unified view of the exact artifact.
+ *
+ * Unchanged lines appear once. A rewritten line is shown as the old line
+ * followed immediately by the new line, which keeps the review in one reading
+ * column without losing the before/after distinction.
+ */
+function UnifiedDiff({ rows }: { rows: ViewRow[] }) {
+  return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-hairline bg-surface-card shadow-soft">
-      <div className="flex items-center justify-between gap-3 border-b border-hairline bg-surface-strong px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-caption-sm font-medium text-ink">{filename}</span>
-          <span className="truncate text-caption-sm text-muted">{label}</span>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-hairline bg-surface-strong px-3 py-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-caption-sm">
+          <span className="font-mono font-medium text-ink">source.html</span>
+          <span aria-hidden="true" className="text-muted-soft">
+            →
+          </span>
+          <span className="font-mono font-medium text-ink">updated.html</span>
+          <span className="text-muted">Before approval → after approval</span>
         </div>
         <span className="shrink-0 font-mono text-caption-sm text-muted">HTML · read-only</span>
       </div>
 
       {/* The scroller carries the name and the tab stop, not the box around it:
-          a pane that can only be read by scrolling has to be reachable from the
-          keyboard, and a focusable region needs a name to announce. */}
+          a code view that can only be read by scrolling has to be reachable from
+          the keyboard, and a focusable region needs a name to announce. */}
       <div
-        ref={scrollRef}
-        onScroll={onScroll}
         role="region"
-        aria-label={`${label} HTML code`}
+        aria-label="Unified HTML diff from source.html before approval to updated.html after approval"
         tabIndex={0}
         className="max-h-96 overflow-auto"
       >
         <div className="min-w-max">
           {rows.map((row, index) => {
-            const style = sideStyle(row.kind, side);
-
             if (row.kind === "skipped") {
               return (
                 <div
-                  key={index}
+                  key={`skipped-${index}`}
                   className="flex h-5 items-center border-y border-hairline bg-canvas-soft"
                 >
                   <span
                     aria-hidden="true"
-                    className="sticky left-0 w-16 flex-none border-r border-hairline bg-surface-strong text-center font-mono text-caption-sm leading-5 text-muted-soft"
+                    className="sticky left-0 w-[5.5rem] flex-none border-r border-hairline bg-surface-strong text-center font-mono text-caption-sm leading-5 text-muted-soft"
                   >
                     ⋯
                   </span>
@@ -173,24 +179,34 @@ function Pane({
               );
             }
 
-            const line = side === "left" ? row.left : row.right;
-
-            // The other side has a line here and this one does not. The hole is
-            // the point: it says the change is an insertion, not a rewrite.
-            if (!line) {
-              return <div key={index} className="h-5 bg-canvas-soft" />;
+            if (row.kind === "same") {
+              return (
+                <UnifiedLine
+                  key={`same-${index}`}
+                  line={row.left!}
+                  oldNumber={row.left!.number}
+                  newNumber={row.right!.number}
+                  style={ROW.same}
+                />
+              );
             }
 
             return (
-              <div key={index} className={`flex h-5 font-mono text-caption-sm leading-5 ${style.tint}`}>
-                <span
-                  aria-hidden="true"
-                  className={`sticky left-0 flex w-16 flex-none items-center gap-1 border-r border-hairline bg-surface-strong pl-2 pr-1 ${style.signInk}`}
-                >
-                  <span className="flex-1 select-none text-right text-muted">{line.number}</span>
-                  <span className="w-3 flex-none text-center">{style.sign}</span>
-                </span>
-                <Line line={line} mark={style.mark} />
+              <div key={`${row.kind}-${index}`}>
+                {row.left && (
+                  <UnifiedLine
+                    line={row.left}
+                    oldNumber={row.left.number}
+                    style={ROW.removed}
+                  />
+                )}
+                {row.right && (
+                  <UnifiedLine
+                    line={row.right}
+                    newNumber={row.right.number}
+                    style={ROW.added}
+                  />
+                )}
               </div>
             );
           })}
@@ -201,7 +217,7 @@ function Pane({
 }
 
 /**
- * The exact markup this approval writes, before and after, side by side.
+ * The exact markup this approval writes, before and after, in one unified view.
  *
  * This used to be two plain dumps of a page of HTML. Both were true, and
  * together they asked the operator to find a dozen changed characters by eye —
@@ -226,29 +242,6 @@ export default function HtmlDiff({
     (total, row) => (row.kind === "skipped" ? total + row.count : total),
     0,
   );
-
-  /**
-   * The two panes scroll as one.
-   *
-   * Line 40 beside line 40 is the whole point of a split view, and it survives
-   * exactly as long as the panes stay level. The guard is what stops the two
-   * `onScroll` handlers from driving each other.
-   */
-  const leftRef = useRef<HTMLDivElement>(null);
-  const rightRef = useRef<HTMLDivElement>(null);
-  const syncing = useRef(false);
-
-  const sync = (from: HTMLDivElement, to: HTMLDivElement | null) => {
-    if (syncing.current || !to) return;
-    syncing.current = true;
-    to.scrollTop = from.scrollTop;
-    to.scrollLeft = from.scrollLeft;
-    // Released on the next frame: the assignment above fires the other pane's
-    // own scroll event, and that one must find the guard still up.
-    requestAnimationFrame(() => {
-      syncing.current = false;
-    });
-  };
 
   return (
     <div className="mt-3">
@@ -278,24 +271,7 @@ export default function HtmlDiff({
         )}
       </div>
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
-        <Pane
-          label="Before approval"
-          filename="source.html"
-          side="left"
-          rows={visible}
-          scrollRef={leftRef}
-          onScroll={(event) => sync(event.currentTarget, rightRef.current)}
-        />
-        <Pane
-          label="After approval"
-          filename="updated.html"
-          side="right"
-          rows={visible}
-          scrollRef={rightRef}
-          onScroll={(event) => sync(event.currentTarget, leftRef.current)}
-        />
-      </div>
+      <UnifiedDiff rows={visible} />
     </div>
   );
 }

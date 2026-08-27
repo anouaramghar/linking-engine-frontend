@@ -19,6 +19,7 @@ const suggestion: Suggestion = {
   target_site_name: "Example",
   method: "hybrid_bm25",
   score: 0.84,
+  rank_score: 0.61,
   score_components: { bm25_score: 12.4 },
   status: "approved",
   anchor_text: "anchor",
@@ -26,6 +27,24 @@ const suggestion: Suggestion = {
 };
 
 describe("SuggestionTraceCard", () => {
+  it("can keep technical provenance collapsed inside the detail panel", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={suggestion}
+        trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
+        collapsible
+      />,
+    );
+
+    const details = screen.getByText("Technical provenance").closest("details");
+    expect(details?.open).toBe(false);
+
+    fireEvent.click(screen.getByText("Technical provenance"));
+
+    expect(details?.open).toBe(true);
+    expect(screen.getByRole("region", { name: "Suggestion traceability" })).not.toBeNull();
+  });
+
   it("renders useful statistics and newest lifecycle events", () => {
     render(
       <SuggestionTraceCard
@@ -120,7 +139,7 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("How the rank was decided")).not.toBeNull();
     expect(screen.getByText("Final rank #1")).not.toBeNull();
     expect(document.body.textContent).toContain(
-      "Semantic match remains the separate cosine similarity shown above.",
+      "BM25 has no ceiling, so this row's rank score falls back to its cosine similarity.",
     );
 
     const details = screen.getByText("Show ranking details").closest("details");
@@ -219,6 +238,18 @@ describe("SuggestionTraceCard", () => {
           provider_request_id: "request-123",
           provider_score: 0.74,
           score_components: {
+            citation_need: {
+              sentence: "A 2024 study found that 72% of editors verify quantitative claims.",
+              start: 140,
+              end: 210,
+              confidence: 0.94,
+              reasons: [
+                "research_or_attribution",
+                "quantitative_claim",
+                "time_sensitive_claim",
+              ],
+              detector_version: "citation_rules_en_v1",
+            },
             external_safety: {
               domain: "reference.example",
               eligible: true,
@@ -230,6 +261,19 @@ describe("SuggestionTraceCard", () => {
                 owned_domain: false,
               },
             },
+            live_url: {
+              domain: "reference.example",
+              eligible: true,
+              reasons: [],
+              checks: {
+                reachable: true,
+                https: true,
+                http_status: 200,
+                redirect_count: 1,
+                final_url: "https://reference.example/seo-guide",
+                checked_at: "2026-08-17T10:00:00+00:00",
+              },
+            },
           },
         }}
         trace={{ data: [], isLoading: false, error: null, onRetry: vi.fn() }}
@@ -239,8 +283,67 @@ describe("SuggestionTraceCard", () => {
     expect(screen.getByText("Search relevance")).not.toBeNull();
     expect(screen.getByText("74%")).not.toBeNull();
     expect(screen.getByText("Safety checks")).not.toBeNull();
-    expect(screen.getByText("Passed")).not.toBeNull();
+    expect(screen.getByText("Live URL")).not.toBeNull();
+    expect(screen.getByText("Live URL checks")).not.toBeNull();
+    expect(screen.getByText("Citation need")).not.toBeNull();
+    expect(screen.getByText("94%")).not.toBeNull();
+    expect(screen.getByRole("list", { name: "Citation need signals" })).not.toBeNull();
+    expect(screen.getByText("Quantitative claim")).not.toBeNull();
+    expect(screen.getByText(/this signal does not claim/)).not.toBeNull();
+    expect(document.body.textContent).toContain("citation_rules_en_v1");
+    expect(screen.getByText("HTTP status")).not.toBeNull();
+    expect(screen.getByText("Redirects followed")).not.toBeNull();
+    expect(screen.getByText("https://reference.example/seo-guide").className).toContain(
+      "break-all",
+    );
+    expect(screen.getAllByText("Passed")).toHaveLength(2);
     expect(screen.getByText("Web search")).not.toBeNull();
     expect(document.body.textContent).toContain("Provider request: request-123");
+  });
+
+  it("shows the fresh publication-time URL verdict from immutable audit events", () => {
+    render(
+      <SuggestionTraceCard
+        suggestion={{
+          ...suggestion,
+          target_origin: "web_search",
+          score_components: {
+            live_url: {
+              domain: "reference.example",
+              eligible: true,
+              reasons: [],
+              checks: { reachable: true, http_status: 200 },
+            },
+          },
+        }}
+        trace={{
+          data: [
+            {
+              id: 3,
+              suggestion_id: suggestion.id,
+              event_type: "live_url_expired",
+              actor: "publication-worker",
+              details: {
+                live_url: {
+                  domain: "reference.example",
+                  eligible: false,
+                  reasons: ["target returned HTTP 410"],
+                  checks: { reachable: false, http_status: 410, redirect_count: 0 },
+                  reason_code: "http_status",
+                },
+              },
+              created_at: "2026-08-17T11:00:00Z",
+            },
+          ],
+          isLoading: false,
+          error: null,
+          onRetry: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Blocked by live URL check")).not.toBeNull();
+    expect(screen.getByText("target returned HTTP 410")).not.toBeNull();
+    expect(screen.getByText("410")).not.toBeNull();
   });
 });

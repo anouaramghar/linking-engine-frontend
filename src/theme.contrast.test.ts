@@ -58,6 +58,14 @@ const PAIRS: Array<[string, string, number]> = [
   ["muted", "canvas-soft", 4.5],
   ["muted", "surface-card", 4.5],
   ["muted", "surface-strong", 4.5],
+  // A tinted status badge is still a badge: it carries `ink` at 12px, so the
+  // four grounds are held to the text minimum in both themes. This is the pair
+  // that stops a tint from being nudged "just a bit stronger" for looks until
+  // the label stops being readable on it.
+  ["ink", "tint-positive", 4.5],
+  ["ink", "tint-negative", 4.5],
+  ["ink", "tint-active", 4.5],
+  ["ink", "tint-progress", 4.5],
   ["error-ink", "canvas", 4.5],
   ["error-ink", "canvas-soft", 4.5],
   ["error-ink", "surface-card", 4.5],
@@ -95,6 +103,9 @@ const PAIRS: Array<[string, string, number]> = [
   ["error", "canvas", 3],
   ["error", "canvas-soft", 3],
   ["error", "surface-card", 3],
+  ["notification-unread", "canvas", 3],
+  ["notification-unread", "canvas-soft", 3],
+  ["notification-unread", "surface-card", 3],
 ];
 
 describe.each([

@@ -2,6 +2,29 @@ import axios from "axios";
 
 export const API_TIMEOUT_MS = 30_000;
 
+/**
+ * The assistant answers over several model turns, so it is the one request the
+ * shared budget above was never sized for: the engine may call a tool, read the
+ * result, and only then write a reply. On a slow provider each of those turns
+ * can take twenty to forty seconds on its own, which made the panel fail
+ * intermittently while the engine went on to answer successfully.
+ *
+ * This is still a bound, not a licence to hang. A request that outlives it has
+ * genuinely stalled, and the panel offers a retry rather than waiting for ever.
+ */
+export const AGENT_CHAT_TIMEOUT_MS = 120_000;
+
+/**
+ * The same bound for the streamed turn, measured differently: how long the
+ * panel waits for the *next* thing the engine has to say.
+ *
+ * A total budget is the wrong shape once a reply arrives in fragments. A long
+ * answer that keeps coming is not a stall, and a short one that stops
+ * mid-sentence is — so silence is what is timed, and it starts again with
+ * every fragment.
+ */
+export const AGENT_STREAM_IDLE_MS = 120_000;
+
 /** Marker the authenticated proxy requires on unsafe /api methods (CSRF). */
 export const LINKMESH_CLIENT_HEADER = "X-LinkMesh-Client";
 export const LINKMESH_CLIENT_VALUE = "dashboard";

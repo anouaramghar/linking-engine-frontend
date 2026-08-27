@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -110,8 +110,30 @@ describe("AccessPage", () => {
     renderAccess();
 
     await operator.click(await screen.findByRole("button", { name: "Make admin" }));
+    expect(mocks.grantAdmin).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole("dialog", { name: "Grant admin rights?" });
+    expect(dialog.textContent).toContain("Anouar");
+    await operator.click(within(dialog).getByRole("button", { name: "Make admin" }));
 
     await waitFor(() => expect(mocks.grantAdmin).toHaveBeenCalledWith(MEMBER.id));
+  });
+
+  it("confirms dashboard access changes before sending them", async () => {
+    const operator = userEvent.setup();
+    renderAccess();
+
+    await operator.click(await screen.findByRole("button", { name: "Revoke" }));
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    const revokeDialog = screen.getByRole("dialog", { name: "Revoke dashboard access?" });
+    await operator.click(within(revokeDialog).getByRole("button", { name: "Revoke access" }));
+    await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(MEMBER.id));
+
+    await operator.click(await screen.findByRole("button", { name: "Approve" }));
+    expect(mocks.approve).not.toHaveBeenCalled();
+    const approveDialog = screen.getByRole("dialog", { name: "Approve dashboard access?" });
+    await operator.click(within(approveDialog).getByRole("button", { name: "Approve access" }));
+    await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(NEWCOMER.id));
   });
 
   it("never offers to remove your own admin rights or your own access", async () => {

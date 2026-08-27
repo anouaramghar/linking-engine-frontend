@@ -49,21 +49,50 @@ export const useSuggestions = (
   };
 };
 
+/**
+ * `/suggestions/counts` answers with every status at once, so a status is not a
+ * bound it accepts. Dropping it here keeps the request honest and, more
+ * usefully, keeps two callers asking the same question on one cache entry:
+ * SelectedPage asks with `status: "approved"` and reads `.approved` off the
+ * same answer the queue's chips are already holding.
+ */
+const countScope = (filters: SuggestionQueueFilters): SuggestionQueueFilters => {
+  const scope = { ...filters };
+  delete scope.status;
+  return scope;
+};
+
 export const useSuggestionCounts = (
   filters: SuggestionQueueFilters,
   enabled = true,
-) =>
-  useQuery({
-    queryKey: ["suggestions", "counts", filters],
-    queryFn: () => countSuggestions(filters),
+) => {
+  const scope = countScope(filters);
+  return useQuery({
+    queryKey: ["suggestions", "counts", scope],
+    queryFn: () => countSuggestions(scope),
     // The threshold rule is part of this key, so every change of it is a new
     // query. Without a placeholder the counts blink to `undefined`, the page
     // reads that as zero, and the bulk buttons those counts label disable
     // themselves under the user's cursor. Holding the last answer keeps the
     // control usable; it is at most one debounce interval stale.
     placeholderData: keepPreviousData,
+    // Against the client-wide default, and only here.
+    //
+    // Nothing else moves these numbers when this browser is idle: a colleague
+    // reviewing the same queue does not reach this cache, and React Query stops
+    // its intervals in an unfocused window — so a tab left open over lunch came
+    // back showing the fleet as it stood an hour ago. Refetch on focus is what
+    // the polled queries already do; this one fires once per return rather than
+    // on a timer, and it is the cheapest query in the dashboard: one grouped
+    // aggregate over an indexed column.
+    //
+    // Deliberately not extended to `["sites"]` or the paginated queue. Those
+    // are the heavy reads the client-wide default exists to protect, and a
+    // refetch of every loaded page on every focus is the cost it avoids.
+    refetchOnWindowFocus: true,
     enabled,
   });
+};
 
 /**
  * The placement for the open suggestion, fetched only while one is open.

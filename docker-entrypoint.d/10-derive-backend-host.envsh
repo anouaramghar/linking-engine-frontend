@@ -1,0 +1,34 @@
+#!/bin/sh
+# Split BACKEND_URL into the two pieces the upstream block needs.
+#
+# `proxy_pass` to a named upstream is what lets nginx hold keepalive
+# connections to the API; a literal URL opens a new one per request, and with
+# auth_request in front of /api/ that was two TCP handshakes per dashboard call.
+# An upstream takes a bare host:port, so the scheme has to come off.
+#
+# BACKEND_URL stays the single knob a deployment sets. Nothing new to configure.
+#
+# This file is .envsh, not .sh, on purpose: nginx's entrypoint *sources* .envsh
+# and *launches* .sh in a subshell, so an export from a .sh never reaches
+# 20-envsubst-on-templates.sh.
+set -eu
+
+url="${BACKEND_URL:-http://api:8000}"
+case "$url" in
+    *://*) ;;
+    *)
+        echo >&2 "linkmesh-dashboard: BACKEND_URL must include a scheme, got '$url'."
+        exit 1
+        ;;
+esac
+
+BACKEND_SCHEME="${url%%://*}"
+rest="${url#*://}"
+BACKEND_HOST="${rest%%/*}"
+
+if [ -z "$BACKEND_HOST" ]; then
+    echo >&2 "linkmesh-dashboard: BACKEND_URL names no host, got '$url'."
+    exit 1
+fi
+
+export BACKEND_SCHEME BACKEND_HOST

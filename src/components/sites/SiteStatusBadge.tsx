@@ -26,6 +26,7 @@ const LABELS: Record<string, string> = {
   succeeded: "Indexed",
   running: "Crawling…",
   failed: "Crawl failed",
+  cancelled: "Cancelled",
 };
 
 export interface SiteStatusBadgeProps {

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -10,6 +11,7 @@ import {
   type DashboardUser,
 } from "../api/auth";
 import { UserAvatar } from "../components/AccountControls";
+import ConfirmDialog from "../components/ConfirmDialog";
 import PageHeader from "../components/PageHeader";
 import { ErrorPanel, SkeletonRows } from "../components/QueryState";
 import { useSession } from "../hooks/useSession";
@@ -27,6 +29,36 @@ const STATUS_LABEL: Record<DashboardUser["status"], string> = {
 };
 
 type AccessAction = "approve" | "revoke" | "grant-admin" | "revoke-admin";
+
+const ACTION_COPY: Record<
+  AccessAction,
+  { title: string; confirmLabel: string; danger: boolean; description: (name: string) => string }
+> = {
+  approve: {
+    title: "Approve dashboard access?",
+    confirmLabel: "Approve access",
+    danger: false,
+    description: (name) => `${name} will be able to sign in to the dashboard.`,
+  },
+  revoke: {
+    title: "Revoke dashboard access?",
+    confirmLabel: "Revoke access",
+    danger: true,
+    description: (name) => `${name} will no longer be able to sign in to the dashboard.`,
+  },
+  "grant-admin": {
+    title: "Grant admin rights?",
+    confirmLabel: "Make admin",
+    danger: false,
+    description: (name) => `${name} will be able to approve users, revoke access, and manage roles.`,
+  },
+  "revoke-admin": {
+    title: "Remove admin rights?",
+    confirmLabel: "Remove admin",
+    danger: true,
+    description: (name) => `${name} will keep dashboard access but will no longer manage users.`,
+  },
+};
 
 const RUN: Record<AccessAction, (id: number) => Promise<DashboardUser>> = {
   approve: approveDashboardUser,
@@ -62,11 +94,27 @@ export default function AccessPage() {
   // An engine that predates the admin group reports nothing here, which reads
   // as "not an admin" — the honest answer for a UI that cannot know.
   const isAdmin = me?.is_admin === true;
+  const [pendingChange, setPendingChange] = useState<{
+    user: DashboardUser;
+    action: AccessAction;
+  } | null>(null);
 
   const change = useMutation({
     mutationFn: ({ id, action }: { id: number; action: AccessAction }) => RUN[action](id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dashboard-users"] }),
   });
+
+  const confirmChange = () => {
+    if (!pendingChange) return;
+    const { user, action } = pendingChange;
+    change.mutate(
+      { id: user.id, action },
+      {
+        onSuccess: () => setPendingChange(null),
+        onError: () => setPendingChange(null),
+      },
+    );
+  };
 
   return (
     <>
@@ -142,8 +190,8 @@ export default function AccessPage() {
                           type="button"
                           disabled={(isSelf && user.is_admin) || busy}
                           onClick={() =>
-                            change.mutate({
-                              id: user.id,
+                            setPendingChange({
+                              user,
                               action: user.is_admin ? "revoke-admin" : "grant-admin",
                             })
                           }
@@ -172,7 +220,7 @@ export default function AccessPage() {
                           <button
                             type="button"
                             disabled={isSelf || busy}
-                            onClick={() => change.mutate({ id: user.id, action: "revoke" })}
+                            onClick={() => setPendingChange({ user, action: "revoke" })}
                             // Locking yourself out is recoverable only by someone
                             // else, and possibly by nobody at all.
                             {...disabledReason(
@@ -187,7 +235,7 @@ export default function AccessPage() {
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => change.mutate({ id: user.id, action: "approve" })}
+                            onClick={() => setPendingChange({ user, action: "approve" })}
                             className="btn btn-primary btn-sm disabled:opacity-50"
                           >
                             {user.status === "revoked" ? "Restore" : "Approve"}
@@ -200,6 +248,19 @@ export default function AccessPage() {
           </ul>
         )}
       </div>
+      {pendingChange && (
+        <ConfirmDialog
+          title={ACTION_COPY[pendingChange.action].title}
+          description={ACTION_COPY[pendingChange.action].description(
+            describeUser(pendingChange.user),
+          )}
+          confirmLabel={ACTION_COPY[pendingChange.action].confirmLabel}
+          danger={ACTION_COPY[pendingChange.action].danger}
+          pending={change.isPending}
+          onConfirm={confirmChange}
+          onCancel={() => setPendingChange(null)}
+        />
+      )}
     </>
   );
 }

@@ -45,6 +45,7 @@ const suggestion: Suggestion = {
   target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.9,
+  rank_score: 0.9,
   status: "pending",
   anchor_text: "anchor",
   created_at: "2026-07-16T10:00:00Z",

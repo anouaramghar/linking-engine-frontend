@@ -16,6 +16,7 @@ const suggestion = (status: Suggestion["status"]): Suggestion => ({
   target_site_name: "Example site",
   method: "baseline_cosine",
   score: 0.9,
+  rank_score: 0.9,
   status,
   anchor_text: "anchor",
   created_at: "2026-07-16T10:00:00Z",
@@ -32,6 +33,13 @@ const placement = {
     llm_model: "google/gemma-4-31b-it",
     generated_at: "2026-08-03T10:00:00Z",
   },
+  isLoading: false,
+  error: null,
+  onRetry: vi.fn(),
+};
+
+const trace = {
+  data: [],
   isLoading: false,
   error: null,
   onRetry: vi.fn(),
@@ -100,6 +108,31 @@ describe("SuggestionPreview publication state", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Review exact edit" }));
     expect(onReviewPublication).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the decision after the technical provenance", () => {
+    render(
+      <SuggestionPreview
+        suggestion={suggestion("pending")}
+        siteName="Example site"
+        placement={placement}
+        trace={trace}
+        onClose={vi.fn()}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onUndo={vi.fn()}
+      />,
+    );
+
+    const action = screen.getByRole("button", { name: "Select for review" });
+    const provenance = screen.getByText("Technical provenance").closest("details");
+    const source = screen.getByText("Source article");
+
+    expect(provenance).not.toBeNull();
+    expect(provenance?.open).toBe(false);
+    expect(action.compareDocumentPosition(source)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(action.compareDocumentPosition(provenance!)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(action.closest("section")?.className).not.toContain("sticky");
   });
 
   it("identifies an in-progress publication", () => {
@@ -186,10 +219,10 @@ describe("SuggestionPreview publication state", () => {
     expect(screen.queryByText("hybrid BM25")).toBeNull();
   });
 
-  it("shows final delivery rank separately from semantic similarity", () => {
+  it("shows the rank score without repeating the final delivery rank", () => {
     render(
       <SuggestionCard
-        suggestion={{ ...suggestion("pending"), score: 0.89, final_rank: 1 }}
+        suggestion={{ ...suggestion("pending"), score: 0.72, rank_score: 0.89, final_rank: 1 }}
         siteName="Example site"
         selected={false}
         onOpen={vi.fn()}
@@ -199,9 +232,11 @@ describe("SuggestionPreview publication state", () => {
       />,
     );
 
-    expect(screen.getByText("Final rank #1")).not.toBeNull();
+    expect(screen.queryByText("Final rank #1")).toBeNull();
     expect(screen.getByText("89%")).not.toBeNull();
-    expect(screen.getByText("Semantic match")).not.toBeNull();
+    expect(screen.getByText("Rank score")).not.toBeNull();
+    // The cosine score is a different number and must not be mistaken for it.
+    expect(screen.queryByText("72%")).toBeNull();
   });
 
   it("identifies a content-pool target as an external link", () => {
@@ -229,7 +264,9 @@ describe("SuggestionPreview publication state", () => {
 
     expect(screen.getByText("External link · Content pool")).not.toBeNull();
     expect(screen.getByText("Wikipedia")).not.toBeNull();
-    expect(screen.getByRole("link", { name: "Open target article" }).getAttribute("href")).toBe(
+    expect(
+      screen.getByRole("link", { name: "Open target article in a new tab" }).getAttribute("href"),
+    ).toBe(
       "https://en.wikipedia.org/wiki/External_target",
     );
   });
@@ -266,7 +303,9 @@ describe("SuggestionPreview publication state", () => {
       "Independent guidance about useful SEO links.",
     );
     expect(document.body.textContent).toContain("Search query: SEO Orlando");
-    expect(screen.getByRole("link", { name: "Open target article" }).getAttribute("href")).toBe(
+    expect(
+      screen.getByRole("link", { name: "Open target article in a new tab" }).getAttribute("href"),
+    ).toBe(
       "https://reference.example/seo-guide",
     );
   });

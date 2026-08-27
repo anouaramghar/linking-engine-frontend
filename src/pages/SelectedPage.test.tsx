@@ -103,6 +103,7 @@ const suggestion = (
   target_site_name: siteId === 1 ? SITE.name : SECOND_SITE.name,
   method: "baseline_cosine",
   score: 0.8,
+  rank_score: 0.8,
   status,
   anchor_text: "anchor",
   created_at: "2026-08-13T10:00:00Z",
@@ -154,6 +155,7 @@ describe("SelectedPage", () => {
     expect(screen.getAllByText("1 selected link").length).toBeGreaterThan(0);
     expect(screen.queryByText("Selected for review")).toBeNull();
     expect(screen.getByRole("link", { name: "Review selected exact edits" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Back to review queue" })).toBeNull();
     expect(mocks.lastFilters).toMatchObject({ status: "approved" });
   });
 

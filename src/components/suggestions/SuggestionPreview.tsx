@@ -54,12 +54,104 @@ export default function SuggestionPreview({
   const panelClass =
     "h-full min-h-0 w-full flex-none overflow-y-auto overscroll-contain border-l border-hairline bg-canvas-soft p-5 sm:w-[410px] sm:p-8";
 
+  const decision = (
+    <section
+      aria-labelledby={`suggestion-decision-${s.id}`}
+      className="-mx-5 mt-6 border-y border-hairline bg-canvas-soft px-5 py-4 sm:-mx-8 sm:px-8"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 id={`suggestion-decision-${s.id}`} className="text-title-sm text-ink">
+            Review this suggestion
+          </h3>
+          <p className="mt-1 text-caption leading-normal text-muted">
+            {s.status === "pending"
+              ? "Selection adds this suggestion to exact-edit review; it is not published until the exact edit is approved."
+              : s.status === "rejected"
+                ? "Rejected suggestions are not published."
+                : "Review the current publication state before continuing."}
+          </p>
+        </div>
+
+        {s.status !== "pending" && (
+          <div
+            className={`flex min-h-10 flex-none items-center justify-center gap-2 rounded-pill px-4 text-caption-upper uppercase text-ink ${
+              STATUS_META[s.status].tint || "bg-surface-strong"
+            }`}
+          >
+            <span className={`dot ${STATUS_META[s.status].dot}`} />
+            {STATUS_META[s.status].label}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        {s.status === "pending" ? (
+          <>
+            <button
+              type="button"
+              onClick={onAccept}
+              disabled={actionsDisabled}
+              className="btn btn-primary flex-1"
+            >
+              Select for review
+            </button>
+            <button
+              type="button"
+              onClick={onReject}
+              disabled={actionsDisabled}
+              className="btn btn-outline"
+            >
+              Reject
+            </button>
+          </>
+        ) : (
+          <>
+            {s.status === "approved" && onReviewPublication && (
+              <button
+                type="button"
+                onClick={onReviewPublication}
+                disabled={actionsDisabled}
+                className="btn btn-primary flex-1"
+              >
+                Review exact edit
+              </button>
+            )}
+            {isReversible(s.status) && (
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={actionsDisabled}
+                className="btn btn-outline"
+              >
+                Undo
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {publicationMessage && (
+        <div role="region" aria-label="Publish status" className="mt-3 rounded-lg bg-surface-strong px-4 py-3">
+          <div className="eyebrow">Publish status</div>
+          <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
+          {s.status === "failed" && s.publish_error && (
+            <div className="mt-2 break-words text-caption leading-normal text-error-ink">
+              {s.publish_error}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+
   const body = (
     <>
       <div className="mb-5 flex items-center justify-between">
         <div className="eyebrow">Suggestion #{String(s.id).padStart(3, "0")}</div>
         <div className="-mr-2 -mt-2 flex items-center">
           <button
+            type="button"
             aria-label="Close preview"
             onClick={onClose}
             className="inline-flex h-11 w-11 items-center justify-center rounded-pill text-title-md leading-none text-muted hover:bg-surface-strong hover:text-ink"
@@ -77,6 +169,7 @@ export default function SuggestionPreview({
           href={s.source_article.url}
           target="_blank"
           rel="noreferrer"
+          aria-label="Open source article in a new tab"
           className="underline underline-offset-2 hover:text-ink"
         >
           Open source article
@@ -102,6 +195,7 @@ export default function SuggestionPreview({
             href={s.target_article.url}
             target="_blank"
             rel="noreferrer"
+            aria-label="Open target article in a new tab"
             className="underline underline-offset-2 hover:text-ink"
           >
             Open target article
@@ -120,81 +214,9 @@ export default function SuggestionPreview({
         )}
       </div>
 
-      {trace && <SuggestionTraceCard suggestion={s} trace={trace} />}
+      {trace && <SuggestionTraceCard suggestion={s} trace={trace} collapsible />}
 
-      {s.status === "pending" ? (
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={onAccept}
-            disabled={actionsDisabled}
-            className="btn btn-primary flex-1"
-          >
-            Select for review
-          </button>
-          <button
-            type="button"
-            onClick={onReject}
-            disabled={actionsDisabled}
-            className="btn btn-outline"
-          >
-            Reject
-          </button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          <div className="flex min-h-10 items-center justify-center gap-2 rounded-pill bg-surface-strong px-4 text-caption-upper uppercase text-ink">
-            <span className={`dot ${STATUS_META[s.status].dot}`} />
-            {STATUS_META[s.status].label}
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {s.status === "approved" && onReviewPublication && (
-              <button
-                type="button"
-                onClick={onReviewPublication}
-                disabled={actionsDisabled}
-                className="btn btn-primary flex-1"
-              >
-                Review exact edit
-              </button>
-            )}
-            {isReversible(s.status) && (
-              <button
-                type="button"
-                onClick={onUndo}
-                disabled={actionsDisabled}
-                className="btn btn-outline"
-              >
-                Undo
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {publicationMessage && (
-        <div role="region" aria-label="Publish status" className="card mt-3 px-4 py-3">
-          <div className="eyebrow">Publish status</div>
-          <div className="mt-1 text-caption font-medium text-body">{publicationMessage}</div>
-          {s.status === "failed" && s.publish_error && (
-            <div className="mt-2 break-words text-caption leading-normal text-error-ink">
-              {s.publish_error}
-            </div>
-          )}
-        </div>
-      )}
-
-      {s.status === "pending" && (
-        <div className="mt-3 text-caption leading-normal text-muted">
-          Selection adds this suggestion to the review tray; it is not published until the exact
-          edit is approved.
-        </div>
-      )}
-      {s.status === "rejected" && (
-        <div className="mt-3 text-caption leading-normal text-muted">
-          Rejected suggestions are not published.
-        </div>
-      )}
+      {decision}
     </>
   );
 

@@ -28,15 +28,15 @@ beforeEach(() => {
 });
 
 describe("cursor queue reads", () => {
-  it("requests exactly one filtered page and continues from its score/id cursor", async () => {
+  it("requests exactly one filtered page and continues from its rank_score/id cursor", async () => {
     const first = {
-      items: [{ id: 10, score: 0.9 }],
+      items: [{ id: 10, score: 0.9, rank_score: 0.9 }],
       total: 2000,
       limit: 1000,
-      next_cursor: { score: 0.9, id: 10 },
+      next_cursor: { rank_score: 0.9, id: 10 },
     };
     const second = {
-      items: [{ id: 9, score: 0.8 }],
+      items: [{ id: 9, score: 0.8, rank_score: 0.8 }],
       total: null,
       limit: 1000,
       next_cursor: null,
@@ -69,7 +69,7 @@ describe("cursor queue reads", () => {
       params: {
         site_id: 3,
         status: "pending",
-        after_score: 0.9,
+        after_rank_score: 0.9,
         after_id: 10,
         limit: 1000,
       },
@@ -267,7 +267,10 @@ describe("current suggestion mutations", () => {
     });
     expect(api.post).toHaveBeenNthCalledWith(2, "/suggestions/3");
     expect(api.post).toHaveBeenNthCalledWith(3, "/suggestions/3/compare");
-    expect(api.post).toHaveBeenNthCalledWith(4, "/articles/42/suggestions");
+    expect(api.post).toHaveBeenNthCalledWith(4, "/articles/42/suggestions", {
+      expected_active_job_run_ids: [],
+      expected_article_is_active: true,
+    });
   });
 });
 

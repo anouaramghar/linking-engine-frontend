@@ -23,12 +23,15 @@ export default function JobStatusBadge({
   if (!job) return null;
   const active = isActiveJobStatus(job.status);
   const label = jobStatusLabel(kind, job.status, job.progress);
+  const group = jobStatusGroup(job.status);
   const dotColor =
-    jobStatusGroup(job.status) === "succeeded"
+    group === "succeeded"
       ? "bg-success"
-      : jobStatusGroup(job.status) === "failed"
+      : group === "failed"
         ? "bg-error"
-        : "bg-primary";
+        : group === "cancelled"
+          ? "bg-muted-soft"
+          : "bg-primary";
 
   return (
     <span

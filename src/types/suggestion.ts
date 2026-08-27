@@ -33,6 +33,24 @@ export type RejectionReason =
   | "duplicate"
   | "other";
 
+export interface LiveURLEvidence {
+  domain: string;
+  eligible: boolean;
+  reasons: string[];
+  checks: Record<string, boolean | number | string | null>;
+  reason_code?: string | null;
+}
+
+export interface CitationNeedEvidence {
+  /** Exact sentence copied from the source article at generation time. */
+  sentence: string;
+  start: number;
+  end: number;
+  confidence: number;
+  reasons: string[];
+  detector_version: string;
+}
+
 /**
  * How a non-cosine ranker chose a row. Only `hybrid_bm25` writes this today; the
  * fields are optional because the engine may add more and older rows have none.
@@ -49,6 +67,9 @@ export interface SuggestionScoreComponents {
   bm25_score?: number;
   fusion_rank?: number;
   fusion_score?: number;
+  /** `fusion_score` over the ceiling weighted RRF could reach, which is what
+   *  `rank_score` stores for a fusion-ordered row. */
+  normalized_fusion_score?: number;
   /** Null when only the other retriever proposed this target. */
   dense_rank?: number | null;
   lexical_rank?: number | null;
@@ -66,6 +87,8 @@ export interface SuggestionScoreComponents {
     reasons: string[];
     checks: Record<string, boolean>;
   };
+  live_url?: LiveURLEvidence;
+  citation_need?: CitationNeedEvidence;
   graph?: {
     algorithm_version?: string;
     snapshot_id?: number;
@@ -122,6 +145,16 @@ export interface Suggestion {
   method: string;
   /** Cosine semantic similarity, whichever method selected the row. */
   score: number;
+  /**
+   * How strongly the ranker that selected this row preferred it, 0-1, where 1
+   * is the strongest that ranker can say. The queue is ordered, paginated and
+   * filtered on this, and it is the percentage the review card shows.
+   *
+   * Not a restatement of `score`. On a real corpus cosine sits in a band a few
+   * points wide, so it separates almost nothing; this is the number that
+   * actually put one row above another.
+   */
+  rank_score: number;
   score_components?: SuggestionScoreComponents | null;
   provider?: string | null;
   provider_request_id?: string | null;

@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import { MAX_PIPELINE_BATCH_SITES } from "../api/pipelines";
 import { ingestSite } from "../api/sites";
 import { triggerAnalysis } from "../api/suggestions";
-import ActionMenu from "../components/ActionMenu";
+import ActionMenu, { type MenuItem } from "../components/ActionMenu";
+import BatchSelectionTray from "../components/BatchSelectionTray";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { CANCELLATION_COPY, JOB_KIND_LABELS } from "../components/jobs/jobCancellation";
 import JobStatusBadge from "../components/jobs/JobStatusBadge";
 import LogoLoadingAnimation from "../components/LogoLoadingAnimation";
 import Notice from "../components/Notice";
@@ -13,8 +15,10 @@ import type { NoticeState } from "../components/Notice";
 import PageHeader from "../components/PageHeader";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import SelectionControl from "../components/SelectionControl";
+import SiteGraphModal from "../components/sites/SiteGraphModal";
 import SiteStatusBadge from "../components/sites/SiteStatusBadge";
-import { useActiveJobs } from "../hooks/useJobs";
+import { useActiveJobs, useCancelJob } from "../hooks/useJobs";
+import { useGraphNetwork } from "../hooks/useGraph";
 import { useIncrementalList } from "../hooks/useIncrementalList";
 import { usePageState } from "../hooks/usePageState";
 import {
@@ -83,8 +87,8 @@ interface TrackedJob {
 }
 
 const AddSiteModal = lazy(() => import("../components/sites/AddSiteModal"));
-const ArticleImportModal = lazy(() => import("../components/sites/ArticleImportModal"));
 const BulkImportModal = lazy(() => import("../components/sites/BulkImportModal"));
+const ArticleAnalysisModal = lazy(() => import("../components/sites/ArticleAnalysisModal"));
 const BatchPipelinePanel = lazy(() => import("../components/sites/BatchPipelinePanel"));
 const EditorialRankingPolicyModal = lazy(
   () => import("../components/sites/EditorialRankingPolicyModal"),
@@ -93,6 +97,7 @@ const ExternalLinkPolicyModal = lazy(
   () => import("../components/sites/ExternalLinkPolicyModal"),
 );
 const SiteCredentialsModal = lazy(() => import("../components/sites/SiteCredentialsModal"));
+const SiteScheduleModal = lazy(() => import("../components/sites/SiteScheduleModal"));
 
 const activeJobKey = (siteId: number, kind: JobKind) => `${siteId}:${kind}`;
 
@@ -135,25 +140,6 @@ function CurrentSiteStatus({
       lastAnalysisAt={site.last_analysis_at}
       analysisError={site.last_analysis_error}
     />
-  );
-}
-
-/**
- * Hybrid is the managed standard for every non-pool source, so this states the
- * site's configuration rather than reading any one row. The title says so out
- * loud: a queue card reports how that particular suggestion was produced, which
- * for an older row can still be the cosine baseline, and the two are not in
- * disagreement when it happens.
- */
-function SuggestionMethodBadge() {
-  return (
-    <span
-      className="badge"
-      title="Combines semantic and keyword matching for new suggestions"
-    >
-      <span className="dot bg-primary" />
-      Hybrid
-    </span>
   );
 }
 
@@ -212,7 +198,6 @@ function SiteIdentity({ site }: { site: Site }) {
 }
 
 export default function SitesPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get("q") ?? "";
   const setSearch = (value: string) => {
@@ -238,6 +223,8 @@ export default function SitesPage() {
   const activeJobsQuery = useActiveJobs();
   const activeJobs = useMemo(() => activeJobsQuery.data ?? [], [activeJobsQuery.data]);
   const jobStatusUnavailable = activeJobsQuery.isPending || activeJobsQuery.isError;
+  const graphNetwork = useGraphNetwork();
+  const [graphSite, setGraphSite] = useState<Site | null>(null);
   const activeJobsBySite = useMemo(() => {
     const index = new Map<number, JobRun>();
     for (const job of activeJobs) {
@@ -258,7 +245,6 @@ export default function SitesPage() {
   const deleteSite = useDeleteSite();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [articleImportFor, setArticleImportFor] = useState<Site | null>(null);
   // Crawls and pipeline runs outlive the visit that started them, so the list of
   // the ones this operator started has to as well. Dropped on navigation, a job
   // someone kicked off two minutes ago becomes indistinguishable from one a
@@ -275,9 +261,14 @@ export default function SitesPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<JobRun | null>(null);
+  const [cancelingJobId, setCancelingJobId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [credentialsFor, setCredentialsFor] = useState<Site | null>(null);
   const [policySite, setPolicySite] = useState<Site | null>(null);
   const [rankingPolicySite, setRankingPolicySite] = useState<Site | null>(null);
+  const [scheduleSite, setScheduleSite] = useState<Site | null>(null);
+  const [articleAnalysisSite, setArticleAnalysisSite] = useState<Site | null>(null);
   // A batch is assembled by hand across a long list. Leaving to check one site's
   // credentials before running the rest is part of assembling it, and used to
   // throw the whole selection away.
@@ -294,6 +285,21 @@ export default function SitesPage() {
   const batchQuery = usePipelineBatch(batchId);
   const retryPipelineSite = useRetryPipelineSite();
   const cancelBatch = useCancelPipelineBatch();
+  const cancelJob = useCancelJob();
+
+  const openGraph = (site: Site) => {
+    setGraphSite(site);
+    graphNetwork.mutate({ siteId: site.id });
+  };
+
+  const closeGraph = () => {
+    setGraphSite(null);
+    graphNetwork.reset();
+  };
+
+  const retryGraph = () => {
+    if (graphSite) graphNetwork.mutate({ siteId: graphSite.id });
+  };
 
   const filteredSites = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -491,6 +497,42 @@ export default function SitesPage() {
         tone: "error",
       });
     }
+  };
+
+  const askToCancel = (job: JobRun) => {
+    setCancelError(null);
+    setCancelTarget(job);
+  };
+
+  const confirmCancelJob = async () => {
+    if (!cancelTarget || cancelJob.isPending) return;
+    const target = cancelTarget;
+    setCancelingJobId(target.id);
+    setCancelError(null);
+    try {
+      await cancelJob.mutateAsync(target.id);
+      setCancelTarget(null);
+    } catch (error) {
+      setCancelError(errorDetail(error, "Could not stop this task. It is still running."));
+    } finally {
+      setCancelingJobId(null);
+    }
+  };
+
+  const cancellationMenuItems = (siteId: number): MenuItem[] => {
+    const job = activeJobsBySite.get(siteId);
+    if (!job) return [];
+
+    const kindLabel = JOB_KIND_LABELS[job.kind];
+    const stopping = job.status === "cancel_requested" || cancelingJobId === job.id;
+    return [
+      {
+        label: stopping ? `Stopping ${kindLabel}…` : `Stop ${kindLabel}`,
+        disabled: stopping || cancelJob.isPending,
+        danger: true,
+        onSelect: () => askToCancel(job),
+      },
+    ];
   };
 
   return (
@@ -743,7 +785,6 @@ export default function SitesPage() {
                   activeJobsBySite={activeJobsBySite}
                   trackedJobsBySite={trackedJobsBySite}
                 />
-                {site.platform !== "pool" && <SuggestionMethodBadge />}
               </div>
               <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                 <button
@@ -770,9 +811,14 @@ export default function SitesPage() {
                   label="Actions"
                   ariaLabel={`Actions for ${site.name}`}
                   items={[
+                    ...cancellationMenuItems(site.id),
                     ...(site.platform === "pool"
                       ? []
                       : [
+                          {
+                            label: "View link graph",
+                            onSelect: () => openGraph(site),
+                          },
                           {
                             label:
                               site.suggestion_slots_available === 0
@@ -793,6 +839,14 @@ export default function SitesPage() {
                               ),
                           },
                           {
+                            label: "Generate for one article",
+                            disabled:
+                              site.suggestion_slots_available === 0 ||
+                              jobStatusUnavailable ||
+                              hasActiveJob(site.id, "analysis"),
+                            onSelect: () => setArticleAnalysisSite(site),
+                          },
+                          {
                             label: "External link policy",
                             onSelect: () => setPolicySite(site),
                           },
@@ -801,15 +855,8 @@ export default function SitesPage() {
                             onSelect: () => setRankingPolicySite(site),
                           },
                           {
-                            // Was "Publish approved", and it published every
-                            // selected suggestion for the site with nobody
-                            // having seen the resulting edit. Publication is now
-                            // reachable only through the review that shows the
-                            // exact HTML and takes an explicit approval.
-                            label: "Review publication changes",
-                            disabled: false,
-                            onSelect: () =>
-                              navigate(`/queue?site=${site.id}&status=approved`),
+                            label: "Schedule refresh",
+                            onSelect: () => setScheduleSite(site),
                           },
                           {
                             // The label carries the state, so the menu says
@@ -820,10 +867,6 @@ export default function SitesPage() {
                               : "Add WordPress account",
                             disabled: false,
                             onSelect: () => setCredentialsFor(site),
-                          },
-                          {
-                            label: "Import article CSV",
-                            onSelect: () => setArticleImportFor(site),
                           },
                         ]),
                     {
@@ -863,52 +906,49 @@ export default function SitesPage() {
           )}
 
         {selectionMode && selectedSiteIds.size > 0 && (
-          <div
-            role="region"
-            aria-label="Batch selection"
-            className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-hairline-strong bg-surface-card px-4 py-3 shadow-lift sm:px-5"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="text-body-sm font-medium text-ink" aria-live="polite">
-                {selectedSiteIds.size} site{selectedSiteIds.size === 1 ? "" : "s"} selected
-              </div>
-              <div className="mt-1 text-caption text-muted">
-                {activeJobsQuery.isError
-                  ? "Live job status is unavailable. Refresh before starting a batch."
-                  : selectedActiveCount > 0
-                    ? `${selectedActiveCount} selected site${selectedActiveCount === 1 ? " is" : "s are"} already busy.`
-                    : batchLimitReached
-                      ? `Batch limit reached: ${MAX_PIPELINE_BATCH_SITES} sites maximum.`
-                      : selectedOutsideSearchCount > 0
-                  ? `${selectedOutsideSearchCount} selected outside this search.`
-                  : "Ready to run together."}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedSiteIds(new Set())}
-              className="btn btn-outline btn-sm"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={() => void launchBatch()}
-              disabled={createBatch.isPending || batchBlocked}
-              className="btn btn-primary btn-sm sm:min-w-[10rem]"
-            >
-              {createBatch.isPending ? "Starting batch…" : `Run batch (${selectedSiteIds.size})`}
-            </button>
-          </div>
+          <BatchSelectionTray
+            regionLabel="Batch selection"
+            itemLabel="site"
+            itemLabelPlural="sites"
+            selectedCount={selectedSiteIds.size}
+            status={
+              activeJobsQuery.isError
+                ? "Live job status is unavailable. Refresh before starting a batch."
+                : selectedActiveCount > 0
+                  ? `${selectedActiveCount} selected site${selectedActiveCount === 1 ? " is" : "s are"} already busy.`
+                  : batchLimitReached
+                    ? `Batch limit reached: ${MAX_PIPELINE_BATCH_SITES} sites maximum.`
+                    : selectedOutsideSearchCount > 0
+                      ? `${selectedOutsideSearchCount} selected outside this search.`
+                      : "Ready to run together."
+            }
+            actionLabel={`Run batch (${selectedSiteIds.size})`}
+            pendingActionLabel="Starting batch…"
+            actionPending={createBatch.isPending}
+            actionDisabled={batchBlocked}
+            onClear={() => setSelectedSiteIds(new Set())}
+            onAction={() => void launchBatch()}
+          />
         )}
       </div>
+      {graphSite && (
+        <SiteGraphModal
+          site={graphSite}
+          data={graphNetwork.data}
+          loading={graphNetwork.isPending}
+          error={graphNetwork.isError}
+          onRetry={retryGraph}
+          onClose={closeGraph}
+        />
+      )}
       <Suspense fallback={null}>
         {showAdd && <AddSiteModal onClose={() => setShowAdd(false)} />}
         {showImport && <BulkImportModal onClose={() => setShowImport(false)} />}
-        {articleImportFor && (
-          <ArticleImportModal
-            site={articleImportFor}
-            onClose={() => setArticleImportFor(null)}
+        {articleAnalysisSite && (
+          <ArticleAnalysisModal
+            site={articleAnalysisSite}
+            onClose={() => setArticleAnalysisSite(null)}
+            onQueued={(message) => setNotice({ message, tone: "info" })}
           />
         )}
         {credentialsFor && (
@@ -932,6 +972,13 @@ export default function SitesPage() {
             onSaved={(message) => setNotice({ message, tone: "info" })}
           />
         )}
+        {scheduleSite && (
+          <SiteScheduleModal
+            site={scheduleSite}
+            onClose={() => setScheduleSite(null)}
+            onSaved={(message) => setNotice({ message, tone: "info" })}
+          />
+        )}
       </Suspense>
       {pendingDelete && (
         <ConfirmDialog
@@ -943,6 +990,20 @@ export default function SitesPage() {
           pending={deleteSite.isPending}
           onConfirm={remove}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+      {cancelTarget && (
+        <ConfirmDialog
+          title={CANCELLATION_COPY[cancelTarget.kind].title}
+          description={CANCELLATION_COPY[cancelTarget.kind].description}
+          confirmLabel="Stop task"
+          danger
+          pending={cancelingJobId === cancelTarget.id}
+          error={cancelError}
+          onConfirm={() => void confirmCancelJob()}
+          onCancel={() => {
+            if (cancelingJobId === null) setCancelTarget(null);
+          }}
         />
       )}
       {confirmCancelBatch && batchId !== null && (

@@ -4,6 +4,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicationPlan } from "../api/publish";
+import { PageStateProvider } from "../hooks/usePageState";
+import type { GraphNetwork } from "../types/graph";
 import PublishPage from "./PublishPage";
 
 const SITE = {
@@ -20,6 +22,8 @@ const SECOND_SITE = { ...SITE, id: 2, name: "Other site" };
 
 const mocks = vi.hoisted(() => ({
   getPlanHtml: vi.fn(),
+  getGraphNetwork: vi.fn(),
+  getGraphNeighborhood: vi.fn(),
   prepareMutate: vi.fn(),
   prepareReset: vi.fn(),
   approveMutate: vi.fn(),
@@ -56,6 +60,11 @@ vi.mock("../api/publish", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/publish")>();
   return { ...actual, getPublicationPlanHtml: mocks.getPlanHtml };
 });
+
+vi.mock("../api/graph", () => ({
+  getGraphNetwork: mocks.getGraphNetwork,
+  getGraphNeighborhood: mocks.getGraphNeighborhood,
+}));
 
 vi.mock("../hooks/useSites", () => ({
   useSites: () => ({
@@ -164,6 +173,54 @@ const SECOND_PLAN = {
   links: [{ ...PLAN.links[0], suggestion_id: 2 }],
 };
 
+const graphNode = (
+  articleId: number,
+  title: string,
+  url: string,
+): GraphNetwork["nodes"][number] => ({
+  article_id: articleId,
+  article_url: url,
+  article_title: title,
+  in_degree: 0,
+  out_degree: 0,
+  orphan: true,
+  underlinked: true,
+  hub: false,
+  saturated: false,
+  hub_score: 0,
+  saturation_score: 0,
+});
+
+const SITE_GRAPH: GraphNetwork = {
+  site_id: 1,
+  snapshot_id: 12,
+  graph_version: "a".repeat(64),
+  computed_at: "2026-08-17T10:00:00Z",
+  article_count: 7,
+  edge_count: 1,
+  orphan_count: 5,
+  underlinked_count: 7,
+  hub_count: 0,
+  saturated_count: 0,
+  nodes: [
+    graphNode(10, "Source", "https://example.com/source"),
+    graphNode(11, "Existing target", "https://example.com/existing-target"),
+    graphNode(21, "Source 1", "https://example.com/source-1"),
+    graphNode(22, "Source 2", "https://example.com/source-2"),
+    graphNode(23, "Source 3", "https://example.com/source-3"),
+    graphNode(24, "Source 4", "https://example.com/source-4"),
+    graphNode(30, "Prepared target", "https://example.com/target"),
+  ],
+  edges: [{ source_article_id: 10, target_article_id: 11 }],
+};
+
+const PREPARED_GRAPH_EDGES = [10, 21, 22, 23, 24].map((sourceArticleId, index) => ({
+  suggestion_id: index === 0 ? 1 : 100 + index,
+  source_article_id: sourceArticleId,
+  target_article_id: 30,
+  status: "new" as const,
+}));
+
 const preparedFor = (
   site: number,
   overrides: Record<string, unknown> = {},
@@ -192,13 +249,15 @@ const preparedFor = (
  */
 const renderPublish = (entry = "/publish/1") =>
   render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Routes>
-        <Route path="/queue" element={<div>Review queue</div>} />
-        <Route path="/publish" element={<PublishPage />} />
-        <Route path="/publish/:siteId" element={<PublishPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <PageStateProvider>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/queue" element={<div>Review queue</div>} />
+          <Route path="/publish" element={<PublishPage />} />
+          <Route path="/publish/:siteId" element={<PublishPage />} />
+        </Routes>
+      </MemoryRouter>
+    </PageStateProvider>,
   );
 
 beforeEach(() => {
@@ -208,6 +267,8 @@ beforeEach(() => {
   mocks.queueMutate.mockReset();
   mocks.reviewMutate.mockReset();
   mocks.getPlanHtml.mockReset();
+  mocks.getGraphNetwork.mockReset();
+  mocks.getGraphNeighborhood.mockReset();
   mocks.pendingPublication = [];
   mocks.pendingSite = undefined;
   mocks.preparedData = {};
@@ -316,7 +377,22 @@ describe("PublishPage site list", () => {
     await user.click(screen.getByRole("link", { name: "All sites waiting" }));
     await user.click(screen.getAllByRole("link", { name: "Back to the edits" })[0]);
 
-    await screen.findByText("1 of 2 selected");
+    expect(await screen.findAllByText("1 of 2 selected")).not.toHaveLength(0);
+  });
+
+  it("keeps prepared articles ready when the operator walks away", async () => {
+    const user = userEvent.setup();
+    preparedFor(1);
+    preparedFor(2);
+    renderPublish("/publish/1");
+
+    await screen.findByText(PLAN.source_url);
+
+    await user.click(screen.getByRole("link", { name: "All sites waiting" }));
+    await user.click(screen.getAllByRole("link", { name: "Back to the edits" })[0]);
+
+    await screen.findByText(PLAN.source_url);
+    expect(screen.getByRole("button", { name: "Approve and queue 1 exact edit" })).not.toBeNull();
   });
 
   it("prepares the next site after the previous site's job finished", async () => {
@@ -360,28 +436,36 @@ const extraPlan = (n: number): PublicationPlan => ({
   links: [{ ...PLAN.links[0], suggestion_id: 100 + n }],
 });
 
-/** One pane of the exact-HTML diff, line by line, as the operator reads it. */
-const codeLines = (label: string) =>
-  Array.from(
-    screen.getByRole("region", { name: `${label} HTML code` }).querySelectorAll("code"),
-  ).map((node) => node.textContent);
-
-/** The lit part of that pane — what this approval writes, and nothing else. */
-const marked = (label: string) =>
+/** The unified exact-HTML diff, line by line, as the operator reads it. */
+const codeLines = () =>
   Array.from(
     screen
-      .getByRole("region", { name: `${label} HTML code` })
-      .querySelectorAll('[class*="bg-success/25"], [class*="bg-error/25"]'),
-  )
+      .getByRole("region", {
+        name: "Unified HTML diff from source.html before approval to updated.html after approval",
+      })
+      .querySelectorAll("code"),
+  ).map((node) => node.textContent);
+
+/** The lit part of the unified diff — what this approval writes, and nothing else. */
+const marked = () =>
+  ["bg-error/25", "bg-success/25"]
+    .flatMap((className) =>
+      Array.from(
+        screen
+          .getByRole("region", {
+            name: "Unified HTML diff from source.html before approval to updated.html after approval",
+          })
+          .querySelectorAll(`[class*="${className}"]`),
+      ),
+    )
     .map((node) => node.textContent)
     .join("");
 
 const readEveryChange = async (user: ReturnType<typeof userEvent.setup>) => {
-  let next = screen.queryByRole("button", { name: "Read the next change" });
-  while (next) {
-    await user.click(next);
-    next = screen.queryByRole("button", { name: "Read the next change" });
-  }
+  void user;
+  expect(screen.queryByRole("button", { name: "Read the next change" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Show the change" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Hide the change" })).toBeNull();
 };
 
 describe("PublishPage approval", () => {
@@ -390,59 +474,65 @@ describe("PublishPage approval", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("requires an explicit review action before approval", () => {
+  it("shows every change and the approval action by default", async () => {
     preparedFor(1, {}, [PLAN, extraPlan(1), extraPlan(2), extraPlan(3)]);
     renderPublish();
 
-    expect(document.body.textContent).toContain("0 of 4 read");
-    expect(screen.getAllByRole("button", { name: "Show the change" })).toHaveLength(4);
-    expect(screen.getByRole("button", { name: "Read the next change" })).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Approve and queue 4 exact edits" })).toBeNull();
+    await screen.findByText(PLAN.source_url);
+    expect(document.body.textContent).toContain("4 of 4 selected");
+    expect(document.body.textContent).toContain("solar panel costs");
+    expect(screen.queryByRole("button", { name: "Show the change" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hide the change" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Read the next change" })).toBeNull();
+    const approval = screen.getByRole("button", { name: "Approve and queue 4 exact edits" });
+    expect(approval).not.toBeNull();
+    const pageHeader = screen
+      .getByRole("heading", { name: "Approve exact edits" })
+      .closest(".border-b");
+    expect(pageHeader?.contains(approval)).toBe(true);
+    expect(document.querySelector("#approval-summary")).toBeNull();
     expect(mocks.approveMutate).not.toHaveBeenCalled();
   });
 
-  it("reviews one selected article at a time", async () => {
-    const user = userEvent.setup();
+  it("shows all prepared articles at once", () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN, extraPlan(1)]);
     renderPublish();
 
-    await user.click(screen.getByRole("button", { name: "Read the next change" }));
-
-    expect(document.body.textContent).toContain("1 of 3 read");
-    expect(screen.getByRole("button", { name: "Read the next change" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Hide the change" })).not.toBeNull();
+    expect(screen.getByText(PLAN.source_url)).not.toBeNull();
+    expect(screen.getByText(SECOND_PLAN.source_url)).not.toBeNull();
+    expect(screen.getByText(extraPlan(1).source_url)).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Approve and queue 3 exact edits" })).not.toBeNull();
   });
 
-  it("does not expose approval for a single article until it is opened", async () => {
+  it("overlays every prepared internal link on the full site graph", async () => {
+    const user = userEvent.setup();
+    const plans = [PLAN, extraPlan(1), extraPlan(2), extraPlan(3), extraPlan(4)];
+    preparedFor(1, { selected_suggestions: 5 }, plans);
+    mocks.getGraphNetwork.mockResolvedValue(SITE_GRAPH);
+    mocks.getGraphNeighborhood.mockResolvedValue({ proposed_edges: PREPARED_GRAPH_EDGES });
+    renderPublish();
+
+    await user.click(await screen.findByRole("button", { name: "View full site graph" }));
+
+    expect(await screen.findAllByText(/5 prepared internal links/)).not.toHaveLength(0);
+    expect(mocks.getGraphNetwork).toHaveBeenCalledWith(1);
+    expect(mocks.getGraphNeighborhood).toHaveBeenCalledWith(
+      1,
+      [1, 101, 102, 103, 104],
+      80,
+    );
+    expect(
+      screen
+        .getByRole("group", { name: "Prepared internal links" })
+        .querySelectorAll("line.graph-edge-visible"),
+    ).toHaveLength(5);
+  });
+
+  it("exposes approval for a single article without an extra click", () => {
     preparedFor(1);
     renderPublish();
 
-    expect(document.body.textContent).toContain("0 of 1 read");
-    expect(screen.queryByRole("button", { name: "Approve and queue 1 exact edit" })).toBeNull();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Show the change" }));
-    expect(screen.getByRole("button", { name: "Approve and queue 1 exact edit" })).not.toBeNull();
-  });
-
-  it("scrolls to the article opened by Read the next change", async () => {
-    const user = userEvent.setup();
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
-    preparedFor(1, {}, [PLAN, SECOND_PLAN]);
-    renderPublish();
-
-    await user.click(screen.getByRole("button", { name: "Read the next change" }));
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(document.body.textContent).toContain("1 of 2 read");
-  });
-
-  it("keeps a reviewed article reviewed after it is closed", async () => {
-    const user = userEvent.setup();
-    preparedFor(1);
-    renderPublish();
-
-    await user.click(screen.getByRole("button", { name: "Show the change" }));
-    await user.click(screen.getByRole("button", { name: "Hide the change" }));
-    expect(document.body.textContent).toContain("Exact artifact reviewed");
+    expect(document.body.textContent).toContain("solar panel costs");
     expect(screen.getByRole("button", { name: "Approve and queue 1 exact edit" })).not.toBeNull();
   });
 
@@ -640,12 +730,14 @@ describe("PublishPage approval", () => {
     const user = userEvent.setup();
     await user.click(exactHtmlToggle);
 
-    await screen.findByRole("region", { name: "Before approval HTML code" });
-    expect(codeLines("Before approval")).toEqual(["<p>solar panel costs</p>"]);
-    expect(codeLines("After approval")).toEqual([
+    await screen.findByRole("region", {
+      name: "Unified HTML diff from source.html before approval to updated.html after approval",
+    });
+    expect(codeLines()).toEqual([
+      "<p>solar panel costs</p>",
       '<p><a href="/target">solar panel</a> costs</p>',
     ]);
-    expect(screen.getAllByText("HTML · read-only")).toHaveLength(2);
+    expect(screen.getAllByText("HTML · read-only")).toHaveLength(1);
     expect(mocks.getPlanHtml).toHaveBeenCalledWith(1, 55);
     expect(document.body.textContent).not.toContain(PLAN.plan_hash.slice(0, 12));
   });
@@ -661,10 +753,11 @@ describe("PublishPage approval", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByTitle("View exact HTML (advanced)"));
-    await screen.findByRole("region", { name: "After approval HTML code" });
+    await screen.findByRole("region", {
+      name: "Unified HTML diff from source.html before approval to updated.html after approval",
+    });
 
-    expect(marked("After approval")).toBe('<a href="/target">solar panel</a>');
-    expect(marked("Before approval")).toBe("solar panel");
+    expect(marked()).toBe('solar panel<a href="/target">solar panel</a>');
     // The count is the same claim in numbers, for the reviewer who only skims.
     expect(document.body.textContent).toContain("+1");
     expect(document.body.textContent).toContain("−1");
@@ -686,9 +779,14 @@ describe("PublishPage approval", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTitle("View exact HTML (advanced)"));
 
-    await screen.findByRole("region", { name: "Before approval HTML code" });
-    expect(codeLines("Before approval")).toEqual(originalHtml.split("\n"));
-    expect(codeLines("After approval")).toEqual(updatedHtml.split("\n"));
+    await screen.findByRole("region", {
+      name: "Unified HTML diff from source.html before approval to updated.html after approval",
+    });
+    expect(codeLines()).toEqual([
+      ...originalHtml.split("\n").slice(0, 2),
+      ...updatedHtml.split("\n").slice(1, 2),
+      ...originalHtml.split("\n").slice(2),
+    ]);
   });
 
   it("never says the content may still change after approval", () => {
@@ -864,6 +962,7 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN]);
     renderPublish();
 
+    await screen.findByText(SECOND_PLAN.source_url);
     await readEveryChange(user);
     await user.click(
       screen.getByRole("checkbox", {
@@ -871,7 +970,7 @@ describe("PublishPage approval", () => {
       }),
     );
 
-    expect(document.body.textContent).toContain("1 article stays unpublished");
+    expect(document.body.textContent).toContain("Excluded from this approval");
     await user.click(screen.getByRole("button", { name: /^Approve and queue 1 exact edit$/ }));
 
     // The unticked article is as absent from the request as a failed source is.
@@ -927,10 +1026,8 @@ describe("PublishPage approval", () => {
   });
 
   it("shows the change as the sentence it lands in, not only as HTML", async () => {
-    const user = userEvent.setup();
     preparedFor(1);
     renderPublish();
-    await user.click(screen.getByRole("button", { name: "Show the change" }));
 
     // The prepared passage gives the operator readable context; the exact HTML
     // view below remains the authoritative artifact for approval.
@@ -941,8 +1038,7 @@ describe("PublishPage approval", () => {
     );
   });
 
-  it("describes a Read also block as an end-of-article placement", async () => {
-    const user = userEvent.setup();
+  it("describes a Read also block as an end-of-article placement", () => {
     const blockPlan: PublicationPlan = {
       ...PLAN,
       links: [{ ...PLAN.links[0], outcome: "block" }],
@@ -950,10 +1046,8 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, [blockPlan]);
     renderPublish();
 
-    expect(document.body.textContent).toContain("at end of article");
+    expect(document.body.textContent).toContain("at the end of the article");
     expect(document.body.textContent).not.toContain('on “solar panel”');
-
-    await user.click(screen.getByRole("button", { name: "Show the change" }));
 
     expect(document.querySelector("mark")).toBeNull();
     expect(document.body.textContent).toContain(
@@ -973,7 +1067,7 @@ describe("PublishPage approval", () => {
     expect(screen.getAllByText(PLAN.links[0].target_url)).toHaveLength(1);
   });
 
-  it("counts a link the article already carries apart from the ones it writes", () => {
+  it("counts a link the article already carries apart from the ones it writes", async () => {
     preparedFor(1, {}, [
       {
         ...PLAN,
@@ -991,27 +1085,25 @@ describe("PublishPage approval", () => {
     ]);
     renderPublish();
 
+    expect(await screen.findAllByText("Already present")).not.toHaveLength(0);
     // An already-present link writes nothing, so counting it as an edit would
     // promise more change than the job delivers.
     expect(document.body.textContent).toContain("Already present");
-    expect(document.body.textContent).toContain("1 link to write · 1 already present");
+    expect(screen.getByText("Link to write")).not.toBeNull();
   });
 
-  it("keeps a change readable when the passage cannot be located", async () => {
-    const user = userEvent.setup();
+  it("keeps a change readable when the passage cannot be located", () => {
     preparedFor(1, {}, [
       { ...PLAN, links: [{ ...PLAN.links[0], placement_context: undefined }] },
     ]);
     renderPublish();
-    await user.click(screen.getByRole("button", { name: "Show the change" }));
 
     expect(document.body.textContent).toContain(
       'A link to https://example.com/target is added on "solar panel"',
     );
   });
 
-  it("requires opening every article in a larger batch", async () => {
-    const user = userEvent.setup();
+  it("shows every article in a larger batch by default", () => {
     const plans = [1, 2, 3, 4].map((offset) => ({
       ...PLAN,
       id: 60 + offset,
@@ -1021,18 +1113,17 @@ describe("PublishPage approval", () => {
     preparedFor(1, {}, plans);
     renderPublish();
 
-    expect(screen.getAllByRole("button", { name: "Show the change" })).toHaveLength(4);
-    await readEveryChange(user);
-    expect(document.body.textContent).toContain("4 of 4 read");
+    expect(screen.queryByRole("button", { name: "Show the change" })).toBeNull();
+    expect(document.body.textContent).toContain("4 of 4 selected");
     expect(screen.getByRole("button", { name: "Approve and queue 4 exact edits" })).not.toBeNull();
   });
 
-  it("keeps unopened changes from being treated as reviewed", () => {
+  it("does not block approval when multiple changes are visible", () => {
     preparedFor(1, {}, [PLAN, SECOND_PLAN, { ...PLAN, id: 57 }, { ...PLAN, id: 58 }]);
     renderPublish();
 
-    expect(document.body.textContent).toContain("0 of 4 read");
-    expect(screen.queryByRole("button", { name: "Approve and queue 4 exact edits" })).toBeNull();
+    expect(document.body.textContent).toContain("4 of 4 selected");
+    expect(screen.getByRole("button", { name: "Approve and queue 4 exact edits" })).not.toBeNull();
   });
 
   it("returns one link to the queue and prepares the article again", async () => {
@@ -1062,6 +1153,8 @@ describe("PublishPage approval", () => {
     const user = userEvent.setup();
     preparedFor(1);
     renderPublish("/publish/1?suggestion=1");
+
+    expect(screen.queryByRole("link", { name: "Back to the queue" })).toBeNull();
 
     mocks.prepareMutate.mockClear();
     await user.click(

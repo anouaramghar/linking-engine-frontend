@@ -13,11 +13,6 @@ interface LoadedGroupState {
   count: number;
 }
 
-interface ScrollState {
-  key: string | null;
-  top: number;
-}
-
 interface QueueWorkspaceValue {
   collapsedSources: Set<string>;
   setCollapsedSources: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -26,8 +21,7 @@ interface QueueWorkspaceValue {
   loadedGroupKey: string | null;
   loadedGroupCount: number;
   rememberLoadedGroups: (key: string, count: number) => void;
-  scrollKey: string | null;
-  scrollTop: number;
+  scrollTopFor: (key: string) => number;
   rememberScrollTop: (key: string, scrollTop: number) => void;
 }
 
@@ -42,19 +36,21 @@ export function QueueWorkspaceProvider({ children }: { children: ReactNode }) {
     key: null,
     count: 0,
   });
-  const [scroll, setScroll] = useState<ScrollState>({ key: null, top: 0 });
+  // Scroll is presentation state, not render state. Keeping it in a stable
+  // mutable map lets the queue remember a position without turning every wheel
+  // event into a provider update for the whole workspace.
+  const [scrollTops] = useState(() => new Map<string, number>());
 
   const rememberLoadedGroups = useCallback((key: string, count: number) => {
     setLoadedGroups((current) =>
       current.key === key && current.count === count ? current : { key, count },
     );
   }, []);
+  const scrollTopFor = useCallback((key: string) => scrollTops.get(key) ?? 0, [scrollTops]);
   const rememberScrollTop = useCallback((key: string, next: number) => {
     if (!Number.isFinite(next)) return;
-    setScroll((current) =>
-      current.key === key && current.top === next ? current : { key, top: next },
-    );
-  }, []);
+    scrollTops.set(key, next);
+  }, [scrollTops]);
 
   const value = useMemo(
     () => ({
@@ -65,8 +61,7 @@ export function QueueWorkspaceProvider({ children }: { children: ReactNode }) {
       loadedGroupKey: loadedGroups.key,
       loadedGroupCount: loadedGroups.count,
       rememberLoadedGroups,
-      scrollKey: scroll.key,
-      scrollTop: scroll.top,
+      scrollTopFor,
       rememberScrollTop,
     }),
     [
@@ -75,7 +70,7 @@ export function QueueWorkspaceProvider({ children }: { children: ReactNode }) {
       loadedGroups,
       rememberLoadedGroups,
       rememberScrollTop,
-      scroll,
+      scrollTopFor,
     ],
   );
 

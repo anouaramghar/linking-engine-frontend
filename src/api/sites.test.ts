@@ -5,13 +5,19 @@ import {
   bulkCreateSites,
   deleteSite,
   getExternalLinkPolicy,
+  getSiteSchedule,
   importArticleRows,
+  ingestPoolSourceBatch,
   listExternalSourceEvaluations,
   listPoolAuditEvents,
+  listSiteArticles,
   listSites,
   reactivatePoolSource,
   revokePoolSource,
+  runSiteScheduleNow,
+  updateSiteSchedule,
   updateExternalLinkPolicy,
+  validatePoolSources,
 } from "./sites";
 
 const get = vi.hoisted(() => vi.fn());
@@ -61,6 +67,53 @@ describe("external-link policy", () => {
     expect(get).toHaveBeenCalledWith("/sites/8/external-link-policy/sources");
   });
 });
+
+describe("site automation schedule", () => {
+  it("reads and updates one managed site's schedule", async () => {
+    const schedule = {
+      id: 4,
+      site_id: 8,
+      enabled: true,
+      cadence: "weekly" as const,
+      weekday: 1,
+      local_time: "02:30:00",
+      timezone: "Africa/Casablanca",
+      next_run_at: "2026-08-25T01:30:00Z",
+      last_attempt_at: null,
+      last_attempt_status: null,
+      last_attempt_error: null,
+      last_pipeline_batch_id: null,
+      last_run_status: null,
+      last_run_started_at: null,
+      last_run_finished_at: null,
+      last_run_error: null,
+    };
+    get.mockResolvedValue({ data: schedule });
+    put.mockResolvedValue({ data: schedule });
+
+    await expect(getSiteSchedule(8)).resolves.toEqual(schedule);
+    expect(get).toHaveBeenCalledWith("/sites/8/schedule");
+
+    const update = {
+      enabled: true,
+      cadence: "weekly" as const,
+      weekday: 1,
+      local_time: "02:30",
+      timezone: "Africa/Casablanca",
+    };
+    await expect(updateSiteSchedule({ siteId: 8, schedule: update })).resolves.toEqual(schedule);
+    expect(put).toHaveBeenCalledWith("/sites/8/schedule", update);
+  });
+
+  it("queues a crawl and analysis run now", async () => {
+    const accepted = { batch_id: 19, ingestion_job_run_id: 20 };
+    post.mockResolvedValue({ data: accepted });
+
+    await expect(runSiteScheduleNow(8)).resolves.toEqual(accepted);
+    expect(post).toHaveBeenCalledWith("/sites/8/schedule/run-now");
+  });
+});
+
 describe("listSites", () => {
   it("loads one bounded server page with optional search", async () => {
     const page = [{ id: 1001 }];
@@ -71,6 +124,17 @@ describe("listSites", () => {
     expect(sites).toEqual(page);
     expect(get).toHaveBeenCalledWith("/sites", {
       params: { limit: 1000, offset: 1000, search: "docs" },
+    });
+  });
+});
+describe("listSiteArticles", () => {
+  it("loads a bounded page of active articles for one site", async () => {
+    const page = [{ id: 42, title: "Install", url: "https://docs.example.com/install" }];
+    get.mockResolvedValue({ data: page });
+
+    await expect(listSiteArticles(8, 1000)).resolves.toEqual(page);
+    expect(get).toHaveBeenCalledWith("/sites/8/articles", {
+      params: { limit: 1000, offset: 1000 },
     });
   });
 });
@@ -149,6 +213,65 @@ describe("content-pool controls", () => {
     expect(get).toHaveBeenCalledWith("/sites/7/pool-source/audit-events", {
       params: { limit: 50, offset: 0 },
     });
+  });
+
+  it("validates pool sources with bounded requests and keeps their row order", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    post.mockImplementation(async (_url: string, payload: { base_url: string }) => {
+      active++;
+      maximumActive = Math.max(maximumActive, active);
+      await Promise.resolve();
+      active--;
+      return {
+        data: {
+          base_url: payload.base_url,
+          valid: true,
+          source_type: "rss_atom",
+          reason: null,
+        },
+      };
+    });
+    const sources = Array.from({ length: 8 }, (_, index) => ({
+      name: `Feed ${index}`,
+      base_url: `https://news-${index}.example.com/feed.xml`,
+      platform: "pool" as const,
+    }));
+
+    const result = await validatePoolSources(sources);
+
+    expect(maximumActive).toBe(5);
+    expect(result.map((entry) => entry.base_url)).toEqual(
+      sources.map((source) => source.base_url),
+    );
+    expect(post).toHaveBeenCalledTimes(8);
+    expect(post).toHaveBeenNthCalledWith(1, "/sites/pool-source/validate", {
+      name: "Feed 0",
+      base_url: "https://news-0.example.com/feed.xml",
+    });
+  });
+
+  it("queues a bounded pool crawl batch and reports partial failures", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    post.mockImplementation(async (url: string) => {
+      const siteId = Number(url.split("/")[2]);
+      active++;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      active--;
+      if (siteId === 4) throw new Error("already crawling");
+      return { data: { job_id: `job-${siteId}`, job_run_id: siteId } };
+    });
+
+    const result = await ingestPoolSourceBatch([1, 2, 3, 4, 5, 6, 7]);
+
+    expect(maximumActive).toBe(5);
+    expect(result.queued.map(({ siteId }) => siteId).sort((a, b) => a - b)).toEqual([
+      1, 2, 3, 5, 6, 7,
+    ]);
+    expect(result.failed.map(({ siteId }) => siteId)).toEqual([4]);
+    expect(post).toHaveBeenCalledWith("/sites/1/ingest");
   });
 
   it("supports loading older audit pages", async () => {

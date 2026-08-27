@@ -54,6 +54,8 @@
 :root {
   color-scheme: light;
 
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
   --c-primary: 41 37 36;
   --c-primary-active: 12 10 9;
 
@@ -106,6 +108,42 @@
   --c-error: 220 38 38;
   --c-error-active: 185 28 28;
   --c-error-ink: 185 28 28;
+
+  /* A yellow-gold attention mark that remains visible against the pale canvas. */
+  --c-notification-unread: 180 130 8;
+
+  /**
+   * Status tints — the grounds a status badge takes when it reports a state,
+   * added because a queue where every status was the same grey pill made the
+   * operator read seven words to learn one thing.
+   *
+   * No token reference in braces anywhere in this block: theme.contrast.test.ts
+   * finds this palette's closing brace by searching for the first one, so a
+   * brace in a comment ends the block early and every token below it silently
+   * disappears from the contrast run.
+   *
+   * These are opaque values, not the orbs at an opacity. Two reasons. The orbs
+   * are decoration drawn at 28-45% and re-anchored per theme for that job, so
+   * borrowing them for a ground that carries 12px semibold text would tie a
+   * contrast floor to a decorative token. And an alpha tint composites against
+   * whatever is behind it — a badge sits on the card, the strong surface, and
+   * the soft canvas in different views, so its contrast would be a different
+   * number in each. Flat values measure once and hold everywhere.
+   *
+   * The hue follows the meaning the app already assigns: positive from
+   * semantic-success, negative from semantic-error, active from the selection
+   * lavender, progress from the sky stop. Pending and expired deliberately take
+   * no tint — a queue is mostly pending, and tinting the default state would
+   * spend the signal on the majority.
+   */
+  --c-tint-positive: 219 244 228;
+  --c-tint-negative: 253 226 226;
+  --c-tint-active: 230 223 243;
+  --c-tint-progress: 219 232 246;
+
+  /* Structural map signal: blue is reserved for saturated pages, where a
+     high inbound degree deserves attention without reading as an error. */
+  --c-graph-saturated: 3 105 161;
 
   --shadow-soft: 0.04;
   --shadow-lift: 0.08;
@@ -189,6 +227,17 @@
      against the page (3.05), so the pill keeps its own edge. */
   --c-error-active: 185 28 28;
   --c-error-ink: 252 165 165;
+  --c-notification-unread: 250 204 21;
+
+  /* The same four meanings, deepened rather than lightened. A pale mint pill on
+     an ink page is a light source, and the badge would outshine the row it
+     describes; taken below the card instead, the tint reads as a stained
+     surface and the near-white label sits on it at 11:1 or better. */
+  --c-tint-positive: 22 61 43;
+  --c-tint-negative: 76 29 29;
+  --c-tint-active: 58 48 82;
+  --c-tint-progress: 32 56 82;
+  --c-graph-saturated: 125 211 252;
 
   /* Black on near-black says little, so the shadow leans on depth rather than
      darkness — the hairline and the card's top highlight carry the edge. */
@@ -226,11 +275,65 @@ body {
 
    Written as `rgb(var(--c-ink))` rather than `theme(colors.ink)` so the ring
    tracks the active theme: `theme()` is resolved once at build time, which
-   would freeze the ring at whichever value the light palette happened to hold. */
+   would freeze the ring at whichever value the light palette happened to hold.
+
+   The ring carries no radius of its own, and must not be given one. CSS has no
+   outline-radius: an outline takes the shape of the element it surrounds, so
+   rounding the ring means rounding the element, and a `border-radius` here
+   outranks every `rounded-*` utility — this rule is unlayered and lands after
+   the utilities at equal specificity. A 2px value once sat here and squared off
+   every pill and card at the moment it received focus, which is a shape change
+   sprung on the one user who navigates by watching this ring move. */
 :focus-visible {
   outline: 2px solid var(--focus-ring, rgb(var(--c-ink)));
   outline-offset: 2px;
-  border-radius: 2px;
+}
+
+/* SVG graphics do not consistently paint the browser outline. Keep the same
+   focus treatment visible for keyboard users selecting a page in GraphLens. */
+.graph-node:focus-visible .graph-node-focus {
+  opacity: 1;
+}
+
+.graph-edge-hit:focus-visible .graph-edge-focus {
+  stroke-opacity: 0.28;
+}
+
+/* A page the pointer is on comes back to full strength even while a filter has
+   the rest of the site receded — pointing at something is a question about it. */
+.graph-node:hover {
+  opacity: 1;
+}
+
+/**
+ * The site map's camera, in CSS.
+ *
+ * `--graph-halo` is written by `GraphLens` on the map element once per animation
+ * frame: it is the reveal, the isolated rim coming up as the camera pulls back.
+ * `--graph-halo-force` is set from React and holds the rim visible when a search
+ * or a filter is asking about it, whatever the zoom says. `max()` of the two
+ * means neither can switch the other off.
+ */
+.graph-halo {
+  opacity: max(var(--graph-halo, 1), var(--graph-halo-force, 0));
+}
+
+/**
+ * Titles are hidden while the camera moves and fade back once it settles.
+ *
+ * They are drawn in screen pixels rather than map units, so during a flight they
+ * would slide across the map at a different speed from the pages they name —
+ * and a moving map is being watched, not read. Out fast, back at the system's
+ * arrival speed.
+ */
+.graph-labels {
+  opacity: 1;
+  transition: opacity theme(transitionDuration.arrive) theme(transitionTimingFunction.settle);
+}
+
+.graph-map.is-moving .graph-labels {
+  opacity: 0;
+  transition-duration: theme(transitionDuration.feedback);
 }
 
 /* Lavender in both themes, but not the same lavender: light selects with the
@@ -239,6 +342,59 @@ body {
 ::selection {
   background: rgb(var(--c-selection));
   color: rgb(var(--c-selection-ink));
+}
+
+/**
+ * The parts of the page the app did not draw.
+ *
+ * The queue owns a tall scroll region, so the scrollbar is on screen for the
+ * whole working session — and until now it was the one surface in the dashboard
+ * still wearing the operating system's colours, which do not travel with the
+ * theme. A dark theme with a bright system scrollbar down its edge is the seam
+ * that gives away a themed page.
+ *
+ * `scrollbar-width: thin` covers Firefox and the modern standard; the WebKit
+ * block below covers Chromium and Safari, where `scrollbar-color` is honoured
+ * inconsistently. Both resolve through the palette variables, so the bar
+ * re-themes with everything else rather than being re-stated per theme.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-hairline-strong)) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* Inset by a transparent border rather than a narrower bar, so the thumb
+     keeps a full-width hit target while reading as a slim rule. */
+  background-color: rgb(var(--c-hairline-strong));
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--c-hairline-control));
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The caret is text, so it takes the ink the text takes. The browser default is
+   a fixed black that disappears on the dark theme's card surface. */
+input,
+textarea,
+[contenteditable] {
+  caret-color: rgb(var(--c-ink));
 }
 
 /* Native number-input spinners clash with the pill styling */
@@ -261,13 +417,28 @@ input[type="number"] {
  * doesn't is composed from utilities at the call site.
  */
 @layer components {
+  /* Interactive controls get a compact desktop floor and expand to the
+     pointer-size contract below on coarse devices. */
+  .touch-target {
+    min-width: 24px;
+    min-height: 24px;
+  }
+
   /* {component.button-primary} / {component.button-outline} share a box: 44px
      on mobile and 40px from `sm` upward, with 20px of horizontal room and a
      pill. The outline's border eats into the same outer box. */
+  /* The press is acknowledged by the pill giving under the pointer, which is
+     the one piece of feedback a decision button in this app owed and did not
+     pay: `Select` and `Reject` are pressed hundreds of times in a session and
+     only ever changed colour. `transform` rather than a size change, so a row
+     of buttons never reflows mid-press, and `active:` rather than `:hover`, so
+     it is a response to the operator and not to the cursor passing over. */
   .btn {
     @apply inline-flex h-11 flex-none items-center justify-center gap-2
       whitespace-nowrap rounded-pill border px-5 text-button
-      transition-colors disabled:cursor-not-allowed sm:h-10;
+      transition-[color,background-color,border-color,transform]
+      duration-feedback ease-settle active:scale-[0.97]
+      disabled:cursor-not-allowed disabled:active:scale-100 sm:h-10;
   }
 
   .btn-primary {
@@ -334,9 +505,15 @@ input[type="number"] {
   }
 
   /* {component.feature-card} — white on the off-white canvas, held by a
-     hairline. `soft` is the system's single shadow tier. */
+     hairline. `soft` is the system's single shadow tier.
+
+     `border-color` joins the transition so queue selection *moves* between
+     rows instead of two borders swapping in the same frame. The cursor stepping
+     down a list is a continuous gesture, and the row it lands on is the only
+     thing on screen telling the operator where they are. */
   .card {
-    @apply rounded-xl border border-hairline bg-surface-card transition-shadow duration-200;
+    @apply rounded-xl border border-hairline bg-surface-card
+      transition-[box-shadow,border-color] duration-state ease-settle;
   }
 
   /* {component.badge-pill} */
@@ -351,6 +528,14 @@ input[type="number"] {
 
   .disclosure-summary::-webkit-details-marker {
     display: none;
+  }
+
+  .evidence-chevron {
+    @apply text-muted transition-transform duration-state ease-settle motion-reduce:transition-none;
+  }
+
+  details[open] > .disclosure-summary .evidence-chevron {
+    transform: rotate(180deg);
   }
 
   .help-hint {
@@ -407,9 +592,58 @@ input[type="number"] {
 /* {component.badge-pill} sits on {colors.surface-strong}, one rung above the
    card it lands on. That rung is wide enough to see on white and narrow on ink,
    so the chip gets its own rim there. An inset ring rather than a border: a
-   border would make the badge 2px wider in dark than in light. */
+   border would make the badge 2px wider in dark than in light.
+
+   A light rim rather than the grey hairline value, because the badge no longer
+   has one ground: a fixed stone rim reads as a grey outline drawn around a
+   green or violet status pill. White at 12% is the same rung above whatever the
+   pill is filled with — it lands within a shade of the old value on the neutral
+   surface, and stays the pill's own hue on a tinted one. */
 :root[data-theme="dark"] .badge {
-  box-shadow: inset 0 0 0 1px rgb(var(--c-hairline-strong));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+/**
+ * The queue arrives as a list, so it is drawn as one.
+ *
+ * Every row already carried an identical entrance, which at a hundred rows is
+ * not an entrance — it is the whole page flickering at once. A short stagger
+ * says "these are ordered, read from the top" instead.
+ *
+ * The delay is capped at the first eight rows for two reasons: a stagger that
+ * keeps counting makes row sixty arrive a second and a half after row one, and
+ * anything past the eighth row is below the fold on the shortest supported
+ * desktop viewport, so it would be a delay nobody sees paid by everybody. Rows
+ * after the eighth take the base entrance with no delay.
+ */
+.queue-row {
+  /* Vercel's long-list guidance: skip layout and paint for rows below the
+     viewport while retaining a stable estimate for scroll geometry. */
+  content-visibility: auto;
+  contain-intrinsic-size: 0 96px;
+  animation: rowIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.queue-row:nth-child(2) {
+  animation-delay: 25ms;
+}
+.queue-row:nth-child(3) {
+  animation-delay: 50ms;
+}
+.queue-row:nth-child(4) {
+  animation-delay: 75ms;
+}
+.queue-row:nth-child(5) {
+  animation-delay: 100ms;
+}
+.queue-row:nth-child(6) {
+  animation-delay: 125ms;
+}
+.queue-row:nth-child(7) {
+  animation-delay: 150ms;
+}
+.queue-row:nth-child(n + 8) {
+  animation-delay: 175ms;
 }
 
 .job-activity-dot {
@@ -476,10 +710,1006 @@ input[type="number"] {
   padding-top: max(0.75rem, env(safe-area-inset-top));
 }
 
+/*
+ * The assistant drawer is a theme-aware surface. Light mode uses the same card
+ * and ink roles as the dashboard; dark mode keeps the contained instrument's
+ * deliberate inversion. The scrim stays dark in both modes because it is an
+ * overlay over the page, not another page surface.
+ */
+.assistant-scrim {
+  --shadow-lift: 0.08;
+  --shadow-drawer: 0.16;
+  background: rgb(var(--c-canvas-deep) / 0.5);
+}
+
+.assistant-panel-shell {
+  --assistant-ink: var(--c-ink);
+  --assistant-body: var(--c-body);
+  --assistant-line: rgb(var(--c-hairline-control));
+  --assistant-line-soft: rgb(var(--c-hairline));
+  --assistant-fill: rgb(var(--c-surface-strong) / 0.55);
+  --assistant-fill-strong: rgb(var(--c-surface-strong));
+  --assistant-muted: rgb(var(--c-muted));
+  --assistant-ground: var(--c-surface-card);
+  --assistant-elevated: var(--c-surface-strong);
+  --assistant-receipt: var(--c-surface-strong);
+  --assistant-button: var(--c-primary);
+  --assistant-button-ink: var(--c-on-primary);
+  --focus-ring: rgb(var(--c-ink));
+  background: rgb(var(--assistant-ground));
+  color: rgb(var(--assistant-ink));
+  color-scheme: light;
+  box-shadow: -24px 0 80px rgb(0 0 0 / var(--shadow-drawer));
+}
+
+/* Dark mode keeps the drawer's contained instrument treatment while letting
+   the light theme use the normal card surface above. */
+:root[data-theme="dark"] .assistant-panel-shell {
+  --assistant-ink: var(--c-on-dark);
+  --assistant-body: var(--c-on-dark-soft);
+  --assistant-line: rgb(var(--c-on-dark) / 0.14);
+  --assistant-line-soft: rgb(var(--c-on-dark) / 0.08);
+  --assistant-fill: rgb(var(--c-on-dark) / 0.04);
+  --assistant-fill-strong: rgb(var(--c-on-dark) / 0.09);
+  --assistant-muted: rgb(var(--c-on-dark) / 0.58);
+  --assistant-ground: var(--c-canvas);
+  --assistant-elevated: var(--c-surface-card);
+  --assistant-receipt: var(--c-canvas);
+  --assistant-button: var(--c-on-dark);
+  --assistant-button-ink: var(--c-canvas);
+  --focus-ring: rgb(var(--c-on-dark));
+  color-scheme: dark;
+}
+
+.assistant-panel-content {
+  overflow: hidden;
+  background: linear-gradient(180deg, rgb(var(--assistant-ink) / 0.03), transparent 140px);
+}
+
+/* Floating assistant controls clear mobile workflow trays and the home
+   indicator instead of sitting on top of the last action in a page.
+
+   The launcher is the system's own pill logic at disc size: {colors.primary}
+   carrying the brand mesh mark, flipping with the theme like every other
+   primary control — ink disc on the light canvas, bright disc carrying dark
+   ink once the page itself is dark. No private glow: neon is reserved for
+   authentication, and the drawer opens from this control, not through it. */
+.assistant-launcher {
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  right: max(1.25rem, env(safe-area-inset-right));
+  isolation: isolate;
+  position: fixed;
+  border: 0;
+  color: rgb(var(--c-on-primary));
+  background: rgb(var(--c-primary));
+  box-shadow: 0 12px 28px rgb(0 0 0 / var(--shadow-lift));
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.assistant-launcher:hover {
+  background: rgb(var(--c-primary-active));
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgb(0 0 0 / var(--shadow-lift));
+}
+
+.assistant-launcher:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.assistant-launcher--raised {
+  bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem));
+}
+
+.assistant-dialog-header {
+  padding-top: max(0.9rem, env(safe-area-inset-top));
+}
+
+.assistant-panel-header {
+  min-height: 78px;
+  gap: 16px;
+  padding-right: 18px;
+  padding-bottom: 14px;
+  padding-left: 20px;
+  border-bottom: 1px solid var(--assistant-line-soft);
+}
+
+/* The empty-state avatar uses a quiet plate holding the assistant's identity,
+   with no glow of its own. */
+.assistant-empty-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  color: rgb(var(--assistant-ink));
+  border: 1px solid var(--assistant-line);
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-launcher-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+}
+
+.assistant-avatar-renderer {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The drawer title is typeset in TSX utilities (`font-serif text-display-sm`),
+   matching every dialog heading in the app. */
+
+.assistant-panel-meta {
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Status reads the way every badge in the app reads — {component.badge-pill}
+   metrics with the colour carried by the dot alone, never tinted fills that
+   make one state look like two severities across themes. */
+.assistant-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 4px 10px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.assistant-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  /* Flat, like every other dot in the app: colour beside its own text label
+     is the whole chromatic budget. */
+  background: rgb(var(--c-success));
+}
+
+.assistant-status-dot--offline {
+  background: rgb(var(--c-error));
+}
+
+.assistant-status-dot--checking {
+  background: rgb(var(--assistant-ink) / 0.45);
+}
+
+/* Quiet header controls, built like the rail's own: no border at rest, a
+   fill step on hover. */
+.assistant-header-action {
+  display: inline-flex;
+  min-width: 40px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0 12px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    background theme(transitionDuration.feedback) theme(transitionTimingFunction.settle),
+    color theme(transitionDuration.feedback) theme(transitionTimingFunction.settle);
+}
+
+.assistant-header-action--wide {
+  min-width: 0;
+}
+
+.assistant-header-action:hover {
+  color: rgb(var(--assistant-ink));
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-notice-wrap {
+  padding: 14px 18px 0;
+}
+
+.assistant-recovery-action {
+  display: inline-flex;
+  margin-top: -4px;
+  margin-bottom: 10px;
+  border: 0;
+  padding: 0;
+  color: var(--assistant-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.assistant-recovery-action:hover {
+  color: rgb(var(--assistant-ink));
+}
+
+.assistant-unavailable,
+.assistant-empty-state {
+  display: flex;
+  max-width: 320px;
+  flex-direction: column;
+  align-items: center;
+  margin: auto;
+  padding: 24px 18px;
+  text-align: center;
+}
+
+.assistant-empty-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+/* Empty-state headings speak in the app's display voice — EB Garamond light,
+   like every dialog title. Weight 400 because that is EB Garamond's lightest
+   cut; the values are otherwise {typography.display-sm}. */
+.assistant-empty-kicker {
+  margin-top: 18px;
+  color: rgb(var(--assistant-ink));
+  font-family: "EB Garamond", Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.assistant-empty-copy {
+  margin-top: 8px;
+  color: rgb(var(--assistant-body));
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.assistant-suggestion-list {
+  width: 100%;
+  margin-top: 22px;
+  border-top: 1px solid var(--assistant-line-soft);
+  text-align: left;
+}
+
+.assistant-suggestion {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--assistant-line-soft);
+  padding: 9px 2px 9px 4px;
+  color: rgb(var(--assistant-ink));
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background theme(transitionDuration.feedback) theme(transitionTimingFunction.settle),
+    color theme(transitionDuration.feedback) theme(transitionTimingFunction.settle);
+}
+
+.assistant-suggestion:hover:not(:disabled) {
+  color: rgb(var(--assistant-ink));
+  background: var(--assistant-fill);
+}
+
+.assistant-suggestion:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.assistant-suggestion__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.assistant-suggestion__label {
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.assistant-suggestion__prompt {
+  overflow-wrap: anywhere;
+  color: rgb(var(--assistant-body));
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.assistant-suggestion__arrow {
+  flex: none;
+  color: var(--assistant-muted);
+  transition:
+    transform theme(transitionDuration.feedback) theme(transitionTimingFunction.settle),
+    color theme(transitionDuration.feedback) theme(transitionTimingFunction.settle);
+}
+
+.assistant-suggestion:hover:not(:disabled) .assistant-suggestion__arrow {
+  color: rgb(var(--assistant-ink));
+  transform: translateX(2px);
+}
+
+.assistant-conversation-log {
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  padding: 22px 18px;
+  scrollbar-color: rgb(var(--assistant-ink) / 0.25) transparent;
+}
+
+.assistant-conversation-log::-webkit-scrollbar {
+  width: 10px;
+}
+
+.assistant-conversation-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assistant-conversation-log::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: rgb(var(--assistant-ink) / 0.22);
+  background-clip: padding-box;
+}
+
+/* Agent turns run as editorial text on the ground, not bubbles — the label
+   above each turn already says who is speaking, so a box would say it twice.
+   The operator's own words get the one raised surface ({colors.surface-dark-elevated},
+   "cards on dark canvas"), which is also what makes the column scannable when
+   both voices run long. */
+.assistant-message-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.assistant-message-row--user {
+  justify-content: flex-end;
+}
+
+.assistant-message {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  /* The dashboard's default running size ({typography.caption}), not the
+     marketing body — this log is scanned like every other queue in the app. */
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.assistant-message--agent {
+  color: rgb(var(--assistant-body));
+}
+
+.assistant-message--user {
+  max-width: 85%;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: rgb(var(--assistant-ink));
+  background: rgb(var(--assistant-elevated));
+}
+
+.assistant-message-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.assistant-message-label__source {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* Rendered reply body.
+
+   The panel is scanned like every other queue in the app, so the figure that
+   answers the question has to win the eye before the sentence around it does.
+   Body copy sits at the panel's soft ink and each emphasis step brightens
+   toward full on-dark: weight and luminance say the same thing rather than
+   competing. Colour stays out of it, because in this system colour carries
+   status and an answer is not a status. */
+.assistant-md > * + * {
+  margin-top: 8px;
+}
+
+.assistant-md-p {
+  margin: 0;
+}
+
+/* The reply is written into the log as the model writes it, and a pause between
+   fragments looks exactly like a finished answer — which is how a half-sentence
+   about the queue gets read as the whole of it. The caret marks the edge of what
+   has arrived. It is the login screen's caret, on the last block of the reply so
+   it sits at the end of the sentence rather than on a line of its own. */
+.assistant-message--streaming .assistant-md > .assistant-md-p:last-child::after,
+.assistant-message--streaming .assistant-md > :last-child .assistant-md-li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.06em;
+  height: 0.85em;
+  margin-left: 0.12em;
+  background: currentColor;
+  vertical-align: -0.08em;
+  animation: typewriter-caret 0.9s steps(2, end) infinite;
+}
+
+.assistant-md-ul,
+.assistant-md-ol {
+  margin: 0;
+  padding-left: 1.25em;
+  list-style-position: outside;
+}
+
+.assistant-md-ul {
+  list-style-type: disc;
+}
+
+.assistant-md-ol {
+  list-style-type: decimal;
+}
+
+.assistant-md-li + .assistant-md-li {
+  margin-top: 3px;
+}
+
+/* A marker locates the row; it is punctuation, not one of the counts. */
+.assistant-md-li::marker {
+  color: var(--assistant-muted);
+}
+
+.assistant-md-ul--nested {
+  margin-top: 3px;
+  padding-left: 1.1em;
+  list-style-type: circle;
+}
+
+.assistant-md-strong {
+  color: rgb(var(--assistant-ink));
+  font-weight: 600;
+}
+
+/* Article titles arrive italic, and they are the one span of crawled text in
+   an answer otherwise built from the engine's own numbers. The slant is enough
+   to mark that boundary; tinting it as well would read as status. */
+.assistant-md-em {
+  font-style: italic;
+}
+
+/* Ids, slugs, and graph hashes are compared character by character, so they get
+   the face that keeps 0 and O apart and a chip that survives mid-sentence. */
+.assistant-md-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--assistant-fill-strong);
+  color: rgb(var(--assistant-ink));
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.assistant-md-link {
+  color: rgb(var(--assistant-ink));
+  text-decoration: underline;
+  text-decoration-color: var(--assistant-line);
+  text-underline-offset: 2px;
+}
+
+.assistant-md-link:hover {
+  text-decoration-color: rgb(var(--assistant-ink));
+}
+
+.assistant-tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.assistant-tool-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid var(--assistant-line-soft);
+  border-radius: 9999px;
+  padding: 3px 9px;
+  color: var(--assistant-muted);
+  background: var(--assistant-fill);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A staged rule is a decision card, not a celebration: raised one fill step
+   with a hairline, labelled at the badge voice. */
+.assistant-proposal {
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--assistant-fill);
+}
+
+.assistant-proposal--blocked {
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-mcp-wrap {
+  flex: none;
+  padding: 14px 16px 0;
+}
+
+.assistant-mcp-action {
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-secondary-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--assistant-line);
+  border-radius: 9999px;
+  padding: 7px 14px;
+  color: rgb(var(--assistant-ink));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assistant-secondary-button:hover {
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-secondary-button--link {
+  text-decoration: none;
+}
+
+.assistant-receipt__code {
+  display: block;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--assistant-line);
+  border-radius: 8px;
+  padding: 10px;
+  color: rgb(var(--assistant-ink));
+  background: rgb(var(--assistant-receipt) / 0.5);
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: all;
+}
+
+.assistant-proposal__label {
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.assistant-proposal__copy {
+  margin-top: 7px;
+  color: rgb(var(--assistant-ink));
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.assistant-proposal__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 12px;
+  border-top: 1px solid var(--assistant-line-soft);
+  padding-top: 10px;
+}
+
+.assistant-proposal__facts > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assistant-proposal__facts span {
+  color: var(--assistant-muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.assistant-proposal__facts strong {
+  color: rgb(var(--assistant-ink));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.assistant-proposal__blocked-reason {
+  margin-top: 8px;
+  color: rgb(var(--assistant-ink));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.assistant-proposal__result,
+.assistant-proposal__hint,
+.assistant-proposal__error {
+  margin-top: 8px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.assistant-proposal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Actions on the drawer invert the ink pill — the bright pill carrying dark
+   ink, exactly what the system's dark theme does to {colors.primary}. One CTA
+   colour story, still no saturated hue. */
+.assistant-confirm-button,
+.assistant-jump-button,
+.assistant-send-button,
+.assistant-stop-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  color: rgb(var(--assistant-button-ink));
+  background: rgb(var(--assistant-button));
+  transition:
+    background-color 150ms ease,
+    opacity 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.assistant-confirm-button:hover:not(:disabled),
+.assistant-jump-button:hover:not(:disabled),
+.assistant-send-button:hover:not(:disabled),
+.assistant-stop-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgb(0 0 0 / var(--shadow-lift));
+}
+
+.assistant-confirm-button:active:not(:disabled),
+.assistant-jump-button:active:not(:disabled),
+.assistant-send-button:active:not(:disabled),
+.assistant-stop-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.assistant-confirm-button:disabled,
+.assistant-jump-button:disabled,
+.assistant-send-button:disabled,
+.assistant-stop-button:disabled {
+  cursor: not-allowed;
+  background: var(--assistant-fill-strong);
+  color: var(--assistant-muted);
+}
+
+.assistant-confirm-button {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.assistant-thinking {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  align-self: flex-start;
+  width: 100%;
+  max-width: 100%;
+  color: var(--assistant-muted);
+  font-size: 12px;
+}
+
+.assistant-thinking__lines {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The status line and its disclosure share a row so the toggle reads as
+   belonging to the wait, not as another thing that happened in the log. */
+.assistant-thinking__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assistant-thinking__avatar {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.assistant-thinking__copy {
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(
+    110deg,
+    rgb(var(--assistant-ink) / 0.58) 0%,
+    rgb(var(--assistant-ink) / 0.58) 38%,
+    rgb(var(--assistant-ink)) 50%,
+    rgb(var(--assistant-ink) / 0.58) 62%,
+    rgb(var(--assistant-ink) / 0.58) 100%
+  );
+  background-position: 100% 50%;
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: assistant-shimmer-text 2.4s ease-in-out infinite;
+}
+
+/* Understated until asked for: a text button, not a control that competes with
+   the proposals and confirmations the operator is here to act on. */
+.assistant-thinking__toggle {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--assistant-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 140ms ease;
+}
+
+.assistant-thinking__toggle:hover {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The model's working draft: quieter than the line above it, and clamped to
+   two lines so a long think stays a progress signal rather than a wall of text
+   the operator has to read past to find the answer. */
+.assistant-thinking__thought {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  opacity: 0.7;
+}
+
+/* Opened, the draft becomes a readable panel rather than a clipped line: it
+   keeps its own scroll so a model thinking for a thousand words cannot push
+   the transcript around, and a rule down the left marks it as the model's
+   working-out rather than anything it has actually said. */
+.assistant-thinking__draft {
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--assistant-line);
+  color: var(--assistant-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+  opacity: 0.85;
+}
+
+.assistant-jump-button {
+  position: sticky;
+  right: 0;
+  bottom: 8px;
+  align-self: flex-end;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assistant-composer {
+  border-top: 1px solid var(--assistant-line-soft);
+  padding: 14px 18px 16px;
+}
+
+/* The input is the drawer's one type-into control, so it takes the system's
+   field grammar translated to the dark ground: a hairline the eye can find,
+   and focus expressed as a brightened border plus an inset ring — never a
+   glow. */
+.assistant-composer-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  padding: 6px;
+  background: var(--assistant-fill);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.assistant-composer-field:focus-within {
+  border-color: rgb(var(--assistant-ink) / 0.38);
+  box-shadow: inset 0 0 0 1px rgb(var(--assistant-ink) / 0.38);
+}
+
+.assistant-composer-input {
+  min-height: 36px;
+  max-height: 144px;
+  flex: 1;
+  resize: none;
+  border: 0;
+  padding: 8px 8px 6px;
+  color: rgb(var(--assistant-ink));
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.assistant-composer-input::placeholder {
+  color: var(--assistant-muted);
+}
+
+.assistant-send-button {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+
+.assistant-stop-button {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  flex: none;
+  border-color: var(--assistant-line);
+  padding: 0;
+  color: rgb(var(--assistant-ink));
+  background: transparent;
+}
+
+.assistant-stop-button:hover:not(:disabled) {
+  box-shadow: none;
+  background: var(--assistant-fill-strong);
+}
+
+.assistant-message--cancelled {
+  color: var(--assistant-muted);
+}
+
+.assistant-message__cancelled-copy {
+  margin-top: 8px;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.assistant-composer-hint {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 2px 0;
+  color: var(--assistant-muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.safe-area-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-thinking__copy {
+    color: var(--assistant-muted);
+    background: none;
+    animation: none;
+  }
+
+  /* Still shown, no longer blinking: the caret says where the text has got to,
+     which is information, and the blink is only decoration on top of it. */
+  .assistant-message--streaming .assistant-md > .assistant-md-p:last-child::after,
+  .assistant-message--streaming .assistant-md > :last-child .assistant-md-li:last-child::after {
+    animation: none;
+  }
+
+  .assistant-launcher,
+  .assistant-confirm-button,
+  .assistant-jump-button,
+  .assistant-send-button,
+  .assistant-stop-button,
+  .assistant-suggestion,
+  .assistant-suggestion__arrow,
+  .assistant-thinking__toggle {
+    transition: none;
+  }
+}
+
+@keyframes assistant-shimmer-text {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  55%,
+  100% {
+    background-position: -20% 50%;
+  }
+}
+
 @media (pointer: coarse) {
   .btn,
   .btn-sm,
   .touch-target {
+    min-height: 44px;
+  }
+
+  .touch-target {
+    min-width: 44px;
+  }
+
+  .assistant-header-action,
+  .assistant-confirm-button,
+  .assistant-jump-button,
+  .assistant-stop-button {
+    min-height: 44px;
+  }
+
+  .assistant-suggestion {
+    min-height: 44px;
+  }
+
+  .assistant-send-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .assistant-stop-button {
+    width: 44px;
+    height: 44px;
     min-height: 44px;
   }
 }
@@ -558,6 +1788,18 @@ input[type="number"] {
   }
 }
 
+/**
+ * Reduced motion removes the travel, not the meaning.
+ *
+ * Everything below is spatial: rows rising, a meter sweeping, a notice sliding,
+ * a pill giving under a press. Each is cancelled into its *finished* state
+ * rather than hidden — the meter in particular has to land at `scaleX(1)`, or a
+ * reader who asked for less movement would be shown every score as zero.
+ *
+ * What survives is the colour and state transitions on `.btn` and `.card`:
+ * those carry hover, selection, and disabled, and dropping them would cost
+ * information rather than movement.
+ */
 @media (prefers-reduced-motion: reduce) {
   .job-activity-dot,
   .logo-anim-svg,
@@ -565,7 +1807,10 @@ input[type="number"] {
   .logo-anim-node-hollow,
   .logo-anim-link,
   .animate-pulse,
-  .animate-rowIn {
+  .animate-rowIn,
+  .animate-meterFill,
+  .animate-noticeIn,
+  .queue-row {
     animation: none;
   }
 
@@ -574,8 +1819,18 @@ input[type="number"] {
   }
 
   .animate-pulse,
-  .animate-rowIn {
+  .animate-rowIn,
+  .animate-meterFill,
+  .animate-noticeIn,
+  .queue-row {
     opacity: 1;
+    transform: none;
+  }
+
+  /* The press keeps its colour change and loses its give. */
+  .btn:active,
+  .notice-action:active,
+  .notice-dismiss:active {
     transform: none;
   }
 }

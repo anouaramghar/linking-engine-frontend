@@ -8,6 +8,7 @@ interface Props {
   confirmLabel: string;
   danger?: boolean;
   pending?: boolean;
+  error?: string | null;
   /**
    * When set, the operator must type this exact value before confirming.
    *
@@ -29,6 +30,7 @@ export default function ConfirmDialog({
   confirmLabel,
   danger,
   pending,
+  error,
   confirmPhrase,
   confirmPhraseLabel,
   onConfirm,
@@ -41,6 +43,11 @@ export default function ConfirmDialog({
   return (
     <Modal title={title} onClose={onCancel} panelClassName="max-w-md">
       <p className="-mt-2 text-body-md text-body">{description}</p>
+      {error && (
+        <p role="alert" className="mt-3 rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink">
+          {error}
+        </p>
+      )}
       {confirmPhrase !== undefined && (
         <div className="mt-4">
           <label htmlFor={inputId} className="block text-body-sm text-body">

@@ -50,6 +50,8 @@ describe("JobStatusBadge", () => {
   it("keeps legacy RQ states understandable during a rolling deploy", () => {
     expect(jobStatusLabel("ingestion", "started", null)).toBe("Crawling");
     expect(jobStatusLabel("ingestion", "finished", null)).toBe("Indexed");
-    expect(jobStatusLabel("publication", "stopped", null)).toBe("Publication failed");
+    expect(jobStatusLabel("publication", "stopped", null)).toBe("Cancelled");
+    expect(jobStatusLabel("analysis", "cancel_requested", null)).toBe("Stopping…");
+    expect(jobStatusLabel("analysis", "cancelled", null)).toBe("Cancelled");
   });
 });

@@ -1,16 +1,29 @@
 import { useState } from "react";
 
 import Modal from "../Modal";
-import { useBulkCreateSites } from "../../hooks/useSites";
-import { MAX_BULK_SITES, parseSiteCsv, type ParsedCsv } from "../../lib/csvImport";
+import { useBulkCreateSites, useValidatePoolSources } from "../../hooks/useSites";
+import {
+  MAX_BULK_SITES,
+  parseSiteCsv,
+  poolSourceType,
+  type ParsedCsv,
+} from "../../lib/csvImport";
 import { errorDetail } from "../../lib/errors";
 import { formatCount } from "../../lib/utils";
+import type { PoolSourceValidationResult } from "../../types/site";
 
 const TEMPLATE = [
   "name,base_url,platform,wp_username,wp_app_password",
   "The Trail Post,https://trail.example.com,wordpress,editor,xxxx xxxx xxxx xxxx",
   "Static Docs,https://docs.example.com,html,,",
   "Industry Feed,https://news.example.com/feed.xml,pool,,",
+  "",
+].join("\n");
+
+const POOL_TEMPLATE = [
+  "name,base_url",
+  "Wikipedia AI,https://en.wikipedia.org/wiki/Artificial_intelligence",
+  "Industry News,https://news.example.com/feed.xml",
   "",
 ].join("\n");
 
@@ -28,28 +41,89 @@ const PLATFORM_LABELS: Record<string, string> = {
   pool: "Content pool",
 };
 
-export default function BulkImportModal({ onClose }: { onClose: () => void }) {
+export default function BulkImportModal({
+  onClose,
+  mode = "sites",
+}: {
+  onClose: () => void;
+  mode?: "sites" | "pool";
+}) {
   const bulk = useBulkCreateSites();
+  const validation = useValidatePoolSources();
+  const poolOnly = mode === "pool";
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
+  const [poolValidation, setPoolValidation] = useState<
+    Record<number, PoolSourceValidationResult> | null
+  >(null);
   const [fileName, setFileName] = useState("");
   const [readError, setReadError] = useState<string | null>(null);
 
-  const ready = parsed?.rows.filter((row) => row.site) ?? [];
+  const locallyReady = parsed?.rows.filter((row) => row.site) ?? [];
+  const ready = poolOnly
+    ? poolValidation
+      ? locallyReady.filter((row) => poolValidation[row.line]?.valid)
+      : []
+    : locallyReady;
   const broken = parsed?.rows.filter((row) => !row.site) ?? [];
-  const tooMany = ready.length > MAX_BULK_SITES;
-  const blocked = !!parsed?.missingColumns.length || !ready.length || tooMany;
+  const validationRejected = poolValidation
+    ? locallyReady.filter((row) => poolValidation[row.line]?.valid === false)
+    : [];
+  const tooMany = locallyReady.length > MAX_BULK_SITES;
+  const blocked =
+    !!parsed?.missingColumns.length ||
+    !ready.length ||
+    tooMany ||
+    validation.isPending ||
+    validation.isError;
   const result = bulk.data;
 
   const readFile = async (file: File | undefined) => {
     if (!file) return;
     bulk.reset();
+    validation.reset();
+    setPoolValidation(null);
     setReadError(null);
     setFileName(file.name);
+    let nextParsed: ParsedCsv;
     try {
-      setParsed(parseSiteCsv(await file.text()));
+      nextParsed = parseSiteCsv(
+        await file.text(),
+        poolOnly
+          ? {
+              defaultPlatform: "pool",
+              allowedPlatforms: ["pool"],
+              allowWordPressCredentials: false,
+              requireHttps: true,
+            }
+          : undefined,
+      );
     } catch {
       setReadError("That file could not be read as text.");
       setParsed(null);
+      return;
+    }
+
+    setParsed(nextParsed);
+    if (poolOnly) {
+      const candidates = nextParsed.rows.filter((row) => row.site);
+      if (
+        !nextParsed.missingColumns.length &&
+        candidates.length &&
+        candidates.length <= MAX_BULK_SITES
+      ) {
+        try {
+          const results = await validation.mutateAsync(
+            candidates.map((row) => row.site!),
+          );
+          setPoolValidation(
+            Object.fromEntries(candidates.map((row, index) => [row.line, results[index]])),
+          );
+        } catch {
+          setPoolValidation(null);
+        }
+      } else {
+        setPoolValidation({});
+      }
     }
   };
 
@@ -62,6 +136,12 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           line: row.line,
           baseUrl: null,
           reason: row.error ?? "invalid row",
+        })),
+        ...validationRejected.map((row) => ({
+          key: `validation-${row.line}`,
+          line: row.line,
+          baseUrl: row.site?.base_url ?? null,
+          reason: poolValidation?.[row.line]?.reason ?? "source validation failed",
         })),
         ...result.skipped.map((entry) => ({
           key: `skipped-${entry.row}-${entry.reason}`,
@@ -80,7 +160,7 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      title="Import sites from CSV"
+      title={poolOnly ? "Import content-pool sources from CSV" : "Import sites from CSV"}
       onClose={onClose}
       panelClassName="max-w-3xl"
       // In the header, not the body: the body scrolls, and this used to be
@@ -88,13 +168,23 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
       // the column list sat behind the title.
       description={
         <>
-          Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
-          <code>platform</code> (<code>wordpress</code>, <code>html</code>, or{" "}
-          <code>pool</code>), <code>wp_username</code>, <code>wp_app_password</code>. Up to{" "}
-          {formatCount(MAX_BULK_SITES)} sites per file.{" "}
+          {poolOnly ? (
+            <>
+              Columns: <code>name</code> and <code>base_url</code>. Each URL is checked live before
+              valid rows are imported as unapproved content-pool sources. Use an HTTPS RSS/Atom feed
+              or Wikipedia article URL.
+            </>
+          ) : (
+            <>
+              Columns: <code>name</code>, <code>base_url</code> (required), plus optional{" "}
+              <code>platform</code> (<code>wordpress</code>, <code>html</code>, or{" "}
+              <code>pool</code>), <code>wp_username</code>, <code>wp_app_password</code>.
+            </>
+          )}{" "}
+          Up to {formatCount(MAX_BULK_SITES)} {poolOnly ? "sources" : "sites"} per file.{" "}
           <a
-            href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
-            download="linkmesh-sites.csv"
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(poolOnly ? POOL_TEMPLATE : TEMPLATE)}`}
+            download={poolOnly ? "linkmesh-content-pool-sources.csv" : "linkmesh-sites.csv"}
             className="underline underline-offset-2 hover:text-ink"
           >
             Download a template
@@ -131,11 +221,17 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
       {parsed && !result && (
         <>
           <div className="mb-3 flex flex-none flex-wrap items-center gap-2">
-            <span className="badge">{formatCount(ready.length)} ready</span>
-            {broken.length > 0 && (
-              <span className="badge">{formatCount(broken.length)} skipped</span>
+            <span className="badge">
+              {validation.isPending
+                ? `Validating ${formatCount(locallyReady.length)}`
+                : `${formatCount(ready.length)} ready`}
+            </span>
+            {broken.length + validationRejected.length > 0 && (
+              <span className="badge">
+                {formatCount(broken.length + validationRejected.length)} skipped
+              </span>
             )}
-            {parsed.rows.some((row) => row.site?.wp_app_password) && (
+            {!poolOnly && parsed.rows.some((row) => row.site?.wp_app_password) && (
               <span className="text-caption text-muted">
                 This file contains application passwords — delete it after importing.
               </span>
@@ -160,6 +256,14 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
               {formatCount(MAX_BULK_SITES)}-site limit — split the file.
             </div>
           )}
+          {poolOnly && validation.isError && (
+            <div
+              role="alert"
+              className="mb-3 flex-none rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-caption text-error-ink"
+            >
+              {errorDetail(validation.error, "The sources could not be validated.")}
+            </div>
+          )}
 
           {/* Preview rows carry raw URLs, which do not wrap. The card scrolls
               in both directions so a long one never pushes the panel wider. */}
@@ -170,7 +274,8 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                   <th className="px-3 py-2">Line</th>
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">URL</th>
-                  <th className="px-3 py-2">Platform</th>
+                  <th className="px-3 py-2">{poolOnly ? "Source type" : "Platform"}</th>
+                  {poolOnly && <th className="px-3 py-2">Validation</th>}
                 </tr>
               </thead>
               <tbody>
@@ -182,11 +287,30 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
                         <td className="px-3 py-2 text-ink">{row.site.name}</td>
                         <td className="px-3 py-2 text-body">{row.site.base_url}</td>
                         <td className="px-3 py-2 text-body">
-                          {PLATFORM_LABELS[row.site.platform] ?? row.site.platform}
+                          {poolOnly
+                            ? poolValidation?.[row.line]?.source_type === "wikipedia"
+                              ? "Wikipedia"
+                              : poolSourceType(row.site.base_url)
+                            : PLATFORM_LABELS[row.site.platform] ?? row.site.platform}
                         </td>
+                        {poolOnly && (
+                          <td
+                            className={`px-3 py-2 ${
+                              poolValidation?.[row.line]?.valid === false
+                                ? "text-error-ink"
+                                : "text-body"
+                            }`}
+                          >
+                            {validation.isPending
+                              ? "Checking..."
+                              : poolValidation?.[row.line]?.valid
+                                ? "Ready"
+                                : poolValidation?.[row.line]?.reason ?? "Not checked"}
+                          </td>
+                        )}
                       </>
                     ) : (
-                      <td colSpan={3} className="px-3 py-2 text-error-ink">
+                      <td colSpan={poolOnly ? 4 : 3} className="px-3 py-2 text-error-ink">
                         {row.error}
                       </td>
                     )}
@@ -208,8 +332,10 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
             {result.skipped.length > 0 && (
               <span className="badge">{formatCount(result.skipped.length)} already existed</span>
             )}
-            {broken.length > 0 && (
-              <span className="badge">{formatCount(broken.length)} invalid rows</span>
+            {broken.length + validationRejected.length > 0 && (
+              <span className="badge">
+                {formatCount(broken.length + validationRejected.length)} invalid in file
+              </span>
             )}
             {result.rejected.length > 0 && (
               <span className={`badge ${CHIP_ERROR}`}>
@@ -250,7 +376,15 @@ export default function BulkImportModal({ onClose }: { onClose: () => void }) {
           >
             {bulk.isPending
               ? "Importing…"
-              : `Import ${ready.length || ""} ${ready.length === 1 ? "site" : "sites"}`.trim()}
+              : `Import ${ready.length || ""} ${
+                  ready.length === 1
+                    ? poolOnly
+                      ? "source"
+                      : "site"
+                    : poolOnly
+                      ? "sources"
+                      : "sites"
+                }`.trim()}
           </button>
         )}
         <button

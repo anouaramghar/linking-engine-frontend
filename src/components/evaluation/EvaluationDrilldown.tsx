@@ -3,7 +3,8 @@ import { useRef } from "react";
 import type { EvaluationFilters, EvaluationMetric } from "../../api/evaluation";
 import { useEvaluationSuggestions } from "../../hooks/useEvaluation";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
-import { formatCount, pct, STATUS_META } from "../../lib/utils";
+import { methodLabel, statusLabel } from "../../lib/auditLabels";
+import { formatCount, pct } from "../../lib/utils";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../QueryState";
 
 const METRIC_LABEL: Record<EvaluationMetric, string> = {
@@ -16,19 +17,6 @@ const METRIC_LABEL: Record<EvaluationMetric, string> = {
   publish_failed: "Publishing failures",
   orphan_helped: "Orphans helped",
 };
-
-const METHOD_LABELS: Record<string, string> = {
-  hybrid_bm25: "Hybrid BM25",
-  baseline_cosine: "Cosine baseline",
-  external_search: "Web search",
-};
-
-const methodLabel = (method: string) =>
-  METHOD_LABELS[method] ?? method.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
-
-const statusLabel = (status: string) =>
-  STATUS_META[status as keyof typeof STATUS_META]?.label ??
-  status.replaceAll("_", " ").replace(/^[a-z]/, (character) => character.toUpperCase());
 
 export default function EvaluationDrilldown({
   metric,

@@ -17,6 +17,7 @@ const suggestion = (
   target_site_name: "Example",
   method: "hybrid_bm25",
   score,
+  rank_score: score,
   final_rank,
   status: "pending",
   anchor_text: null,

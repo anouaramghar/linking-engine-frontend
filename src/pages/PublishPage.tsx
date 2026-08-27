@@ -1,4 +1,12 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
@@ -13,7 +21,7 @@ import QueueLink from "../components/QueueLink";
 import { EmptyPanel, ErrorPanel, SkeletonRows } from "../components/QueryState";
 import FlowSteps from "../components/publish/FlowSteps";
 import { usePageState } from "../hooks/usePageState";
-import { useGraphSimulation } from "../hooks/useGraph";
+import { useGraphNetwork } from "../hooks/useGraph";
 import {
   useApprovePlans,
   usePendingPublication,
@@ -55,7 +63,7 @@ function SiteIndex({
     canExport: boolean;
     platform: string;
   }[];
-  /** Sites whose edits are already read into this session. */
+  /** Sites whose edits are already prepared into this session. */
   prepared: Set<number>;
   search: string;
   onSearch: (value: string) => void;
@@ -220,14 +228,15 @@ export default function PublishPage() {
   const [notQueued, setNotQueued] = useState<{ planIds?: number[] } | null>(null);
   /** Set when the engine refused the approval because the plans moved on. */
   const [stale, setStale] = useState(false);
-  const graphSimulation = useGraphSimulation();
+  const graphNetwork = useGraphNetwork();
+  const resetGraphViews = graphNetwork.reset;
 
   /**
    * One preparation and one set of ticks per batch.
    *
    * Preparation costs a live request per source article, so walking to another
    * site and back must not spend them again — and it must not silently discard
-   * the reading the operator already did on the first site.
+   * the selection the operator already made on the first site.
    *
    * Held in page state rather than component state for the same reason, because
    * "walking away" is not only to another site: an operator who leaves this page
@@ -239,7 +248,7 @@ export default function PublishPage() {
    * artifacts. A site's batch renders an article carrying every selected link
    * in it, under one hash; a review of one link renders that link alone. Held
    * under one key, arriving from a queue row would show the batch already in
-   * hand — and approving it would publish the links the operator did not open.
+   * hand — and approving it would publish links the operator did not ask to review.
    * Missing the key is what makes the effect below prepare the right one.
    */
   const [prepared, setPrepared] = usePageState<Map<string, PublicationPreparation>>(
@@ -261,6 +270,12 @@ export default function PublishPage() {
   const activeSiteQuery = usePendingPublicationSite(siteId);
   /** Which batch this page is showing: one site, at one scope. */
   const batchKey = siteId === null ? "" : `${siteId}:${focusSuggestionId ?? "all"}`;
+  const previousGraphBatchKey = useRef(batchKey);
+  useEffect(() => {
+    if (previousGraphBatchKey.current === batchKey) return;
+    previousGraphBatchKey.current = batchKey;
+    resetGraphViews();
+  }, [batchKey, resetGraphViews]);
   const preparePlans = usePreparePublicationPlans(routeJobId, batchKey);
   const approvePlans = useApprovePlans();
   const queuePlans = useQueueApprovedPlans();
@@ -419,9 +434,9 @@ export default function PublishPage() {
    *
    * The ticks go with it. While this was component state, unmounting the page
    * was doing this by accident; now that a preparation outlives the page, every
-   * path that invalidates one has to say so — a retained batch is a reading of
-   * an article as it was, and offering it again after the edits moved on is the
-   * one thing the plan hash exists to prevent.
+   * path that invalidates one has to say so — a retained batch is an artifact
+   * of an article as it was, and offering it again after the edits moved on is
+   * the one thing the plan hash exists to prevent.
    */
   const forget = (key: string) => {
     setPrepared((current) => {
@@ -444,7 +459,7 @@ export default function PublishPage() {
     setNotice(null);
     forget(batchKey);
     preparePlans.reset();
-    graphSimulation.reset();
+    resetGraphViews();
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -476,7 +491,7 @@ export default function PublishPage() {
           setRemoving(null);
           forget(batchKey);
           preparePlans.reset();
-          graphSimulation.reset();
+          resetGraphViews();
           if (focusedReview) {
             navigate("/queue");
             return;
@@ -561,7 +576,7 @@ export default function PublishPage() {
    */
   const showAllPlans = () => {
     if (siteId === null) return;
-    graphSimulation.reset();
+    resetGraphViews();
     preparePlans.reset();
     setSearchParams(
       (current) => {
@@ -578,7 +593,7 @@ export default function PublishPage() {
 
   const toggleTick = (planId: number) => {
     if (siteId === null) return;
-    graphSimulation.reset();
+    resetGraphViews();
     setTicks((current) => {
       const next = new Set(current.get(batchKey) ?? []);
       if (!next.delete(planId)) next.add(planId);
@@ -588,7 +603,7 @@ export default function PublishPage() {
 
   const toggleAllTicks = (planIds: number[]) => {
     if (siteId === null) return;
-    graphSimulation.reset();
+    resetGraphViews();
     setTicks((current) => {
       const held = current.get(batchKey) ?? NO_TICKS;
       const all = planIds.length > 0 && planIds.every((id) => held.has(id));
@@ -616,7 +631,7 @@ export default function PublishPage() {
           // preparation would hand a returning operator an approve button for
           // work already on its way to the site.
           forget(batchKey);
-          graphSimulation.reset();
+          resetGraphViews();
           setNotice({ message: "Publish queued for the approved edits.", tone: "info" });
         },
         onError: (error) => {
@@ -637,7 +652,7 @@ export default function PublishPage() {
    *
    * Only those plans and their hashes are sent. `has_more`, the per-article
    * errors, and any article the operator unticked all describe work that is
-   * *not* in this request, so a batch can never grow between what was read and
+   * *not* in this request, so a batch can never grow between what was prepared and
    * what was agreed to.
    */
   const approveAndQueue = (plans: PublicationPlan[]) => {
@@ -677,8 +692,8 @@ export default function PublishPage() {
   /**
    * Two independent facts about the site being reviewed.
    *
-   * Selected suggestions are new editorial intent: they need a preparation, a
-   * reading and an approval. Approved plans are exact edits a person already
+   * Selected suggestions are new editorial intent: they need preparation and
+   * approval. Approved plans are exact edits a person already
    * agreed to — they live in the database, they survive this browser, and they
    * need only a job. A reload remembers neither, so both come from the server.
    */
@@ -687,7 +702,7 @@ export default function PublishPage() {
   const htmlApproved =
     activeSite?.platform === "html" &&
     (exportReadySiteId === activeSite.id || approvedWaiting > 0);
-  /** Whether there is a batch on this page to read, approve, or retry. */
+  /** Whether there is a batch on this page to prepare, approve, or retry. */
   const inReview =
     newWork ||
     preparation !== undefined ||
@@ -713,6 +728,44 @@ export default function PublishPage() {
     pendingQuery.totalSelectedSuggestions ??
     reviewable.reduce((total, site) => total + site.selectedSuggestions, 0);
   const waitingSiteTotal = pendingQuery.totalSites ?? reviewable.length;
+  const selectedReviewPlans = visiblePlans.filter((plan) => selectedIds.has(plan.id));
+  const exactApprovalRetryAvailable = notQueued !== null && !showDurableRecovery;
+  const reviewActionReady =
+    siteId !== null &&
+    !loading &&
+    !failed &&
+    !queued &&
+    activeSite !== null &&
+    preparation !== undefined &&
+    reviewData !== undefined &&
+    (visiblePlans.length > 0 || reviewData.errors.length > 0) &&
+    inReview &&
+    !htmlApproved;
+  const approvalHeaderAction = reviewActionReady ? (
+    exactApprovalRetryAvailable ? (
+      <button
+        type="button"
+        onClick={() => queueApproved(notQueued?.planIds)}
+        disabled={busy}
+        className="btn btn-primary w-full flex-none sm:w-auto"
+      >
+        {busy ? "Queueing…" : "Queue approved edits"}
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={() => approveAndQueue(selectedReviewPlans)}
+        disabled={busy || selectedReviewPlans.length === 0}
+        className="btn btn-primary w-full flex-none sm:w-auto"
+      >
+        {busy
+          ? "Approving…"
+          : activeSite?.platform === "html"
+            ? `Approve ${plural(selectedReviewPlans.length, "exact edit")} for CSV export`
+            : `Approve and queue ${plural(selectedReviewPlans.length, "exact edit")}`}
+      </button>
+    )
+  ) : undefined;
 
   return (
     <>
@@ -723,21 +776,19 @@ export default function PublishPage() {
             ? `${formatCount(selectedTotal)} selected ${
                 selectedTotal === 1 ? "link" : "links"
               } across ${plural(waitingSiteTotal, "site")} · nothing is live until you approve it`
-            : `${activeSite ? activeSite.name : `site ${siteId}`} · every change is shown before it is approved`
+              : `${activeSite ? activeSite.name : `site ${siteId}`} · every change is shown before it is approved`
         }
         actions={
-          <>
-            {/* Without this the only way back to the other sites is the rail,
-                which reads as leaving the task rather than stepping up in it. */}
-            {siteId !== null && waitingSiteTotal > 1 && (
-              <Link to="/publish" className="btn btn-outline btn-sm">
-                All sites waiting
-              </Link>
-            )}
-            <QueueLink className="btn btn-outline btn-sm">
-              Back to the queue
-            </QueueLink>
-          </>
+          siteId !== null && (approvalHeaderAction || waitingSiteTotal > 1) ? (
+            <>
+              {siteId !== null && waitingSiteTotal > 1 && (
+                <Link to="/publish" className="btn btn-outline btn-sm">
+                  All sites waiting
+                </Link>
+              )}
+              {approvalHeaderAction}
+            </>
+          ) : undefined
         }
       />
 
@@ -916,22 +967,26 @@ export default function PublishPage() {
                 preparation === undefined
               }
               busy={busy || removing !== null}
-              approvedNotQueued={notQueued !== null && !showDurableRecovery}
-              selectedIds={selectedIds}
-              onToggle={toggleTick}
-              onToggleAll={toggleAllTicks}
-              removingSuggestionId={removing}
+               approvedNotQueued={notQueued !== null && !showDurableRecovery}
+               selectedIds={selectedIds}
+               onToggle={toggleTick}
+               onToggleAll={toggleAllTicks}
+               removingSuggestionId={removing}
               onRemoveLink={removeLink}
               onRetry={reload}
-              onApproveAndQueue={approveAndQueue}
-              onQueueOnly={() => queueApproved(notQueued?.planIds)}
-              readOnlyExport={activeSite?.platform === "html"}
-              simulation={graphSimulation.data}
-              simulationLoading={graphSimulation.isPending}
-              simulationError={graphSimulation.isError}
-              onSimulate={(suggestionIds) =>
-                graphSimulation.mutate({ siteId: activeSite.id, suggestionIds })
-              }
+              siteGraph={graphNetwork.data}
+              siteGraphLoading={graphNetwork.isPending}
+              siteGraphError={graphNetwork.isError}
+              onOpenSiteGraph={() => {
+                graphNetwork.mutate({
+                  siteId: activeSite.id,
+                  suggestionIds: visiblePlans.flatMap((plan) =>
+                    plan.links
+                      .filter((link) => link.outcome !== "already_present")
+                      .map((link) => link.suggestion_id),
+                  ),
+                });
+              }}
             />
           </Suspense>
         )}

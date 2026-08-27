@@ -3,13 +3,11 @@ import type { ReactElement } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatCount, timeAgo } from "../lib/utils";
 import SitesPage from "./SitesPage";
-
-const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("react-router-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router-dom")>()),
-  useNavigate: () => navigate,
 }));
 
 const render = (ui: ReactElement) => rtlRender(<BrowserRouter>{ui}</BrowserRouter>);
@@ -47,6 +45,17 @@ const mocks = vi.hoisted(() => ({
     isPending: false,
     mutateAsync: vi.fn(),
   },
+  cancelJob: {
+    isPending: false,
+    mutateAsync: vi.fn(),
+  },
+  graph: {
+    data: undefined as unknown,
+    isPending: false,
+    isError: false,
+    mutate: vi.fn(),
+    reset: vi.fn(),
+  },
   setCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
   clearCredentials: { mutate: vi.fn(), isPending: false, isError: false, error: null },
 }));
@@ -60,7 +69,12 @@ vi.mock("../hooks/useSites", () => ({
 
 vi.mock("../hooks/useJobs", () => ({
   useActiveJobs: () => mocks.activeJobs,
+  useCancelJob: () => mocks.cancelJob,
   useJob: () => ({ data: undefined }),
+}));
+
+vi.mock("../hooks/useGraph", () => ({
+  useGraphNetwork: () => mocks.graph,
 }));
 
 vi.mock("../hooks/usePipeline", () => ({
@@ -74,7 +88,6 @@ vi.mock("../hooks/usePipeline", () => ({
 }));
 
 beforeEach(() => {
-  navigate.mockReset();
   Object.assign(mocks.sites, {
     data: [],
     isPending: false,
@@ -95,6 +108,11 @@ beforeEach(() => {
   mocks.retryBatch.mutateAsync.mockReset();
   Object.assign(mocks.cancelBatch, { isPending: false });
   mocks.cancelBatch.mutateAsync.mockReset();
+  Object.assign(mocks.cancelJob, { isPending: false });
+  mocks.cancelJob.mutateAsync.mockReset();
+  Object.assign(mocks.graph, { data: undefined, isPending: false, isError: false });
+  mocks.graph.mutate.mockReset();
+  mocks.graph.reset.mockReset();
   mocks.setCredentials.mutate.mockReset();
   mocks.clearCredentials.mutate.mockReset();
   window.history.replaceState({}, "", "/sites");
@@ -206,7 +224,7 @@ describe("SitesPage batch pipeline", () => {
       "2 sites selected",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear selected sites" }));
     expect(
       (screen.getByRole("checkbox", { name: "Select Nona for batch" }) as HTMLInputElement)
         .checked,
@@ -313,9 +331,14 @@ describe("SitesPage load states", () => {
     expect(document.body.textContent).toContain("Last crawl");
     expect(document.body.textContent).toContain("482");
     // Grouped, and grouped the same way everywhere: counts run through
-    // `formatCount`, which follows the operator's locale.
-    expect(document.body.textContent).toContain("3,914");
-    expect(document.body.textContent).toContain("2 hours ago");
+    // `formatCount`, which follows the operator's locale. Asserting a literal
+    // "3,914" would pin the suite to an en-US machine and fail on, say, a
+    // French one ("3 914"). Comparing against the helper keeps the assertion
+    // locale-independent; `not.toContain("3914")` is what still catches a
+    // count rendered raw, since every locale inserts a group separator here.
+    expect(document.body.textContent).toContain(formatCount(3914));
+    expect(document.body.textContent).not.toContain("3914");
+    expect(document.body.textContent).toContain(timeAgo(lastCrawl));
     expect(document.body.textContent).not.toContain("Soon");
   });
 });
@@ -355,6 +378,80 @@ describe("SitesPage job progress", () => {
 
     expect(screen.getByRole("status", { name: "Resolving links" })).not.toBeNull();
     expect(document.body.textContent).not.toContain("Indexed");
+  });
+
+  it("offers the active site's stop action from the Actions menu", async () => {
+    mocks.sites.data = [
+      {
+        id: 42,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+        last_ingestion_status: "succeeded",
+      },
+    ];
+    mocks.activeJobs.data = [
+      {
+        id: 9,
+        site_id: 42,
+        kind: "ingestion",
+        status: "running",
+        queue_job_id: "rq-9",
+        attempts: 1,
+        result: null,
+        progress: { stage: "crawling" },
+        progress_at: "2026-07-28T08:01:00Z",
+        error: null,
+        enqueued_at: "2026-07-28T08:00:30Z",
+        started_at: "2026-07-28T08:00:31Z",
+        finished_at: null,
+      },
+    ];
+    mocks.cancelJob.mutateAsync.mockResolvedValue({});
+
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stop Crawl" }));
+    expect(screen.getByRole("heading", { name: "Stop crawl?" })).not.toBeNull();
+    expect(document.body.textContent).toContain("Existing active content stays unchanged.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop task" }));
+    await waitFor(() => expect(mocks.cancelJob.mutateAsync).toHaveBeenCalledWith(9));
+  });
+
+  it("shows a requested cancellation as a disabled stopping action", () => {
+    mocks.sites.data = [
+      {
+        id: 42,
+        name: "Docs",
+        base_url: "https://docs.example.com",
+        platform: "wordpress",
+      },
+    ];
+    mocks.activeJobs.data = [
+      {
+        id: 9,
+        site_id: 42,
+        kind: "analysis",
+        status: "cancel_requested",
+        queue_job_id: "rq-9",
+        attempts: 1,
+        result: null,
+        progress: null,
+        progress_at: null,
+        error: null,
+        enqueued_at: "2026-07-28T08:00:30Z",
+        started_at: "2026-07-28T08:00:31Z",
+        finished_at: null,
+      },
+    ];
+
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    const action = screen.getByRole("menuitem", { name: "Stopping Analysis…" }) as HTMLButtonElement;
+    expect(action.disabled).toBe(true);
   });
 });
 
@@ -421,7 +518,7 @@ describe("SitesPage crawled vs analysed", () => {
   });
 });
 
-describe("SitesPage Hybrid standard", () => {
+describe("SitesPage generation controls", () => {
   const site = {
     id: 42,
     name: "Docs",
@@ -436,14 +533,15 @@ describe("SitesPage Hybrid standard", () => {
     last_crawl_at: "2026-07-28T08:00:00Z",
   };
 
-  it("shows Hybrid as the managed generation method", () => {
+  it("does not show a generation-method badge", () => {
     mocks.sites.data = [site];
     render(<SitesPage />);
 
-    expect(document.body.textContent).toContain("Hybrid");
+    expect(document.body.textContent).not.toContain("Hybrid");
 
     fireEvent.click(screen.getByRole("button", { name: /Actions for Docs/ }));
     expect(screen.getByRole("menuitem", { name: "Generate suggestions" })).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Generate for one article" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Compare methods/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Suggestion method/ })).toBeNull();
   });
@@ -457,6 +555,10 @@ describe("SitesPage Hybrid standard", () => {
       name: "Generate suggestions — queue full",
     }) as HTMLButtonElement;
     expect(generate.disabled).toBe(true);
+    expect(
+      (screen.getByRole("menuitem", { name: "Generate for one article" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });
 
@@ -528,13 +630,15 @@ describe("SitesPage publication", () => {
     expect(document.body.textContent).not.toContain("Publish approved");
   });
 
-  it("routes to the review that shows the exact edits instead", () => {
+  it("removes the publication review and article CSV actions", () => {
     ownedSite();
     render(<SitesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
-    fireEvent.click(screen.getByText("Review publication changes"));
 
-    expect(navigate).toHaveBeenCalledWith("/queue?site=7&status=approved");
+    expect(
+      screen.queryByRole("menuitem", { name: "Review publication changes" }),
+    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Import article CSV" })).toBeNull();
   });
 });
 
@@ -688,5 +792,46 @@ describe("SitesPage row affordances", () => {
     // Inside the label, every click meant to open the site would tick the box.
     const link = screen.getByRole("link", { name: "Open Vibe in a new tab" });
     expect(link.closest("label")).toBeNull();
+  });
+});
+
+describe("SitesPage link graph", () => {
+  const site = {
+    id: 42,
+    name: "Docs",
+    base_url: "https://docs.example.com",
+    platform: "wordpress",
+    crawl_frequency: "daily",
+    created_at: "2026-08-04T08:00:00Z",
+  };
+
+  it("opens the selected site's read-only graph from Actions", () => {
+    mocks.sites.data = [site];
+    mocks.graph.isPending = true;
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View link graph" }));
+
+    expect(mocks.graph.mutate).toHaveBeenCalledWith({ siteId: 42 });
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect(screen.getByLabelText("Loading Docs’s link graph…")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(mocks.graph.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a retry when the selected site's graph fails to load", () => {
+    mocks.sites.data = [site];
+    mocks.graph.isError = true;
+    render(<SitesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Docs" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View link graph" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("The link graph could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(mocks.graph.mutate).toHaveBeenCalledTimes(2);
+    expect(mocks.graph.mutate).toHaveBeenLastCalledWith({ siteId: 42 });
   });
 });

@@ -290,8 +290,9 @@ export default function BulkActions({
               onClick={() => onRequest("approve")}
               className="btn btn-primary btn-sm sm:min-w-[12rem]"
             >
-              {/* "match", not "confidence": the score is cosine similarity between
-                  two articles, and it is not the number Hybrid ranked the row by. */}
+              {/* "match", not "confidence": the threshold is the rank score,
+                  which says how strongly the ranker preferred a row over the
+                  others it saw — not how likely the link is to be a good one. */}
               Select {acceptLabel} matches
               <span className="text-caption opacity-75">&ge; {threshold}%</span>
             </button>
